@@ -1,0 +1,48 @@
+{
+  "brand": "Agile Copilot",
+  "auth": {
+    "loginTitle": "Bon retour",
+    "loginDescription": "Connectez-vous à votre espace",
+    "signupTitle": "Créer votre compte",
+    "signupDescription": "Suivez vos livraisons en quelques minutes",
+    "name": "Nom complet",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "passwordHint": "Au moins 10 caractères.",
+    "passwordMismatch": "Les mots de passe ne correspondent pas.",
+    "signIn": "Se connecter",
+    "signUp": "Créer un compte",
+    "noAccount": "Pas encore de compte ?",
+    "signUpLink": "S'inscrire",
+    "haveAccount": "Déjà un compte ?",
+    "signInLink": "Se connecter",
+    "genericError": "Une erreur est survenue. Veuillez réessayer."
+  },
+  "onboarding": {
+    "title": "Créer votre espace de travail",
+    "description": "Un espace regroupe les connexions Jira, le modèle d'IA et les réglages de votre équipe.",
+    "workspaceName": "Nom de l'espace",
+    "submit": "Créer l'espace"
+  },
+  "nav": {
+    "platform": "Espace",
+    "dashboard": "Tableau de bord",
+    "settings": "Réglages",
+    "jira": "Jira",
+    "llm": "Modèle d'IA",
+    "signOut": "Se déconnecter",
+    "switchLanguage": "English",
+    "workspaces": "Espaces",
+    "addWorkspace": "Nouvel espace"
+  },
+  "dashboard": {
+    "title": "Pour commencer",
+    "connectJira": "Connecter Jira",
+    "connectJiraHint": "Lire vos tableaux, sprints et tickets.",
+    "connectLlm": "Connecter un modèle d'IA",
+    "connectLlmHint": "Votre propre clé alimente l'assistant.",
+    "done": "Fait",
+    "todo": "À faire"
+  }
+}

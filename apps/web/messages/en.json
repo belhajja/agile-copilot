@@ -1,0 +1,48 @@
+{
+  "brand": "Agile Copilot",
+  "auth": {
+    "loginTitle": "Welcome back",
+    "loginDescription": "Sign in to your workspace",
+    "signupTitle": "Create your account",
+    "signupDescription": "Start tracking your delivery in minutes",
+    "name": "Full name",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "passwordHint": "Must be at least 10 characters long.",
+    "passwordMismatch": "Passwords do not match.",
+    "signIn": "Sign in",
+    "signUp": "Create account",
+    "noAccount": "Don't have an account?",
+    "signUpLink": "Sign up",
+    "haveAccount": "Already have an account?",
+    "signInLink": "Sign in",
+    "genericError": "Something went wrong. Please try again."
+  },
+  "onboarding": {
+    "title": "Create your workspace",
+    "description": "A workspace holds your team's Jira connections, AI model and settings.",
+    "workspaceName": "Workspace name",
+    "submit": "Create workspace"
+  },
+  "nav": {
+    "platform": "Workspace",
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "jira": "Jira",
+    "llm": "AI model",
+    "signOut": "Log out",
+    "switchLanguage": "Français",
+    "workspaces": "Workspaces",
+    "addWorkspace": "New workspace"
+  },
+  "dashboard": {
+    "title": "Get started",
+    "connectJira": "Connect Jira",
+    "connectJiraHint": "Read your boards, sprints and issues.",
+    "connectLlm": "Connect an AI model",
+    "connectLlmHint": "Your own key powers the assistant.",
+    "done": "Done",
+    "todo": "To do"
+  }
+}
