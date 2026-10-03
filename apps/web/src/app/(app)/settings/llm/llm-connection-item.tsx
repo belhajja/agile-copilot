@@ -1,0 +1,79 @@
+import type { LlmConnectionView } from '@agile/connections';
+import { Bot } from 'lucide-react';
+import { getTranslations } from 'next-intl/server';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item';
+import {
+  deleteLlmConnectionAction,
+  retestLlmConnectionAction,
+  setDefaultLlmConnectionAction,
+} from './actions';
+
+export async function LlmConnectionItem({
+  c,
+  canManage,
+}: {
+  c: LlmConnectionView;
+  canManage: boolean;
+}) {
+  const t = await getTranslations('llm');
+  const status = { ok: t('connected'), error: t('failing'), untested: t('untested') }[c.status];
+  return (
+    <Item variant="outline">
+      <ItemMedia variant="icon">
+        <Bot />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>
+          {c.label}
+          <Badge
+            variant={
+              c.status === 'ok' ? 'default' : c.status === 'error' ? 'destructive' : 'secondary'
+            }
+          >
+            {status}
+          </Badge>
+          {c.isDefault && <Badge variant="outline">{t('default')}</Badge>}
+        </ItemTitle>
+        <ItemDescription>
+          {t(`providers.${c.provider}`)} · {c.model}
+          {c.keyHint ? ` · ${c.keyHint}` : ''}
+        </ItemDescription>
+        {c.lastError && (
+          <p className="text-sm text-destructive">
+            {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
+          </p>
+        )}
+      </ItemContent>
+      {canManage && (
+        <ItemActions className="flex-wrap">
+          {!c.isDefault && (
+            <form action={setDefaultLlmConnectionAction.bind(null, c.id)}>
+              <Button variant="outline" size="sm">
+                {t('makeDefault')}
+              </Button>
+            </form>
+          )}
+          <form action={retestLlmConnectionAction.bind(null, c.id)}>
+            <Button variant="outline" size="sm">
+              {t('retest')}
+            </Button>
+          </form>
+          <form action={deleteLlmConnectionAction.bind(null, c.id)}>
+            <Button variant="ghost" size="sm">
+              {t('delete')}
+            </Button>
+          </form>
+        </ItemActions>
+      )}
+    </Item>
+  );
+}

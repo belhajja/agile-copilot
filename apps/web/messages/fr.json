@@ -107,5 +107,52 @@
       "unknown": "Une erreur est survenue."
     },
     "oauthConnected": "{count, plural, one {# site Jira connecté.} other {# sites Jira connectés.}}"
+  },
+  "llm": {
+    "title": "Modèle d'IA",
+    "intro": "Utilisez votre propre clé. Elle est chiffrée et sert uniquement à répondre aux questions de votre espace.",
+    "empty": "Aucun modèle d'IA connecté pour l'instant.",
+    "emptyHint": "Ajoutez une clé Anthropic, OpenAI, Google, Azure, Mistral ou un serveur de modèles local.",
+    "saved": "Modèle d'IA connecté.",
+    "add": "Ajouter un modèle",
+    "provider": "Fournisseur",
+    "providers": {
+      "anthropic": "Anthropic (Claude)",
+      "openai": "OpenAI",
+      "google": "Google (Gemini)",
+      "azure": "Azure OpenAI",
+      "mistral": "Mistral",
+      "openai_compatible": "Compatible OpenAI (Ollama, vLLM, LM Studio…)"
+    },
+    "label": "Libellé",
+    "model": "Modèle",
+    "modelHint": "L'identifiant du modèle chez votre fournisseur, par ex. claude-sonnet-5-5. Pour Azure, le nom du déploiement.",
+    "baseUrl": "URL de base",
+    "resourceName": "Nom de la ressource Azure",
+    "apiKey": "Clé d'API",
+    "apiKeyOptional": "Clé d'API (facultative)",
+    "submit": "Tester et enregistrer",
+    "default": "Par défaut",
+    "makeDefault": "Définir par défaut",
+    "connected": "Connecté",
+    "failing": "En erreur",
+    "untested": "Non testé",
+    "retest": "Tester à nouveau",
+    "delete": "Supprimer",
+    "readOnlyNotice": "Seuls les propriétaires et administrateurs peuvent modifier les connexions.",
+    "errors": {
+      "invalid_input": "Vérifiez les champs.",
+      "blocked_url": "Cette adresse est privée. Demandez à votre administrateur de l'autoriser.",
+      "unauthorized": "Le fournisseur a refusé cette clé d'API.",
+      "forbidden": "Cette clé n'a pas accès à ce modèle.",
+      "model_not_found": "Le fournisseur ne connaît pas ce modèle.",
+      "rate_limited": "Le fournisseur limite cette clé, ou le crédit est épuisé.",
+      "no_tool_calling": "Ce modèle ne sait pas utiliser d'outils, nécessaires à l'assistant. Choisissez-en un autre.",
+      "unreachable": "Impossible de joindre le fournisseur.",
+      "provider_error": "Le fournisseur a renvoyé une erreur.",
+      "not_found": "Connexion introuvable.",
+      "forbidden_role": "Seuls les propriétaires et administrateurs peuvent modifier les connexions.",
+      "unknown": "Une erreur est survenue."
+    }
   }
 }

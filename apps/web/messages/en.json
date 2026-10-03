@@ -107,5 +107,52 @@
       "unknown": "Something went wrong."
     },
     "oauthConnected": "{count, plural, one {# Jira site connected.} other {# Jira sites connected.}}"
+  },
+  "llm": {
+    "title": "AI model",
+    "intro": "Bring your own key. It is encrypted and only used to answer your workspace's questions.",
+    "empty": "No AI model connected yet.",
+    "emptyHint": "Add a key from Anthropic, OpenAI, Google, Azure, Mistral or a local model server.",
+    "saved": "AI model connected.",
+    "add": "Add a model",
+    "provider": "Provider",
+    "providers": {
+      "anthropic": "Anthropic (Claude)",
+      "openai": "OpenAI",
+      "google": "Google (Gemini)",
+      "azure": "Azure OpenAI",
+      "mistral": "Mistral",
+      "openai_compatible": "OpenAI-compatible (Ollama, vLLM, LM Studio…)"
+    },
+    "label": "Label",
+    "model": "Model",
+    "modelHint": "The model id from your provider, e.g. claude-sonnet-5-5. For Azure, the deployment name.",
+    "baseUrl": "Base URL",
+    "resourceName": "Azure resource name",
+    "apiKey": "API key",
+    "apiKeyOptional": "API key (optional)",
+    "submit": "Test and save",
+    "default": "Default",
+    "makeDefault": "Make default",
+    "connected": "Connected",
+    "failing": "Failing",
+    "untested": "Not tested",
+    "retest": "Test again",
+    "delete": "Remove",
+    "readOnlyNotice": "Only workspace owners and admins can change connections.",
+    "errors": {
+      "invalid_input": "Check the fields.",
+      "blocked_url": "This address is private. Ask your administrator to allow it.",
+      "unauthorized": "The provider rejected this API key.",
+      "forbidden": "This key is not allowed to use this model.",
+      "model_not_found": "The provider does not know this model name.",
+      "rate_limited": "The provider is rate limiting this key, or it has no credit left.",
+      "no_tool_calling": "This model can't use tools, which the assistant needs. Pick another model.",
+      "unreachable": "Could not reach the provider.",
+      "provider_error": "The provider returned an error.",
+      "not_found": "Connection not found.",
+      "forbidden_role": "Only workspace owners and admins can change connections.",
+      "unknown": "Something went wrong."
+    }
   }
 }

@@ -5,16 +5,9 @@ import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
+import { LLM_PROVIDERS, type LlmProvider } from './providers-list';
 
-export const LLM_PROVIDERS = [
-  'anthropic',
-  'openai',
-  'google',
-  'azure',
-  'mistral',
-  'openai_compatible',
-] as const;
-export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+export { LLM_PROVIDERS, type LlmProvider };
 
 export type LlmConfig =
   | { provider: 'anthropic' | 'openai' | 'google' | 'mistral'; model: string; apiKey: string }
