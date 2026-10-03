@@ -22,6 +22,13 @@
       "when": 1791050117292,
       "tag": "0002_pink_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791054802641,
+      "tag": "0003_powerful_vector",
+      "breakpoints": true
     }
   ]
 }

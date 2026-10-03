@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await completeJiraOAuth({ ...connectionDeps(), oauth }, actor, code);
-  if (result.ok) back.searchParams.set('connected', String(result.created));
+  if (result.ok) back.searchParams.set('connected', String(result.created + result.updated));
   else back.searchParams.set('error', result.code);
   return NextResponse.redirect(back);
 }

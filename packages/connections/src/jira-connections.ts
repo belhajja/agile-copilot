@@ -95,7 +95,12 @@ export async function writeSecret(
 export async function createJiraConnection(
   deps: ConnectionDeps,
   actor: Actor,
-  input: { name: string; credentials: JiraCredentials; oauth?: StoredJiraSecret['oauth'] },
+  input: {
+    name: string;
+    credentials: JiraCredentials;
+    oauth?: StoredJiraSecret['oauth'];
+    oauthGrantId?: string;
+  },
 ): Promise<{ ok: true; connection: JiraConnectionView } | ServiceFailure> {
   assertCanManage(actor);
   let credentials: JiraCredentials;
@@ -124,6 +129,7 @@ export async function createJiraConnection(
           authType: AUTH_TYPE[credentials.kind],
           baseUrl: credentials.baseUrl,
           cloudId: credentials.kind === 'cloud_oauth' ? credentials.cloudId : null,
+          oauthGrantId: input.oauthGrantId ?? null,
           accountId: test.account.id,
           accountName: test.account.displayName,
           secret,

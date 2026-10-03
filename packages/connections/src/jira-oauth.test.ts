@@ -1,7 +1,7 @@
 import type { AtlassianOAuthClient, AtlassianTokens } from '@agile/jira';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { listJiraConnections, loadJiraSecret } from './jira-connections';
-import { completeJiraOAuth, getFreshJiraCredentials } from './jira-oauth';
+import { createJiraConnection, listJiraConnections, loadJiraSecret } from './jira-connections';
+import { completeJiraOAuth, getFreshJiraCredentials, OAuthTimeoutError } from './jira-oauth';
 import { keyring, okJira, owner, startHarness } from './test-helpers';
 
 const tokens = (n: number, expiresAt: Date): AtlassianTokens => ({
@@ -46,7 +46,11 @@ describe('Atlassian OAuth', () => {
   });
 
   it('creates one connection per Jira site with encrypted tokens', async () => {
-    expect(await completeJiraOAuth(deps(), owner(), 'good-code')).toEqual({ ok: true, created: 1 });
+    expect(await completeJiraOAuth(deps(), owner(), 'good-code')).toEqual({
+      ok: true,
+      created: 1,
+      updated: 0,
+    });
     const [c] = await listJiraConnections(deps(), 'org_a');
     expect(c).toMatchObject({
       authType: 'oauth',
@@ -88,5 +92,94 @@ describe('Atlassian OAuth', () => {
   it('returns null for another org', async () => {
     const [c] = await listJiraConnections(deps(), 'org_a');
     expect(await getFreshJiraCredentials(deps(), 'org_b', c?.id ?? '')).toBeNull();
+  });
+
+  it('shares one rotating refresh token across sites and refreshes the grant once', async () => {
+    refreshCalls = 0;
+    const two = {
+      ...deps(),
+      listSites: vi.fn(async () => [
+        { id: 'cloud-a', url: 'https://a.atlassian.net', name: 'a' },
+        { id: 'cloud-b', url: 'https://b.atlassian.net', name: 'b' },
+      ]),
+    };
+    expect(await completeJiraOAuth(two, owner('org_g'), 'good-code')).toEqual({
+      ok: true,
+      created: 2,
+      updated: 0,
+    });
+    const list = await listJiraConnections(deps(), 'org_g');
+    const [x, y] = [list[0]?.id ?? '', list[1]?.id ?? ''];
+    const [ra, rb] = await Promise.all([
+      getFreshJiraCredentials(deps(), 'org_g', x),
+      getFreshJiraCredentials(deps(), 'org_g', y),
+    ]);
+    expect(refreshCalls).toBe(1);
+    expect(ra).toMatchObject({ accessToken: 'access-2' });
+    expect(rb).toMatchObject({ accessToken: 'access-2' });
+    for (const id of [x, y]) {
+      expect((await loadJiraSecret(deps(), 'org_g', id))?.oauth?.refreshToken).toBe('refresh-2');
+    }
+    const secrets = await Promise.all([x, y].map((id) => loadJiraSecret(deps(), 'org_g', id)));
+    expect(
+      new Set(secrets.map((s) => (s?.credentials as { cloudId: string } | undefined)?.cloudId)),
+    ).toEqual(new Set(['cloud-a', 'cloud-b']));
+  });
+
+  it('reconnecting an OAuth site rewrites its tokens; API-token connections are untouched', async () => {
+    const first = await completeJiraOAuth(deps(), owner('org_r'), 'good-code');
+    expect(first).toEqual({ ok: true, created: 1, updated: 0 });
+    const [c] = await listJiraConnections(deps(), 'org_r');
+    const second = {
+      ...deps(),
+      oauth: { ...oauth, validateAuthorizationCode: async () => tokens(7, later) },
+    };
+    expect(await completeJiraOAuth(second, owner('org_r'), 'good-code')).toEqual({
+      ok: true,
+      created: 0,
+      updated: 1,
+    });
+    expect(await loadJiraSecret(deps(), 'org_r', c?.id ?? '')).toMatchObject({
+      credentials: { accessToken: 'access-7' },
+      oauth: { refreshToken: 'refresh-7' },
+    });
+
+    const basic = await createJiraConnection(deps(), owner('org_s'), {
+      name: 'basic',
+      credentials: {
+        kind: 'cloud_basic',
+        baseUrl: 'https://acme.atlassian.net',
+        email: 'a@b.co',
+        apiToken: 'tok',
+      },
+    });
+    expect(basic.ok).toBe(true);
+    expect(await completeJiraOAuth(deps(), owner('org_s'), 'good-code')).toEqual({
+      ok: true,
+      created: 0,
+      updated: 0,
+    });
+    const [b] = await listJiraConnections(deps(), 'org_s');
+    expect(b?.authType).toBe('basic');
+    expect((await loadJiraSecret(deps(), 'org_s', b?.id ?? ''))?.credentials.kind).toBe(
+      'cloud_basic',
+    );
+  });
+
+  it('times out a hung refresh, leaving the stored secret unchanged', async () => {
+    const hung: AtlassianOAuthClient = {
+      ...oauth,
+      refreshAccessToken: () => new Promise(() => {}),
+    };
+    await completeJiraOAuth(deps(), owner('org_t'), 'good-code');
+    const [c] = await listJiraConnections(deps(), 'org_t');
+    const id = c?.id ?? '';
+    await expect(
+      getFreshJiraCredentials({ ...deps(), oauth: hung, oauthTimeoutMs: 50 }, 'org_t', id),
+    ).rejects.toBeInstanceOf(OAuthTimeoutError);
+    expect(await loadJiraSecret(deps(), 'org_t', id)).toMatchObject({
+      credentials: { accessToken: 'access-1' },
+      oauth: { refreshToken: 'refresh-1' },
+    });
   });
 });

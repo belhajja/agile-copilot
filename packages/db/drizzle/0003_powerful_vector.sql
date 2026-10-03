@@ -1,0 +1,1 @@
+ALTER TABLE "jira_connections" ADD COLUMN "oauth_grant_id" text;

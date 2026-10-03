@@ -64,6 +64,8 @@ export const jiraConnections = pgTable(
     authType: jiraAuthType('auth_type').notNull(),
     baseUrl: text('base_url').notNull(),
     cloudId: text('cloud_id'),
+    /** Sites authorised by one OAuth consent share a rotating refresh token; they share this id. */
+    oauthGrantId: text('oauth_grant_id'),
     accountId: text('account_id'),
     accountName: text('account_name'),
     secret: text('secret').notNull(),
