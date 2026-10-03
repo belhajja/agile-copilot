@@ -2,6 +2,7 @@
 **/.next
 **/.turbo
 .git
-.env
+**/.env*
+!.env.example
 playwright-report
 test-results

@@ -14,7 +14,20 @@ docker compose up -d postgres          # dev Postgres on host port 5433
 cp .env.example .env
 ```
 
-Fill in `.env`: `BETTER_AUTH_SECRET=$(openssl rand -base64 32)` and `ENCRYPTION_KEYS=v1:$(openssl rand -base64 32)`. Then:
+`.env` files do not evaluate shell substitutions, so generate the secrets in your shell and paste the output. Run `openssl rand -base64 32` twice, then set:
+
+```bash
+BETTER_AUTH_SECRET=<paste-output-here>
+ENCRYPTION_KEYS=v1:<paste-output-here>
+```
+
+Or append generated values in one go (remove the empty `BETTER_AUTH_SECRET=` and `ENCRYPTION_KEYS=` lines from `.env` first, since the last duplicate wins in some loaders but not all):
+
+```bash
+printf 'BETTER_AUTH_SECRET=%s\nENCRYPTION_KEYS=v1:%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" >> .env
+```
+
+Then:
 
 ```bash
 pnpm db:migrate
@@ -30,11 +43,28 @@ Environment variables are read lazily at request time, so `next build` needs non
 ```bash
 cp .env.example .env
 # fill BETTER_AUTH_SECRET, ENCRYPTION_KEYS (v1:<base64>), POSTGRES_PASSWORD, APP_DB_PASSWORD
+# (paste generated values; .env does not run $(...). Use `openssl rand -hex 24` for the two passwords)
 # set BETTER_AUTH_URL to the public URL of the app
 docker compose -f docker-compose.selfhost.yml up -d --build
 ```
 
 The `migrate` service connects as the database owner and must exit 0 before `web` starts; the web container connects as the non-owner `app_user` role so row-level security applies. The app is published on `${WEB_PORT:-3000}`; if you change it, update `BETTER_AUTH_URL` to match. Put a TLS-terminating reverse proxy in front of it for anything beyond a local trial.
+
+`POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into SQL and into connection URLs, so they must be URL-safe and contain no quotes; generate them with `openssl rand -hex 24`.
+
+The init script that creates `app_user` only runs when the Postgres volume is first created. Changing `APP_DB_PASSWORD` afterwards has no effect on the database by itself. Either update the role in place:
+
+```bash
+docker compose -f docker-compose.selfhost.yml exec postgres psql -U agile -d agile -c "ALTER ROLE app_user PASSWORD '<new-password>'"
+docker compose -f docker-compose.selfhost.yml up -d web
+```
+
+or recreate the volume, which destroys all data:
+
+```bash
+docker compose -f docker-compose.selfhost.yml down -v
+docker compose -f docker-compose.selfhost.yml up -d --build
+```
 
 Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ollama.internal`) to let self-hosted Jira or Ollama instances resolve to private addresses; by default outbound requests to private ranges are blocked. Never expose Postgres publicly: the compose file deliberately publishes no database port.
 
