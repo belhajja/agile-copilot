@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./normalize": "./src/normalize.ts",
     "./testing": "./src/testing/mock-jira-server.ts"
   },
   "scripts": {
