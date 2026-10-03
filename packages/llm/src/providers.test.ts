@@ -20,4 +20,23 @@ describe('createLanguageModel', () => {
     expect(m.provider).toMatch(provider);
     expect(m.modelId).toBe(cfg.model);
   });
+
+  it('rejects Azure resource names that could redirect the host', () => {
+    expect(() =>
+      createLanguageModel({
+        provider: 'azure',
+        model: 'd',
+        apiKey: 'k',
+        resourceName: 'evil.com/#',
+      }),
+    ).toThrow(TypeError);
+    expect(() =>
+      createLanguageModel({
+        provider: 'azure',
+        model: 'd',
+        apiKey: 'k',
+        resourceName: 'my-resource',
+      }),
+    ).not.toThrow();
+  });
 });

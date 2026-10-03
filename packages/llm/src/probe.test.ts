@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
@@ -107,6 +109,39 @@ describe('probeModel', () => {
       expect(await probeModel(bad)).toMatchObject({ ok: false, code: 'unauthorized' });
     } finally {
       await mock.close();
+    }
+  });
+
+  it('does not follow redirects from the provider endpoint', async () => {
+    let hits = 0;
+    const recorder = createServer((_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    await new Promise<void>((r) => recorder.listen(0, '127.0.0.1', r));
+    const recPort = (recorder.address() as AddressInfo).port;
+    const redirector = createServer((_req, res) => {
+      res.writeHead(302, { location: `http://127.0.0.1:${recPort}/v1/chat/completions` });
+      res.end();
+    });
+    await new Promise<void>((r) => redirector.listen(0, '127.0.0.1', r));
+    const port = (redirector.address() as AddressInfo).port;
+    try {
+      const model = createLanguageModel({
+        provider: 'openai_compatible',
+        model: 'mock',
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        apiKey: 'k',
+      });
+      const r = await probeModel(model);
+      expect(r).toMatchObject({ ok: false, code: 'unreachable' });
+      expect(r.ok === false && r.message).toMatch(/redirected/);
+      expect(hits).toBe(0);
+    } finally {
+      for (const s of [recorder, redirector]) {
+        s.close();
+        s.closeAllConnections();
+      }
     }
   });
 });

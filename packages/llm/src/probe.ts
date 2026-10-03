@@ -28,8 +28,16 @@ const fail = (code: ProbeFailureCode, message: string): LlmProbeResult => ({
   message,
 });
 
+const isRedirectBlocked = (e: unknown) => e instanceof Error && e.name === 'RedirectBlockedError';
+
 function mapLlmError(e: unknown): LlmProbeResult {
   const err = RetryError.isInstance(e) ? e.lastError : e;
+  if (
+    isRedirectBlocked(err) ||
+    isRedirectBlocked((err as { cause?: unknown } | undefined)?.cause)
+  ) {
+    return fail('unreachable', 'The provider endpoint redirected elsewhere; use its final URL.');
+  }
   if (APICallError.isInstance(err)) {
     switch (err.statusCode) {
       case 401:
