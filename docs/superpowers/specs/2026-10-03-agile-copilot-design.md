@@ -45,7 +45,7 @@ The project folder (`/Users/mbelhajja/Desktop/Projects/Jira-Agentic-IA`) is empt
 - **DB:** Postgres + **Drizzle ORM**; `org_id` on every tenant table + Postgres Row-Level Security as a second guard
 - **Jobs/scheduling:** **pg-boss** (Postgres-backed queue + cron → no Redis, so self-hosting stays simple)
 - **LLM abstraction:** **Vercel AI SDK** provider registry (Anthropic, OpenAI, Google, Azure, Mistral, OpenAI-compatible/Ollama), with its MCP client and tool-approval flow
-- **Jira MCP:** **sooperset/mcp-atlassian** (Docker sidecar, streamable HTTP, Cloud + DC, per-request credentials); the official Atlassian Remote MCP can be added later as a Cloud OAuth option
+- **Jira MCP:** **sooperset/mcp-atlassian** (Docker sidecar, streamable HTTP, per-request credentials — see *Jira auth & MCP topology* below); the official Atlassian Remote MCP can be added later as an alternative Cloud OAuth option
 - **Jira bulk sync:** **jira.js** (REST v2/v3 + Agile API; incremental via `updated >= lastSync`, with changelogs)
 - **Internal MCP:** `@modelcontextprotocol/sdk` (also lets customers plug our analytics into Claude Desktop/ChatGPT later)
 - **Validation:** zod everywhere (env, API, widget specs, skill files)
@@ -74,9 +74,25 @@ packages/ui         shared shadcn components + widget renderers
 ## Core components
 
 ### 1. Connections (onboarding in < 5 min)
-- **Jira:** URL + type autodetect (Cloud vs DC) → API token (Cloud) or PAT (DC) → "Test connection" → pick boards/projects. Map workflow statuses to *To Do / In Progress / Done* categories (auto-suggested from Jira status categories, editable) — needed for correct flow metrics.
+- **Jira:** URL + type autodetect (Cloud vs DC) → **Cloud: "Connect with Atlassian" (OAuth 2.0 3LO, default) or email + API token (fallback)**; **DC: PAT** → "Test connection" → pick boards/projects. Map workflow statuses to *To Do / In Progress / Done* categories (auto-suggested from Jira status categories, editable) — needed for correct flow metrics.
 - **LLM:** pick provider + paste key (+ base URL/deployment for Azure/Ollama) → validated with a tiny tool-calling probe. Keys encrypted at rest, never sent to the browser, decrypted only in the server process at call time.
 - Per-org default model + optional "cheap model" for background digests.
+
+#### Jira auth & MCP topology (validated by the Phase 0 spike, 2026-10-03)
+A single shared mcp-atlassian instance isolates tenants correctly **only** for modes where the Jira URL travels with the request. The spike (real mcp-atlassian @ `0a5d242` vs two recording mock Jiras, ~100 calls incl. concurrent) showed each tenant's Jira received only its own token, and credential-less requests are rejected (no fallback to operator credentials).
+
+| Jira / credential | How the agent reaches mcp-atlassian | Status |
+|---|---|---|
+| DC + PAT | **Shared** instance; per request: `X-Atlassian-Jira-Url` + `X-Atlassian-Jira-Personal-Token` | Verified multi-tenant |
+| Cloud + OAuth 2.0 (3LO, our Atlassian OAuth app) | **Shared** instance (`ATLASSIAN_OAUTH_ENABLE=true`); per request: `Authorization: Bearer <token>` + `X-Atlassian-Cloud-Id` | Code path confirmed by reading; live test in Phase 3 |
+| Cloud + email/API token | Basic auth ignores the URL header (uses server-global `JIRA_URL`) → **one small mcp-atlassian instance per Cloud site**, started/stopped by the worker | Verified: shared mode fails |
+
+Operational rules that follow:
+- **SSRF guard:** mcp-atlassian always blocks `localhost`/private IPs in per-request URLs; self-hosters with internal DC hostnames must set `MCP_ALLOWED_URL_DOMAINS`. Our connection form validates URLs the same way before saving.
+- **Never set** `ALLOW_GLOBAL_CRED_FALLBACK`, and never set global `JIRA_URL` on the shared instance.
+- mcp-atlassian builds a new Jira client per request (no connection reuse) → measure latency against real Jira in Phase 3; if it hurts, cache per-tenant via the per-site instance pattern.
+- **Tool surface:** mcp-atlassian exposes ~61 tools (Jira + Confluence, incl. writes). The agent gets an explicit allowlist of ~10–15 Jira tools; scheduled/background runs use a `--read-only` instance.
+- The sync worker does **not** go through MCP; it calls Jira directly with jira.js using the same stored credentials.
 
 ### 2. Sync + metrics engine (the trustworthy core)
 - Worker syncs issues, sprints, boards and **status changelogs** incrementally and stores normalised tables (`issues`, `issue_transitions`, `sprints`, `sprint_membership`, `boards`).
@@ -91,7 +107,7 @@ packages/ui         shared shadcn components + widget renderers
 - One streaming endpoint; model resolved from the org's BYOK config via the AI SDK registry.
 - Tools (via MCP):
   - **analytics MCP** (read): `get_metric`, `list_metrics`, `forecast`, `find_issues` (safe, parameterised filters — no free SQL), `explain_metric`
-  - **mcp-atlassian** (read): JQL search, issue detail, comments, sprint/board info
+  - **mcp-atlassian** (read, allowlisted subset): JQL search, issue detail, comments, sprint/board info
   - **mcp-atlassian** (write): comment, transition, assign, create, update — **always gated by approval**: the UI shows an action card (diff + Approve/Reject); every decision goes to `audit_log`
 - Prompt-injection safety: Jira content is treated as untrusted data; writes need human approval; tools are tenant-scoped on the server, never chosen by the model.
 - Token/cost meter per user/org (BYOK users want to see spend).
@@ -120,17 +136,15 @@ packages/ui         shared shadcn components + widget renderers
 ---
 
 ## Delivery phases (each gets its own spec → plan → implementation cycle)
-0. **Spike (throwaway):** confirm mcp-atlassian per-request multi-tenant credentials over streamable HTTP; confirm jira.js against a DC instance (docker `atlassian/jira-software` trial); confirm tool calling + MCP + approvals across Anthropic/OpenAI/Gemini/Ollama in AI SDK.
+0. **Spike (throwaway):** ✅ mcp-atlassian multi-tenancy — done 2026-10-03 (results in *Jira auth & MCP topology*). ⏳ jira.js vs a DC trial container → moved into Phase 2. ⏳ tool calling + MCP + approvals across Anthropic/OpenAI/Gemini/Ollama → moved into Phase 3 (needs real API keys).
 1. **Foundation:** monorepo, CI (lint/typecheck/test), Docker Compose, db + RLS, better-auth orgs, crypto package, Jira & LLM connection flows with test buttons.
-2. **Data & dashboard:** sync worker, status mapping, metrics package (fixture-driven tests), default Scrum and Kanban dashboards.
-3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration, approval cards, audit log, cost meter.
+2. **Data & dashboard:** sync worker (validated against a DC trial container + Cloud sandbox), status mapping, metrics package (fixture-driven tests), default Scrum and Kanban dashboards.
+3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration (shared instance + per-Cloud-site instances, tool allowlist, live OAuth test), approval cards, audit log, cost meter.
 4. **Skills:** schema, library, builder with preview, scheduling, email/Slack digests, prompt-driven widgets.
 5. **Enterprise/SaaS:** SSO, billing, Langfuse, eval suite in CI, Helm chart, retention controls.
 
-## Immediate next steps after approval
-1. `git init`; write this design as the spec at `docs/superpowers/specs/2026-10-03-agile-copilot-design.md`, commit, and get the user's review.
-2. Run the Phase 0 spike and report findings (adjust the spec if mcp-atlassian multi-tenancy doesn't hold up — fallback: one mcp-atlassian process per org, or our own thin Jira MCP over jira.js).
-3. Invoke `writing-plans` for **Phase 1 (Foundation)** and execute it with TDD.
+## Next step
+Invoke `writing-plans` for **Phase 1 (Foundation)** and execute it with TDD.
 
 ## Verification
 - **Metrics:** Vitest golden tests on fixture datasets (hand-computed cycle times, velocity, CFD, Monte Carlo seeded for determinism).
