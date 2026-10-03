@@ -41,7 +41,9 @@ The project folder (`/Users/mbelhajja/Desktop/Projects/Jira-Agentic-IA`) is empt
 ### Open-source building blocks (don't reinvent)
 - **Monorepo:** pnpm workspaces + Turborepo
 - **Web/UI:** Next.js (App Router), Tailwind, shadcn/ui, shadcn charts (Recharts), Vercel **AI Elements** / `useChat` for streaming chat
-- **Auth & tenants:** **better-auth** with the organization plugin (workspaces, roles, invites); SSO (OIDC/SAML) plugin later for enterprise
+- **Auth & tenants:** **better-auth** with the organization plugin (workspaces, roles, invites). No social logins (Apple/Google). Roadmap:
+  1. **Phase 1:** email + password for everyone.
+  2. **Later (SSO phase):** users sign in through an external identity provider — **Keycloak** first (better-auth `genericOAuth` ships a Keycloak provider), any OIDC IdP (Authentik, Zitadel, Entra ID, Okta) via the same plugin; per-customer IdPs in SaaS via `@better-auth/sso`. Email/password is then restricted to the platform admin account(s) (break-glass), controlled by config (`PASSWORD_LOGIN=admin_only`); sign-up page removed when SSO is on (users are provisioned on first SSO login or invited).
 - **DB:** Postgres + **Drizzle ORM**; `org_id` on every tenant table + Postgres Row-Level Security as a second guard
 - **Jobs/scheduling:** **pg-boss** (Postgres-backed queue + cron → no Redis, so self-hosting stays simple)
 - **LLM abstraction:** **Vercel AI SDK** provider registry (Anthropic, OpenAI, Google, Azure, Mistral, OpenAI-compatible/Ollama), with its MCP client and tool-approval flow
@@ -141,7 +143,7 @@ Operational rules that follow:
 2. **Data & dashboard:** sync worker (validated against a DC trial container + Cloud sandbox), status mapping, metrics package (fixture-driven tests), default Scrum and Kanban dashboards.
 3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration (shared instance + per-Cloud-site instances, tool allowlist, live OAuth test), approval cards, audit log, cost meter.
 4. **Skills:** schema, library, builder with preview, scheduling, email/Slack digests, prompt-driven widgets.
-5. **Enterprise/SaaS:** SSO, billing, Langfuse, eval suite in CI, Helm chart, retention controls.
+5. **Enterprise/SaaS:** SSO via Keycloak/OIDC + admin-only password login, billing, Langfuse, eval suite in CI, Helm chart, retention controls.
 
 ## Next step
 Invoke `writing-plans` for **Phase 1 (Foundation)** and execute it with TDD.

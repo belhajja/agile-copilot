@@ -20,6 +20,7 @@
 - The app connects as role **`app_user`** (non-owner, so RLS applies); migrations run as the database owner via `DATABASE_OWNER_URL`. Tenant tables also get `FORCE ROW LEVEL SECURITY`.
 - Secrets (Jira tokens, OAuth tokens, LLM keys) are encrypted with a per-org DEK (AES-256-GCM) wrapped by a versioned KEK from `ENCRYPTION_KEYS`; they never reach the browser, API responses, logs, error messages, or `audit_log.metadata`.
 - jira.js **v6 is Cloud-only**; Data Center uses `jira-js-v5` (`Version2Client`, PAT sent as OAuth2 bearer).
+- Auth is email + password only — no social providers. Keep it SSO-ready: identity stays in better-auth's `user`/`account` tables (never a parallel users table), and app code reads identity only through `requireActor()`, so adding Keycloak/OIDC later (better-auth `genericOAuth`) and restricting passwords to admins touches auth config, not features.
 - Next.js 16: request interception lives in `src/proxy.ts` (exported `proxy`), `headers()`/`cookies()`/`params` are awaited.
 - All user-facing strings come from `apps/web/messages/{en,fr}.json` (EN + FR from day one).
 - **UI is shadcn/ui on the Radix base (`shadcn init --base radix`), built from shadcn blocks first** (`login-03`, `signup-03`, `sidebar-07`) and shadcn components second (`field`, `item`, `empty`, `native-select`, `radio-group`, `sonner`, …). Adapt generated block code (wire data, i18n, remove unsupported features); never hand-edit `src/components/ui/*`; no custom CSS beyond Tailwind utilities.
