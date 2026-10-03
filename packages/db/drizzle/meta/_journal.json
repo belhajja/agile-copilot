@@ -15,6 +15,13 @@
       "when": 1791049925743,
       "tag": "0001_app_role_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791050117292,
+      "tag": "0002_pink_jackpot",
+      "breakpoints": true
     }
   ]
 }
