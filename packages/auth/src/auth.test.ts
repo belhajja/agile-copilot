@@ -47,6 +47,38 @@ describe('auth', () => {
     expect(canManageConnections(roles)).toBe(true);
   });
 
+  it('signing back in reactivates the workspace the user already belongs to', async () => {
+    const { headers } = await auth.api.signUpEmail({
+      body: { email: 'returning@example.com', password: 'correct-horse-1', name: 'Rae' },
+      returnHeaders: true,
+    });
+    const org = await auth.api.createOrganization({
+      headers: cookieHeader(headers),
+      body: { name: 'Returning', slug: 'returning' },
+    });
+
+    const signIn = await auth.api.signInEmail({
+      body: { email: 'returning@example.com', password: 'correct-horse-1' },
+      returnHeaders: true,
+    });
+    const session = await auth.api.getSession({ headers: cookieHeader(signIn.headers) });
+
+    expect(session?.session.activeOrganizationId).toBe(org?.id);
+  });
+
+  it('a user without any workspace signs in with no active org', async () => {
+    await auth.api.signUpEmail({
+      body: { email: 'loner@example.com', password: 'correct-horse-1', name: 'Lo' },
+    });
+    const signIn = await auth.api.signInEmail({
+      body: { email: 'loner@example.com', password: 'correct-horse-1' },
+      returnHeaders: true,
+    });
+    const session = await auth.api.getSession({ headers: cookieHeader(signIn.headers) });
+
+    expect(session?.session.activeOrganizationId ?? null).toBeNull();
+  });
+
   it('returns no roles for a non-member', async () => {
     expect(await getMemberRoles(conn.db, 'org_missing', 'user_missing')).toEqual([]);
     expect(canManageConnections(['member'])).toBe(false);
