@@ -1,6 +1,7 @@
 import { createCloudClient } from 'jira.js';
 import { Version2Client } from 'jira-js-v5';
 import { mapJiraError } from './errors';
+import { createNoRedirectClient } from './no-redirect-client';
 import type { JiraCredentials, JiraTestResult } from './types';
 
 export interface ProbeOptions {
@@ -21,16 +22,16 @@ async function probeCloud(
   c: Exclude<JiraCredentials, { kind: 'datacenter_pat' }>,
   opts: ProbeOptions,
 ): Promise<JiraTestResult> {
-  const client =
-    c.kind === 'cloud_basic'
-      ? createCloudClient({
-          host: c.baseUrl,
-          auth: { type: 'basic', email: c.email, apiToken: c.apiToken },
-        })
-      : createCloudClient({
-          host: `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${c.cloudId}`,
-          auth: { type: 'bearer', token: c.accessToken },
-        });
+  const client = createCloudClient(
+    createNoRedirectClient(
+      c.kind === 'cloud_basic'
+        ? { host: c.baseUrl, auth: { type: 'basic', email: c.email, apiToken: c.apiToken } }
+        : {
+            host: `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${c.cloudId}`,
+            auth: { type: 'bearer', token: c.accessToken },
+          },
+    ),
+  );
   const [me, info] = await Promise.all([
     client.myself.getCurrentUser(),
     client.serverInfo.getServerInfo(),
@@ -57,6 +58,8 @@ async function probeDataCenter(
   const client = new Version2Client({
     host: c.baseUrl,
     authentication: { oauth2: { accessToken: c.token } },
+    // Never follow redirects: a public host could otherwise bounce us to an internal address (SSRF).
+    baseRequestConfig: { maxRedirects: 0 },
   });
   const [me, info] = await Promise.all([
     client.myself.getCurrentUser(),

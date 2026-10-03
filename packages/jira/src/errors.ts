@@ -20,6 +20,9 @@ export function mapJiraError(e: unknown): JiraFailure {
       code: 'forbidden',
       message: 'Jira refused access (invalid token or missing permission).',
     };
+  if (typeof status === 'number' && status >= 300 && status < 400) {
+    return { ok: false, code: 'not_jira', message: 'This URL did not answer like Jira.' };
+  }
   if (status === 404)
     return { ok: false, code: 'not_jira', message: 'No Jira REST API found at this URL.' };
   if (status === 429)

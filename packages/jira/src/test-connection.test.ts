@@ -21,9 +21,17 @@ describe('testJiraConnection', () => {
     expect(r).toMatchObject({ ok: false, code: 'invalid_input' });
   });
 
+  it('flags a Data Center PAT entered for an Atlassian Cloud site', async () => {
+    const r = await testJiraConnection(
+      { kind: 'datacenter_pat', baseUrl: 'https://acme.atlassian.net', token: 't' },
+      { allowedPrivateHosts: [], resolve: publicDns },
+    );
+    expect(r).toMatchObject({ ok: false, code: 'wrong_deployment' });
+  });
+
   it('rejects input that is not a URL', async () => {
     const r = await testJiraConnection(
-      { kind: 'datacenter_pat', baseUrl: 'jira', token: 't' },
+      { kind: 'datacenter_pat', baseUrl: 'https://', token: 't' },
       { allowedPrivateHosts: [] },
     );
     expect(r).toMatchObject({ ok: false, code: 'invalid_input' });

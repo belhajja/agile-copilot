@@ -13,12 +13,19 @@ describe('normalizeBaseUrl', () => {
     ['https://jira.corp.example/jira/browse/ABC-12', 'https://jira.corp.example/jira'],
     ['https://jira.corp.example/secure/Dashboard.jspa', 'https://jira.corp.example'],
     ['http://jira.corp.local:8080/projects/ABC/issues', 'http://jira.corp.local:8080'],
+    ['acme.atlassian.net', 'https://acme.atlassian.net'],
+    ['jira.corp.example:8080/browse/X-1', 'https://jira.corp.example:8080'],
   ])('%s -> %s', (raw, expected) => {
     expect(normalizeBaseUrl(raw)).toBe(expected);
   });
 
   it('throws on garbage', () => {
-    expect(() => normalizeBaseUrl('jira')).toThrow(TypeError);
+    expect(() => normalizeBaseUrl('https://')).toThrow(TypeError);
+    expect(() => normalizeBaseUrl('http://exa mple.com')).toThrow(TypeError);
+  });
+
+  it('rejects non-http(s) schemes', () => {
+    expect(() => normalizeBaseUrl('ftp://jira.x/jira/')).toThrow(TypeError);
   });
 });
 

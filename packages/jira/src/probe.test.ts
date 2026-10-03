@@ -1,3 +1,5 @@
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { probeJira } from './probe';
 import { type MockJira, startMockJira } from './testing/mock-jira-server';
@@ -94,7 +96,58 @@ describe('probeJira', () => {
     mock = await startMockJira({ flavor: 'cloud', validAuthorization: 'Bearer good-pat' });
     // DC client calls /rest/api/2 — the cloud mock only serves v3, so it is not recognised as Jira DC.
     const r = await probeJira({ kind: 'datacenter_pat', baseUrl: mock.url, token: 'good-pat' });
-    expect(r.ok).toBe(false);
+    expect(r).toMatchObject({ ok: false, code: 'not_jira' });
+  });
+
+  describe('redirects (SSRF)', () => {
+    let target: Server | undefined;
+    let redirector: Server | undefined;
+    afterEach(async () => {
+      for (const s of [target, redirector]) {
+        if (s) {
+          s.closeAllConnections();
+          await new Promise((r) => s.close(r));
+        }
+      }
+    });
+
+    const listen = (s: Server) =>
+      new Promise<number>((resolve) =>
+        s.listen(0, '127.0.0.1', () => resolve((s.address() as AddressInfo).port)),
+      );
+
+    async function setup() {
+      const hits: string[] = [];
+      target = createServer((req, res) => {
+        hits.push(req.url ?? '');
+        res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+      });
+      const targetPort = await listen(target);
+      redirector = createServer((_req, res) => {
+        res.writeHead(302, { location: `http://127.0.0.1:${targetPort}/internal` }).end();
+      });
+      const port = await listen(redirector);
+      return { hits, url: `http://127.0.0.1:${port}` };
+    }
+
+    it('does not follow redirects for Cloud probes', async () => {
+      const { hits, url } = await setup();
+      const r = await probeJira({
+        kind: 'cloud_basic',
+        baseUrl: url,
+        email: 'pm@acme.com',
+        apiToken: 'tok',
+      });
+      expect(r).toMatchObject({ ok: false, code: 'not_jira' });
+      expect(hits).toEqual([]);
+    });
+
+    it('does not follow redirects for Data Center probes', async () => {
+      const { hits, url } = await setup();
+      const r = await probeJira({ kind: 'datacenter_pat', baseUrl: url, token: 't' });
+      expect(r).toMatchObject({ ok: false, code: 'not_jira' });
+      expect(hits).toEqual([]);
+    });
   });
 
   it('maps a closed port to unreachable', async () => {

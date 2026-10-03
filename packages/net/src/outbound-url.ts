@@ -1,3 +1,6 @@
+// Known limitation: DNS can change between this check and the actual connection (DNS rebinding).
+// Pinning the resolved IP at connect time is planned for Phase 3. Callers must also not follow
+// redirects to unchecked targets (see @agile/jira probe).
 import { lookup } from 'node:dns/promises';
 import ipaddr from 'ipaddr.js';
 
