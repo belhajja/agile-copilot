@@ -105,6 +105,24 @@ describe('llm connections', () => {
     });
   });
 
+  it('race: concurrent creates for a fresh org leave exactly one default', async () => {
+    const o = owner('org_race');
+    const rs = await Promise.all([
+      createLlmConnection(deps, o, { label: 'A', config: anthropic('sk-race-A-1234') }),
+      createLlmConnection(deps, o, { label: 'B', config: anthropic('sk-race-B-5678') }),
+    ]);
+    expect(rs.map((r) => r.ok)).toEqual([true, true]);
+    expect((await listLlmConnections(deps, 'org_race')).filter((c) => c.isDefault)).toHaveLength(1);
+  });
+
+  it('race: concurrent setDefault calls leave exactly one default', async () => {
+    const o = owner('org_race');
+    const ids = (await listLlmConnections(deps, 'org_race')).map((c) => c.id);
+    const rs = await Promise.all(ids.map((id) => setDefaultLlmConnection(deps, o, id)));
+    expect(rs).toEqual([{ ok: true }, { ok: true }]);
+    expect((await listLlmConnections(deps, 'org_race')).filter((c) => c.isDefault)).toHaveLength(1);
+  });
+
   it('is invisible to other orgs and deleting the default leaves none', async () => {
     expect(await listLlmConnections(deps, 'org_b')).toEqual([]);
     expect(await loadDefaultLlmConfig(deps, 'org_b')).toBeNull();

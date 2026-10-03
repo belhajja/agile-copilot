@@ -10,7 +10,7 @@ import {
   probeModel,
 } from '@agile/llm';
 import { checkOutboundUrl } from '@agile/net';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
 import type { ConnectionDeps } from './jira-connections';
@@ -90,6 +90,11 @@ const keyHintOf = (c: LlmConfig) => {
   return key && key.length >= 8 ? `…${key.slice(-4)}` : null;
 };
 
+// Serialises default-connection changes per org; released at commit/rollback.
+async function lockOrgDefaults(tx: Tx, orgId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`llm_default:${orgId}`}))`);
+}
+
 async function probe(
   deps: LlmDeps,
   config: LlmConfig,
@@ -103,7 +108,7 @@ async function probe(
   try {
     model = createLanguageModel(config);
   } catch (e) {
-    if (e instanceof TypeError)
+    if (config.provider === 'azure' && e instanceof TypeError)
       return { ok: false, code: 'provider_error', message: 'Invalid Azure resource name.' };
     throw e;
   }
@@ -132,6 +137,7 @@ export async function createLlmConnection(
 
   const id = randomUUID();
   const row = await withOrg(deps.db, actor.orgId, async (tx) => {
+    await lockOrgDefaults(tx, actor.orgId);
     const existingDefault = await tx
       .select({ id: llmConnections.id })
       .from(llmConnections)
@@ -193,6 +199,7 @@ export async function setDefaultLlmConnection(
 ): Promise<{ ok: true } | LlmServiceFailure> {
   assertCanManage(actor);
   return withOrg(deps.db, actor.orgId, async (tx) => {
+    await lockOrgDefaults(tx, actor.orgId);
     const [target] = await tx
       .select({ id: llmConnections.id })
       .from(llmConnections)
