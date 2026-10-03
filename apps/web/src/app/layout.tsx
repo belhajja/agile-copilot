@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist } from 'next/font/google';
+import localFont from 'next/font/local';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale } from 'next-intl/server';
 import type { ReactNode } from 'react';
@@ -7,8 +7,13 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import './globals.css';
 
-// The radix-nova preset's font, wired the way `shadcn init` does for Next (it found no layout to edit).
-const fontSans = Geist({ subsets: ['latin'], variable: '--font-sans' });
+// The radix-nova preset's Geist font, self-hosted from the `geist` package (no build-time download, so
+// offline/air-gapped builds work) and exposed as `--font-sans`, which the generated globals.css expects.
+const fontSans = localFont({
+  src: '../../node_modules/geist/dist/fonts/geist-sans/Geist-Variable.woff2',
+  variable: '--font-sans',
+  weight: '100 900',
+});
 
 export const metadata: Metadata = { title: 'Agile Copilot' };
 

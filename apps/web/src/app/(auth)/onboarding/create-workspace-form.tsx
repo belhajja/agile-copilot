@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/lib/auth-client';
+import { useAuthErrorMessage } from '@/lib/auth-error';
 
 const slugify = (name: string) =>
   `${
@@ -21,7 +22,7 @@ const slugify = (name: string) =>
 
 export function CreateWorkspaceForm() {
   const t = useTranslations('onboarding');
-  const tAuth = useTranslations('auth');
+  const errorMessage = useAuthErrorMessage();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -33,9 +34,13 @@ export function CreateWorkspaceForm() {
     const created = await authClient.organization.create({ name, slug: slugify(name) });
     if (created.error || !created.data) {
       setPending(false);
-      return setError(created.error?.message ?? tAuth('genericError'));
+      return setError(errorMessage(created.error));
     }
-    await authClient.organization.setActive({ organizationId: created.data.id });
+    const activated = await authClient.organization.setActive({ organizationId: created.data.id });
+    if (activated.error) {
+      setPending(false);
+      return setError(errorMessage(activated.error));
+    }
     router.push('/');
     router.refresh();
   }

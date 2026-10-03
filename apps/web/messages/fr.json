@@ -17,7 +17,24 @@
     "signUpLink": "S'inscrire",
     "haveAccount": "Déjà un compte ?",
     "signInLink": "Se connecter",
-    "genericError": "Une erreur est survenue. Veuillez réessayer."
+    "genericError": "Une erreur est survenue. Veuillez réessayer.",
+    "errors": {
+      "INVALID_EMAIL_OR_PASSWORD": "E-mail ou mot de passe incorrect.",
+      "INVALID_EMAIL": "Saisissez une adresse e-mail valide.",
+      "INVALID_PASSWORD": "Mot de passe invalide.",
+      "PASSWORD_TOO_SHORT": "Le mot de passe doit comporter au moins 10 caractères.",
+      "PASSWORD_TOO_LONG": "Le mot de passe est trop long.",
+      "EMAIL_NOT_VERIFIED": "Veuillez d'abord vérifier votre adresse e-mail.",
+      "USER_ALREADY_EXISTS": "Un compte existe déjà avec cet e-mail.",
+      "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL": "Un compte existe déjà avec cet e-mail.",
+      "EMAIL_PASSWORD_SIGN_UP_DISABLED": "Les inscriptions sont désactivées.",
+      "ORGANIZATION_ALREADY_EXISTS": "Un espace porte déjà ce nom. Veuillez réessayer.",
+      "ORGANIZATION_SLUG_ALREADY_TAKEN": "Un espace porte déjà ce nom. Veuillez réessayer.",
+      "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION": "Vous n'êtes pas autorisé à créer un espace.",
+      "YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS": "Vous avez atteint le nombre maximal d'espaces.",
+      "ORGANIZATION_NOT_FOUND": "Espace introuvable.",
+      "USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION": "Vous n'êtes pas membre de cet espace."
+    }
   },
   "onboarding": {
     "title": "Créer votre espace de travail",

@@ -17,7 +17,24 @@
     "signUpLink": "Sign up",
     "haveAccount": "Already have an account?",
     "signInLink": "Sign in",
-    "genericError": "Something went wrong. Please try again."
+    "genericError": "Something went wrong. Please try again.",
+    "errors": {
+      "INVALID_EMAIL_OR_PASSWORD": "Invalid email or password.",
+      "INVALID_EMAIL": "Enter a valid email address.",
+      "INVALID_PASSWORD": "Invalid password.",
+      "PASSWORD_TOO_SHORT": "Password must be at least 10 characters long.",
+      "PASSWORD_TOO_LONG": "Password is too long.",
+      "EMAIL_NOT_VERIFIED": "Please verify your email address first.",
+      "USER_ALREADY_EXISTS": "An account with this email already exists.",
+      "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL": "An account with this email already exists.",
+      "EMAIL_PASSWORD_SIGN_UP_DISABLED": "Sign-up is disabled.",
+      "ORGANIZATION_ALREADY_EXISTS": "A workspace with this name already exists. Try again.",
+      "ORGANIZATION_SLUG_ALREADY_TAKEN": "A workspace with this name already exists. Try again.",
+      "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION": "You are not allowed to create a workspace.",
+      "YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS": "You have reached the maximum number of workspaces.",
+      "ORGANIZATION_NOT_FOUND": "Workspace not found.",
+      "USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION": "You are not a member of this workspace."
+    }
   },
   "onboarding": {
     "title": "Create your workspace",

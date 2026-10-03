@@ -9,10 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/lib/auth-client';
+import { useAuthErrorMessage } from '@/lib/auth-error';
 import { cn } from '@/lib/utils';
 
 export function LoginForm({ className, ...props }: ComponentProps<'div'>) {
   const t = useTranslations('auth');
+  const errorMessage = useAuthErrorMessage();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -27,7 +29,7 @@ export function LoginForm({ className, ...props }: ComponentProps<'div'>) {
       password: String(form.get('password')),
     });
     setPending(false);
-    if (error) return setError(error.message ?? t('genericError'));
+    if (error) return setError(errorMessage(error));
     router.push('/');
     router.refresh();
   }
