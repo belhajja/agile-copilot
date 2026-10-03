@@ -22,6 +22,8 @@ export function LlmConnectionForm() {
   useEffect(() => {
     if (state.status === 'ok') {
       formRef.current?.reset();
+      // reset() reverts the native select to its first option; keep the controlled state in agreement.
+      setProvider('anthropic');
       toast.success(t('saved'));
     }
   }, [state, t]);
