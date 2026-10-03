@@ -17,7 +17,8 @@ export async function GET() {
   const state = generateState();
   (await cookies()).set(OAUTH_STATE_COOKIE, `${state}.${actor.orgId}`, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    // Follows the public URL, so a self-host on plain http (e.g. a LAN) still gets the cookie back.
+    secure: new URL(services().env.BETTER_AUTH_URL).protocol === 'https:',
     sameSite: 'lax',
     path: '/api/jira/oauth',
     maxAge: 600,

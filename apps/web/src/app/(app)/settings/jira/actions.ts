@@ -9,12 +9,13 @@ import {
 import type { JiraCredentials } from '@agile/jira';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { atlassianOAuth } from '@/server/atlassian';
 import { connectionDeps, requireActor } from '@/server/context';
 
 export type FormState =
   | { status: 'idle' }
   | { status: 'ok' }
-  | { status: 'error'; code: string; message?: string };
+  | { status: 'error'; code: string; reason?: string; host?: string };
 
 const common = {
   name: z.string().trim().min(1).max(80),
@@ -47,12 +48,8 @@ export async function createJiraConnectionAction(
   try {
     const result = await createJiraConnection(connectionDeps(), actor, { name, credentials });
     if (!result.ok) {
-      // blocked_url carries an operator-facing reason worth showing; other codes map to translated text.
-      return {
-        status: 'error',
-        code: result.code,
-        message: result.code === 'blocked_url' ? result.message : undefined,
-      };
+      // blocked_url carries a reason code (and host) the form translates; result.message is English, for logs only.
+      return { status: 'error', code: result.code, ...result.detail };
     }
   } catch (e) {
     if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };
@@ -62,14 +59,22 @@ export async function createJiraConnectionAction(
   return { status: 'ok' };
 }
 
+const isId = (id: unknown) => z.uuid().safeParse(id).success;
+
 export async function retestJiraConnectionAction(id: string): Promise<void> {
   const actor = await requireActor();
-  await retestJiraConnection(connectionDeps(), actor, id);
+  if (!isId(id)) return;
+  await retestJiraConnection(
+    { ...connectionDeps(), oauth: atlassianOAuth() ?? undefined },
+    actor,
+    id,
+  );
   revalidatePath(PATH);
 }
 
 export async function deleteJiraConnectionAction(id: string): Promise<void> {
   const actor = await requireActor();
+  if (!isId(id)) return;
   await deleteJiraConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }

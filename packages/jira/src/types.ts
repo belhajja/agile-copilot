@@ -1,3 +1,5 @@
+import type { BlockedUrlReason } from '@agile/net';
+
 export type JiraDeployment = 'cloud' | 'datacenter';
 
 export type JiraCredentials =
@@ -17,7 +19,13 @@ export type JiraFailureCode =
   | 'unreachable'
   | 'unknown';
 
-export type JiraFailure = { ok: false; code: JiraFailureCode; message: string };
+/** `message` is English for logs; UIs translate `code` (and `detail` for blocked_url). */
+export type JiraFailure = {
+  ok: false;
+  code: JiraFailureCode;
+  message: string;
+  detail?: { reason: BlockedUrlReason; host?: string };
+};
 
 export type JiraTestResult =
   | {

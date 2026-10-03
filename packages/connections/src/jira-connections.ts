@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret, type Keyring } from '@agile/crypto';
 import { type Db, isUniqueViolation, jiraConnections, type Tx, withOrg } from '@agile/db';
 import {
+  type AtlassianOAuthClient,
   type JiraCredentials,
+  type JiraFailure,
   type JiraFailureCode,
+  type JiraTestResult,
   normalizeCredentials,
   testJiraConnection,
 } from '@agile/jira';
@@ -11,6 +14,7 @@ import type { Resolver } from '@agile/net';
 import { desc, eq } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
+import { getFreshJiraCredentials, OAuthRefreshError, OAuthTimeoutError } from './jira-oauth';
 import { getOrgDek } from './vault';
 
 export interface ConnectionDeps {
@@ -42,8 +46,9 @@ export interface JiraConnectionView {
 
 export type ServiceFailure = {
   ok: false;
-  code: JiraFailureCode | 'duplicate' | 'not_found';
+  code: JiraFailureCode | 'duplicate' | 'not_found' | 'oauth_expired';
   message: string;
+  detail?: JiraFailure['detail'];
 };
 
 const AUTH_TYPE = { cloud_basic: 'basic', cloud_oauth: 'oauth', datacenter_pat: 'pat' } as const;
@@ -188,14 +193,29 @@ export async function loadJiraSecret(
 }
 
 export async function retestJiraConnection(
-  deps: ConnectionDeps,
+  deps: ConnectionDeps & { oauth?: AtlassianOAuthClient; oauthTimeoutMs?: number },
   actor: Actor,
   id: string,
 ): Promise<{ ok: true; connection: JiraConnectionView } | ServiceFailure> {
   assertCanManage(actor);
   const secret = await loadJiraSecret(deps, actor.orgId, id);
   if (!secret) return notFound;
-  const test = await runTest(deps, secret.credentials);
+  let test: JiraTestResult | ServiceFailure | undefined;
+  if (secret.credentials.kind === 'cloud_oauth' && deps.oauth) {
+    // OAuth access tokens live ~1 h: refresh (if due) before probing.
+    let credentials: JiraCredentials | null;
+    try {
+      credentials = await getFreshJiraCredentials({ ...deps, oauth: deps.oauth }, actor.orgId, id);
+    } catch (e) {
+      if (!(e instanceof OAuthRefreshError || e instanceof OAuthTimeoutError)) throw e;
+      credentials = null;
+      test = { ok: false, code: 'oauth_expired', message: 'Atlassian access expired.' };
+    }
+    if (credentials) test = await runTest(deps, credentials);
+    else if (!test) return notFound;
+  } else {
+    test = await runTest(deps, secret.credentials);
+  }
   const row = await withOrg(deps.db, actor.orgId, async (tx) => {
     const [updated] = await tx
       .update(jiraConnections)

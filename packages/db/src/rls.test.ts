@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, withOrg } from './client';
 import { auditLog, jiraConnections } from './schema';
@@ -60,6 +61,27 @@ describe('row-level security (as app_user)', () => {
     await expect(withOrg(app.db, 'org_a', (tx) => tx.delete(auditLog))).rejects.toSatisfy(
       (e: unknown) => /permission denied/.test(pgMessage(e)),
     );
+    await expect(
+      withOrg(app.db, 'org_a', (tx) => tx.update(auditLog).set({ action: 'tampered' })),
+    ).rejects.toSatisfy((e: unknown) => /permission denied/.test(pgMessage(e)));
+  });
+
+  it('guards the schema: every public table with org_id has forced RLS and a policy', async () => {
+    const rows = (await app.db.execute(sql`
+      select c.relname as table, c.relrowsecurity as rls, c.relforcerowsecurity as forced,
+        (select count(*)::int from pg_policies p
+          where p.schemaname = 'public' and p.tablename = c.relname) as policies
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')
+        and exists (select 1 from information_schema.columns col
+          where col.table_schema = 'public' and col.table_name = c.relname
+            and col.column_name = 'org_id')
+      order by c.relname
+    `)) as unknown as { table: string; rls: boolean; forced: boolean; policies: number }[];
+    expect(rows.length).toBeGreaterThan(0);
+    const unguarded = rows.filter((r) => !r.rls || !r.forced || r.policies < 1);
+    expect(unguarded).toEqual([]);
   });
 
   it('refuses an empty org id', () => {

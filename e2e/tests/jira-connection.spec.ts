@@ -37,3 +37,21 @@ test('the same Jira URL cannot be connected twice', async ({ page }) => {
   }
   await expect(page.getByText('This Jira site is already connected.')).toBeVisible();
 });
+
+test('a private Jira address is explained in French', async ({ page }) => {
+  await signUpWithWorkspace(page);
+  await page.getByRole('button', { name: /Pat Manager/ }).click();
+  await page.getByRole('menuitem', { name: 'Français' }).click();
+  await expect(page.getByRole('heading', { name: 'Pour commencer' })).toBeVisible();
+  await page.goto('/settings/jira');
+  await page.getByLabel('Nom de la connexion').fill('Corp');
+  await page.getByLabel('URL de Jira').fill('http://10.1.2.3');
+  await page.getByLabel('Data Center / Server').check();
+  await page.getByLabel("Jeton d'accès personnel").fill('good-pat');
+  await page.getByRole('button', { name: 'Tester et enregistrer' }).click();
+  await expect(
+    page.getByText(
+      '10.1.2.3 pointe vers une adresse de réseau privé. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.',
+    ),
+  ).toBeVisible();
+});

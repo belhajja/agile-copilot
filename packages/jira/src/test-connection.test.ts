@@ -10,7 +10,11 @@ describe('testJiraConnection', () => {
       { kind: 'datacenter_pat', baseUrl: 'http://127.0.0.1:8080', token: 't' },
       { allowedPrivateHosts: [] },
     );
-    expect(r).toMatchObject({ ok: false, code: 'blocked_url' });
+    expect(r).toMatchObject({
+      ok: false,
+      code: 'blocked_url',
+      detail: { reason: 'private_address', host: '127.0.0.1' },
+    });
   });
 
   it('requires https for Jira Cloud', async () => {

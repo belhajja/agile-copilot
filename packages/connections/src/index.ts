@@ -12,7 +12,12 @@ export {
   type ServiceFailure,
   type StoredJiraSecret,
 } from './jira-connections';
-export { completeJiraOAuth, getFreshJiraCredentials, OAuthTimeoutError } from './jira-oauth';
+export {
+  completeJiraOAuth,
+  getFreshJiraCredentials,
+  OAuthRefreshError,
+  OAuthTimeoutError,
+} from './jira-oauth';
 export {
   createLlmConnection,
   deleteLlmConnection,

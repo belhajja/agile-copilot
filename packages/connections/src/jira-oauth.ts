@@ -14,10 +14,11 @@ import {
   type ConnectionDeps,
   createJiraConnection,
   readSecret,
+  type ServiceFailure,
   writeSecret,
 } from './jira-connections';
 
-type OAuthDeps = ConnectionDeps & {
+export type OAuthDeps = ConnectionDeps & {
   oauth: AtlassianOAuthClient;
   listSites?: typeof listAccessibleJiraSites;
   /** Deadline for each token request to Atlassian (default 15 s); injectable for tests. */
@@ -46,6 +47,14 @@ async function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+/** The refresh token was rejected (expired, revoked, already rotated) or Atlassian failed. */
+export class OAuthRefreshError extends Error {
+  override name = 'OAuthRefreshError';
+  constructor(cause: unknown) {
+    super('Atlassian token refresh failed', { cause });
+  }
+}
+
 const DEADLINE_MS = 15_000;
 const REFRESH_WINDOW_MS = 60_000;
 
@@ -55,7 +64,7 @@ export async function completeJiraOAuth(
   code: string,
 ): Promise<
   | { ok: true; created: number; updated: number }
-  | { ok: false; code: 'oauth_failed' | 'oauth_no_sites' }
+  | { ok: false; code: 'oauth_failed' | 'oauth_no_sites' | ServiceFailure['code'] }
 > {
   assertCanManage(actor);
   const ms = deps.oauthTimeoutMs ?? DEADLINE_MS;
@@ -77,6 +86,8 @@ export async function completeJiraOAuth(
   };
   let created = 0;
   let updated = 0;
+  let sawDuplicate = false;
+  let firstFailure: ServiceFailure['code'] | undefined;
   for (const site of sites) {
     const credentials: JiraCredentials = {
       kind: 'cloud_oauth',
@@ -97,8 +108,15 @@ export async function completeJiraOAuth(
         await reconnect(deps, actor, normalizeBaseUrl(site.url), credentials, oauth, oauthGrantId)
       ) {
         updated++;
+      } else {
+        sawDuplicate = true; // already connected with an API token, left untouched
       }
+    } else {
+      firstFailure ??= result.code;
     }
+  }
+  if (created + updated === 0) {
+    return { ok: false, code: sawDuplicate ? 'duplicate' : (firstFailure ?? 'oauth_failed') };
   }
   return { ok: true, created, updated };
 }
@@ -160,25 +178,33 @@ export async function getFreshJiraCredentials(
   return withOrg(deps.db, orgId, async (tx) => {
     await tx.execute(sql`SET LOCAL lock_timeout = '20s'`);
     await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
-    const [peek] = await tx
-      .select({ grant: jiraConnections.oauthGrantId })
-      .from(jiraConnections)
-      .where(and(eq(jiraConnections.orgId, orgId), eq(jiraConnections.id, id)));
-    if (!peek) return null;
-    if (peek.grant) {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`jira_grant:${peek.grant}`}))`);
+    let rows: (typeof jiraConnections.$inferSelect)[] = [];
+    let target: typeof jiraConnections.$inferSelect | undefined;
+    // A concurrent reconnect can move the row to a new grant between the peek and the lock;
+    // look it up once more under the new grant before giving up.
+    for (let attempt = 0; attempt < 2 && !target; attempt++) {
+      const [peek] = await tx
+        .select({ grant: jiraConnections.oauthGrantId })
+        .from(jiraConnections)
+        .where(and(eq(jiraConnections.orgId, orgId), eq(jiraConnections.id, id)));
+      if (!peek) return null;
+      if (peek.grant) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext(${`jira_grant:${peek.grant}`}))`,
+        );
+      }
+      rows = await tx
+        .select()
+        .from(jiraConnections)
+        .where(
+          and(
+            eq(jiraConnections.orgId, orgId),
+            peek.grant ? eq(jiraConnections.oauthGrantId, peek.grant) : eq(jiraConnections.id, id),
+          ),
+        )
+        .for('update');
+      target = rows.find((r) => r.id === id);
     }
-    const rows = await tx
-      .select()
-      .from(jiraConnections)
-      .where(
-        and(
-          eq(jiraConnections.orgId, orgId),
-          peek.grant ? eq(jiraConnections.oauthGrantId, peek.grant) : eq(jiraConnections.id, id),
-        ),
-      )
-      .for('update');
-    const target = rows.find((r) => r.id === id);
     if (!target) return null;
     const secret = await readSecret(tx, deps, orgId, id, target.secret);
     if (secret.credentials.kind !== 'cloud_oauth' || !secret.oauth) return secret.credentials;
@@ -186,21 +212,29 @@ export async function getFreshJiraCredentials(
       return secret.credentials;
     }
 
-    const tokens = await withDeadline(
-      deps.oauth.refreshAccessToken(secret.oauth.refreshToken),
-      deps.oauthTimeoutMs ?? DEADLINE_MS,
-    );
-    const rotated = {
-      refreshToken: tokens.refreshToken(),
-      expiresAt: tokens.accessTokenExpiresAt().toISOString(),
-    };
+    let accessToken: string;
+    let rotated: { refreshToken: string; expiresAt: string };
+    try {
+      const tokens = await withDeadline(
+        deps.oauth.refreshAccessToken(secret.oauth.refreshToken),
+        deps.oauthTimeoutMs ?? DEADLINE_MS,
+      );
+      accessToken = tokens.accessToken();
+      rotated = {
+        refreshToken: tokens.refreshToken(),
+        expiresAt: tokens.accessTokenExpiresAt().toISOString(),
+      };
+    } catch (e) {
+      if (e instanceof OAuthTimeoutError) throw e;
+      throw new OAuthRefreshError(e);
+    }
     let result: JiraCredentials = secret.credentials;
     for (const row of rows) {
       const own = row.id === id ? secret : await readSecret(tx, deps, orgId, row.id, row.secret);
       if (own.credentials.kind !== 'cloud_oauth') continue;
       const credentials: JiraCredentials = {
         ...own.credentials,
-        accessToken: tokens.accessToken(),
+        accessToken,
       };
       const encrypted = await writeSecret(tx, deps, orgId, row.id, { credentials, oauth: rotated });
       await tx

@@ -104,6 +104,16 @@
       "forbidden_role": "Only workspace owners and admins can change connections.",
       "oauth_failed": "Atlassian sign-in did not complete.",
       "oauth_no_sites": "Your Atlassian account has no Jira sites.",
+      "oauth_expired": "Atlassian access expired. Use “Connect with Atlassian” again to reconnect.",
+      "blocked": {
+        "invalid_url": "Enter a valid URL.",
+        "scheme": "Only http:// and https:// addresses are allowed.",
+        "credentials": "Remove the username and password from the URL.",
+        "blocked_host": "{host} is blocked for security reasons.",
+        "localhost": "{host} is a local address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} points to a private network address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Could not find {host}. Check the address."
+      },
       "unknown": "Something went wrong."
     },
     "oauthConnected": "{count, plural, one {# Jira site connected.} other {# Jira sites connected.}}"
@@ -152,6 +162,15 @@
       "provider_error": "The provider returned an error.",
       "not_found": "Connection not found.",
       "forbidden_role": "Only workspace owners and admins can change connections.",
+      "blocked": {
+        "invalid_url": "Enter a valid URL.",
+        "scheme": "Only http:// and https:// addresses are allowed.",
+        "credentials": "Remove the username and password from the URL.",
+        "blocked_host": "{host} is blocked for security reasons.",
+        "localhost": "{host} is a local address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} points to a private network address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Could not find {host}. Check the address."
+      },
       "unknown": "Something went wrong."
     }
   }

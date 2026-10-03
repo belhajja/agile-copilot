@@ -1,6 +1,13 @@
-import type { AtlassianOAuthClient, AtlassianTokens } from '@agile/jira';
+import { auditLog } from '@agile/db';
+import type { AtlassianOAuthClient, AtlassianTokens, JiraCredentials } from '@agile/jira';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createJiraConnection, listJiraConnections, loadJiraSecret } from './jira-connections';
+import {
+  createJiraConnection,
+  listJiraConnections,
+  loadJiraSecret,
+  retestJiraConnection,
+} from './jira-connections';
 import { completeJiraOAuth, getFreshJiraCredentials, OAuthTimeoutError } from './jira-oauth';
 import { keyring, okJira, owner, startHarness } from './test-helpers';
 
@@ -155,9 +162,8 @@ describe('Atlassian OAuth', () => {
     });
     expect(basic.ok).toBe(true);
     expect(await completeJiraOAuth(deps(), owner('org_s'), 'good-code')).toEqual({
-      ok: true,
-      created: 0,
-      updated: 0,
+      ok: false,
+      code: 'duplicate',
     });
     const [b] = await listJiraConnections(deps(), 'org_s');
     expect(b?.authType).toBe('basic');
@@ -180,6 +186,74 @@ describe('Atlassian OAuth', () => {
     expect(await loadJiraSecret(deps(), 'org_t', id)).toMatchObject({
       credentials: { accessToken: 'access-1' },
       oauth: { refreshToken: 'refresh-1' },
+    });
+  });
+
+  it('reports the probe failure when no site could be connected', async () => {
+    const failing = {
+      ...deps(),
+      testJira: async () => ({
+        ok: false as const,
+        code: 'forbidden' as const,
+        message: 'Jira refused access with this token.',
+      }),
+    };
+    expect(await completeJiraOAuth(failing, owner('org_f'), 'good-code')).toEqual({
+      ok: false,
+      code: 'forbidden',
+    });
+    expect(await listJiraConnections(deps(), 'org_f')).toEqual([]);
+  });
+
+  it('retest refreshes an expiring OAuth token once, then probes with the new token', async () => {
+    refreshCalls = 0;
+    await completeJiraOAuth(deps(), owner('org_rt'), 'good-code');
+    const [c] = await listJiraConnections(deps(), 'org_rt');
+    const id = c?.id ?? '';
+    const seen: string[] = [];
+    const probing = {
+      ...deps(),
+      testJira: async (creds: JiraCredentials) => {
+        if (creds.kind === 'cloud_oauth') seen.push(creds.accessToken);
+        return okJira('Pat Cloud')(creds);
+      },
+    };
+    expect(await retestJiraConnection(probing, owner('org_rt'), id)).toMatchObject({
+      ok: true,
+      connection: { status: 'ok', lastError: null },
+    });
+    expect(refreshCalls).toBe(1);
+    expect(seen).toEqual(['access-2']);
+    expect(await loadJiraSecret(deps(), 'org_rt', id)).toMatchObject({
+      credentials: { accessToken: 'access-2' },
+      oauth: { refreshToken: 'refresh-2' },
+    });
+  });
+
+  it('retest records oauth_expired when the refresh is rejected, keeping the secret', async () => {
+    const rejecting: AtlassianOAuthClient = {
+      ...oauth,
+      refreshAccessToken: async () => {
+        throw new Error('invalid_grant');
+      },
+    };
+    await completeJiraOAuth(deps(), owner('org_rx'), 'good-code');
+    const [c] = await listJiraConnections(deps(), 'org_rx');
+    const id = c?.id ?? '';
+    const r = await retestJiraConnection({ ...deps(), oauth: rejecting }, owner('org_rx'), id);
+    expect(r).toMatchObject({
+      ok: true,
+      connection: { status: 'error', lastError: 'oauth_expired' },
+    });
+    expect(JSON.stringify(r)).not.toContain('refresh-1');
+    expect(await loadJiraSecret(deps(), 'org_rx', id)).toMatchObject({
+      credentials: { accessToken: 'access-1' },
+      oauth: { refreshToken: 'refresh-1' },
+    });
+    const audits = await h.rawDb.select().from(auditLog).where(eq(auditLog.targetId, id));
+    expect(audits.find((a) => a.action === 'jira_connection.retested')?.metadata).toEqual({
+      ok: false,
+      code: 'oauth_expired',
     });
   });
 });

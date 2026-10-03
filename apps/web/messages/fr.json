@@ -104,6 +104,16 @@
       "forbidden_role": "Seuls les propriétaires et administrateurs peuvent modifier les connexions.",
       "oauth_failed": "La connexion Atlassian n'a pas abouti.",
       "oauth_no_sites": "Votre compte Atlassian n'a aucun site Jira.",
+      "oauth_expired": "L’accès Atlassian a expiré. Utilisez « Se connecter avec Atlassian » pour vous reconnecter.",
+      "blocked": {
+        "invalid_url": "Saisissez une URL valide.",
+        "scheme": "Seules les adresses http:// et https:// sont autorisées.",
+        "credentials": "Retirez l’identifiant et le mot de passe de l’URL.",
+        "blocked_host": "{host} est bloqué pour des raisons de sécurité.",
+        "localhost": "{host} est une adresse locale. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} pointe vers une adresse de réseau privé. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Impossible de trouver {host}. Vérifiez l’adresse."
+      },
       "unknown": "Une erreur est survenue."
     },
     "oauthConnected": "{count, plural, one {# site Jira connecté.} other {# sites Jira connectés.}}"
@@ -152,6 +162,15 @@
       "provider_error": "Le fournisseur a renvoyé une erreur.",
       "not_found": "Connexion introuvable.",
       "forbidden_role": "Seuls les propriétaires et administrateurs peuvent modifier les connexions.",
+      "blocked": {
+        "invalid_url": "Saisissez une URL valide.",
+        "scheme": "Seules les adresses http:// et https:// sont autorisées.",
+        "credentials": "Retirez l’identifiant et le mot de passe de l’URL.",
+        "blocked_host": "{host} est bloqué pour des raisons de sécurité.",
+        "localhost": "{host} est une adresse locale. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} pointe vers une adresse de réseau privé. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Impossible de trouver {host}. Vérifiez l’adresse."
+      },
       "unknown": "Une erreur est survenue."
     }
   }

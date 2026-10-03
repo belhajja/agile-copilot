@@ -20,14 +20,14 @@ describe('checkOutboundUrl', () => {
   });
 
   it.each([
-    ['ftp://jira.example.com', /http/],
-    ['https://user:pw@jira.example.com', /credentials/],
-    ['not a url', /valid URL/],
-    ['http://localhost:8080', /private|localhost/],
-    ['http://metadata.google.internal', /blocked/],
-  ])('rejects %s', async (url, reason) => {
+    ['ftp://jira.example.com', /http/, 'scheme'],
+    ['https://user:pw@jira.example.com', /credentials/, 'credentials'],
+    ['not a url', /valid URL/, 'invalid_url'],
+    ['http://localhost:8080', /private|localhost/, 'localhost'],
+    ['http://metadata.google.internal', /blocked/, 'blocked_host'],
+  ])('rejects %s', async (url, reason, code) => {
     const r = await checkOutboundUrl(url, opts(resolveTo('8.8.8.8')));
-    expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(reason) });
+    expect(r).toMatchObject({ ok: false, code, reason: expect.stringMatching(reason) });
   });
 
   it.each([
@@ -40,11 +40,15 @@ describe('checkOutboundUrl', () => {
     'fd00::1',
   ])('rejects hosts resolving to %s', async (ip) => {
     const r = await checkOutboundUrl('https://jira.corp.example', opts(resolveTo('8.8.8.8', ip)));
-    expect(r.ok).toBe(false);
+    expect(r).toMatchObject({ ok: false, code: 'private_address', host: 'jira.corp.example' });
   });
 
   it('rejects private IP literals', async () => {
-    expect((await checkOutboundUrl('http://10.1.2.3/jira', opts(resolveTo()))).ok).toBe(false);
+    expect(await checkOutboundUrl('http://10.1.2.3/jira', opts(resolveTo()))).toMatchObject({
+      ok: false,
+      code: 'private_address',
+      host: '10.1.2.3',
+    });
   });
 
   it('allows private hosts (and their subdomains) on the operator allowlist without DNS', async () => {
@@ -64,6 +68,8 @@ describe('checkOutboundUrl', () => {
     };
     expect(await checkOutboundUrl('https://nope.example', opts(failing))).toMatchObject({
       ok: false,
+      code: 'unresolvable',
+      host: 'nope.example',
       reason: expect.stringMatching(/resolve/),
     });
   });

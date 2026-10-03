@@ -98,6 +98,7 @@ describe('llm connections', () => {
     expect(await createLlmConnection(deps, owner(), { label: 'Ollama', config })).toMatchObject({
       ok: false,
       code: 'blocked_url',
+      detail: { reason: 'private_address', host: '127.0.0.1' },
     });
     const allowed = { ...deps, allowedPrivateHosts: ['127.0.0.1'] };
     expect(await createLlmConnection(allowed, owner(), { label: 'Ollama', config })).toMatchObject({

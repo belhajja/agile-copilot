@@ -9,7 +9,7 @@ import {
   type ProbeFailureCode,
   probeModel,
 } from '@agile/llm';
-import { checkOutboundUrl } from '@agile/net';
+import { type BlockedUrlReason, checkOutboundUrl } from '@agile/net';
 import { desc, eq, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
@@ -39,6 +39,7 @@ export type LlmServiceFailure = {
   ok: false;
   code: ProbeFailureCode | 'blocked_url' | 'not_found';
   message: string;
+  detail?: { reason: BlockedUrlReason; host?: string };
 };
 
 const notFound: LlmServiceFailure = {
@@ -101,7 +102,14 @@ async function probe(
 ): Promise<LlmProbeResult | LlmServiceFailure> {
   if (config.provider === 'openai_compatible') {
     const check = await checkOutboundUrl(config.baseUrl, deps);
-    if (!check.ok) return { ok: false, code: 'blocked_url', message: check.reason };
+    if (!check.ok) {
+      return {
+        ok: false,
+        code: 'blocked_url',
+        message: check.reason,
+        detail: { reason: check.code, host: check.host },
+      };
+    }
   }
   if (deps.probe) return deps.probe(config);
   let model: ReturnType<typeof createLanguageModel>;

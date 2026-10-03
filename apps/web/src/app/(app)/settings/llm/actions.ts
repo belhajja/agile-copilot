@@ -15,7 +15,7 @@ import { connectionDeps, requireActor } from '@/server/context';
 export type FormState =
   | { status: 'idle' }
   | { status: 'ok' }
-  | { status: 'error'; code: string; message?: string };
+  | { status: 'error'; code: string; reason?: string; host?: string };
 
 const common = {
   label: z.string().trim().min(1).max(80),
@@ -58,11 +58,8 @@ export async function createLlmConnectionAction(
       config: config as LlmConfig,
     });
     if (!result.ok) {
-      return {
-        status: 'error',
-        code: result.code,
-        message: result.code === 'blocked_url' ? result.message : undefined,
-      };
+      // blocked_url carries a reason code (and host) the form translates; result.message is English, for logs only.
+      return { status: 'error', code: result.code, ...result.detail };
     }
   } catch (e) {
     if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };
@@ -72,17 +69,25 @@ export async function createLlmConnectionAction(
   return { status: 'ok' };
 }
 
+const isId = (id: unknown) => z.uuid().safeParse(id).success;
+
 export async function retestLlmConnectionAction(id: string): Promise<void> {
-  await retestLlmConnection(connectionDeps(), await requireActor(), id);
+  const actor = await requireActor();
+  if (!isId(id)) return;
+  await retestLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }
 
 export async function deleteLlmConnectionAction(id: string): Promise<void> {
-  await deleteLlmConnection(connectionDeps(), await requireActor(), id);
+  const actor = await requireActor();
+  if (!isId(id)) return;
+  await deleteLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }
 
 export async function setDefaultLlmConnectionAction(id: string): Promise<void> {
-  await setDefaultLlmConnection(connectionDeps(), await requireActor(), id);
+  const actor = await requireActor();
+  if (!isId(id)) return;
+  await setDefaultLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }

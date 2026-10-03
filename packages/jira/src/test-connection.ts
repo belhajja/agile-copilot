@@ -36,7 +36,14 @@ export async function testJiraConnection(
   }
   if (creds.kind !== 'cloud_oauth') {
     const check = await checkOutboundUrl(creds.baseUrl, opts);
-    if (!check.ok) return { ok: false, code: 'blocked_url', message: check.reason };
+    if (!check.ok) {
+      return {
+        ok: false,
+        code: 'blocked_url',
+        message: check.reason,
+        detail: { reason: check.code, host: check.host },
+      };
+    }
   }
   return probeJira(creds, { atlassianApiBase: opts.atlassianApiBase });
 }

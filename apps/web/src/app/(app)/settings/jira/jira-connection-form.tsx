@@ -38,10 +38,13 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
   }, [state, t]);
 
   const errorText =
-    state.status === 'error'
-      ? (state.message ??
-        (t.has(`errors.${state.code}`) ? t(`errors.${state.code}`) : t('errors.unknown')))
-      : null;
+    state.status !== 'error'
+      ? null
+      : state.code === 'blocked_url' && state.reason && t.has(`errors.blocked.${state.reason}`)
+        ? t(`errors.blocked.${state.reason}`, { host: state.host ?? '' })
+        : t.has(`errors.${state.code}`)
+          ? t(`errors.${state.code}`)
+          : t('errors.unknown');
 
   return (
     <Card>
