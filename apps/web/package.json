@@ -17,6 +17,7 @@
     "@agile/jira": "workspace:*",
     "@agile/llm": "workspace:*",
     "@agile/net": "workspace:*",
+    "@next/env": "16.3.8",
     "arctic": "3.7.0",
     "better-auth": "1.7.7",
     "class-variance-authority": "^0.7.1",

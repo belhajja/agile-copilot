@@ -17,6 +17,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Production build (no env needed)
+        run: pnpm --filter @agile/web build
   e2e:
     runs-on: ubuntu-latest
     services:

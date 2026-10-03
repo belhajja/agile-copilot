@@ -53,6 +53,9 @@ importers:
       '@agile/net':
         specifier: workspace:*
         version: link:../../packages/net
+      '@next/env':
+        specifier: 16.3.8
+        version: 16.3.8
       arctic:
         specifier: 3.7.0
         version: 3.7.0

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24-alpine AS base
-RUN corepack enable
+# Pre-fetch pnpm so the migrate container runs without network access.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
 WORKDIR /repo
 
 FROM base AS deps
