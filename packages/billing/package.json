@@ -1,0 +1,23 @@
+{
+  "name": "@agile/billing",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plans": "./src/plans.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/auth": "workspace:*",
+    "@agile/db": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "stripe": "23.0.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.0",
+    "testcontainers": "12.2.0"
+  }
+}

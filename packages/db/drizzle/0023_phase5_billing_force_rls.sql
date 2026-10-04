@@ -1,0 +1,1 @@
+ALTER TABLE billing_subscriptions FORCE ROW LEVEL SECURITY;
