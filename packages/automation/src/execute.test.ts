@@ -281,7 +281,7 @@ describe('executing a run: owner, read-only report, delivery', () => {
   it('posts nothing for an owner who is no longer an owner or admin (P4-R4)', async () => {
     const id = await skillFor(owner(), 'demoted-post', 'slack', { channelId: h.slackChannelId });
     const runId = await queue(id);
-    await setOwnerRole('member');
+    await setOwnerRole('viewer');
     try {
       const posts = h.hook.posts.length;
       const calls = h.llm.requests.length;

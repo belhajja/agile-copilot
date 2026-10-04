@@ -28,7 +28,7 @@ export async function startAutomationHarness(opts: { script?: MockScript } = {})
   ]);
   await h.rawDb.insert(memberTable).values([
     { id: 'm1', organizationId: 'org_a', userId: owner().userId, role: 'owner', createdAt: now },
-    { id: 'm2', organizationId: 'org_a', userId: member().userId, role: 'member', createdAt: now },
+    { id: 'm2', organizationId: 'org_a', userId: member().userId, role: 'viewer', createdAt: now },
   ]);
   const testMessage = { title: DIGEST_LABELS.en.testTitle, text: DIGEST_LABELS.en.testText };
   const email = await createDeliveryChannel(

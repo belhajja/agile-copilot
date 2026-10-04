@@ -714,7 +714,7 @@ describe('planning background runs (schedules, alerts, limits)', () => {
         id: 'm2',
         organizationId: 'org_a',
         userId: member().userId,
-        role: 'member',
+        role: 'viewer',
         createdAt: t0,
       });
     }

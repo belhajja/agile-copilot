@@ -50,12 +50,12 @@ export async function orgIdOf(email: string) {
 
 /**
  * Test-only stand-in for an accepted invitation (there is no invitation UI yet): it writes what
- * accepting one produces, a `member` row with role `member` and the session's active workspace.
+ * accepting one produces, a `member` row with role `viewer` and the session's active workspace.
  */
 export async function joinAsMember(email: string, orgId: string) {
   await asOwner(sql`
     insert into member (id, organization_id, user_id, role, created_at)
-    select gen_random_uuid()::text, ${orgId}, u.id, 'member', now() from "user" u
+    select gen_random_uuid()::text, ${orgId}, u.id, 'viewer', now() from "user" u
     where u.email = ${email}`);
   await asOwner(sql`
     update session set active_organization_id = ${orgId}
