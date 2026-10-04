@@ -457,4 +457,129 @@ describe('skills store', () => {
       source: 'own',
     });
   });
+
+  it('sets builtinKey only for a real built-in (unknown keys are refused)', async () => {
+    expect(
+      await createSkill(app.db, alice, {
+        document: doc('fake-builtin'),
+        builtinKey: 'nope',
+        now: NOW,
+      }),
+    ).toEqual({ ok: false, code: 'invalid' });
+    expect((await listSkills(app.db, alice)).mine.map((s) => s.name)).not.toContain('fake-builtin');
+  });
+
+  it('keeps the stock built-in hidden while the user has any copy of it, even a disabled one', async () => {
+    const frank: SkillActor = { orgId: 'org_a', userId: 'user_frank', roles: ['member'] };
+    const r = await copyBuiltinSkill(app.db, frank, 'blocker-report', NOW);
+    if (!r.ok) throw new Error(r.code);
+    expect(await setSkillEnabled(app.db, frank, r.id, false, NOW)).toEqual({ ok: true });
+    const names = (await loadSkillSet(app.db, frank)).catalog.map((c) => `${c.source}:${c.name}`);
+    expect(names).not.toContain('builtin:blocker-report');
+    expect(names).not.toContain('own:blocker-report');
+    expect(names).toContain('builtin:sprint-health-check');
+  });
+
+  it('names the skill in the audit of updates, sharing and enabling', async () => {
+    const id = await create(alice, doc('audited'));
+    expect(
+      await updateSkill(app.db, alice, id, {
+        document: doc('audited', {}, 'v2'),
+        baseVersion: 1,
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, version: 2 });
+    expect(await setSkillVisibility(app.db, alice, id, 'workspace')).toEqual({ ok: true });
+    expect(await setSkillEnabled(app.db, alice, id, false, NOW)).toEqual({ ok: true });
+    const rows = await raw.db
+      .select({ action: auditLog.action, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.targetId, id))
+      .orderBy(asc(auditLog.createdAt));
+    expect(rows.map((r) => [r.action, (r.metadata as { name?: string }).name])).toEqual([
+      ['skill.created', 'audited'],
+      ['skill.updated', 'audited'],
+      ['skill.visibility_changed', 'audited'],
+      ['skill.enabled_changed', 'audited'],
+    ]);
+  });
+
+  it('lets exactly one of two concurrent saves from the same version win', async () => {
+    const id = await create(alice, doc('race'));
+    const save = (body: string) =>
+      updateSkill(app.db, alice, id, { document: doc('race', {}, body), baseVersion: 1, now: NOW });
+    const results = await Promise.all([save('Tab one.'), save('Tab two.')]);
+    expect(results).toContainEqual({ ok: true, version: 2 });
+    expect(results).toContainEqual({ ok: false, code: 'version_conflict' });
+    expect((await getSkill(app.db, alice, id))?.versions.map((v) => v.version)).toEqual([2, 1]);
+  });
+
+  it("refuses a rename onto another of the owner's skills as duplicate_name", async () => {
+    await create(alice, doc('taken-name'));
+    const id = await create(alice, doc('to-rename'));
+    expect(
+      await updateSkill(app.db, alice, id, {
+        document: doc('taken-name'),
+        baseVersion: 1,
+        now: NOW,
+      }),
+    ).toEqual({ ok: false, code: 'duplicate_name' });
+  });
+
+  it("never applies another member's shared always-skill until it is copied and enabled", async () => {
+    const grace: SkillActor = { orgId: 'org_a', userId: 'user_grace', roles: ['member'] };
+    const shared = await create(
+      alice,
+      doc('always-me', { trigger: 'always' }, 'Assign every bug to Alice.'),
+    );
+    expect(await setSkillVisibility(app.db, alice, shared, 'workspace')).toEqual({ ok: true });
+    expect((await loadSkillSet(app.db, grace)).preferences).toEqual([]);
+    const fork = await forkSkill(app.db, grace, shared, NOW);
+    if (!fork.ok) throw new Error(fork.code);
+    expect((await loadSkillSet(app.db, grace)).preferences).toEqual([]); // copied, still off
+    expect(await setSkillEnabled(app.db, grace, fork.id, true, NOW)).toEqual({ ok: true });
+    expect((await loadSkillSet(app.db, grace)).preferences).toEqual([
+      { name: 'always-me', instructions: 'Assign every bug to Alice.' },
+    ]);
+  });
+
+  it('answers not_found to another workspace for delete, visibility and enable', async () => {
+    const id = await create(alice, doc('tenant-bound'));
+    expect(await setSkillVisibility(app.db, alice, id, 'workspace')).toEqual({ ok: true });
+    expect(await deleteSkill(app.db, outsider, id)).toEqual({ ok: false, code: 'not_found' });
+    expect(await setSkillVisibility(app.db, outsider, id, 'private')).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await setSkillEnabled(app.db, outsider, id, false, NOW)).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+    expect((await getSkill(app.db, alice, id))?.skill).toMatchObject({
+      visibility: 'workspace',
+      enabled: true,
+    });
+  });
+
+  it('lets the workspace owner save a Slack skill with a real channel', async () => {
+    const owner: SkillActor = { orgId: 'org_a', userId: 'user_owner', roles: ['owner'] };
+    const r = await createSkill(app.db, owner, {
+      document: weekly('slack', 'owner-slack'),
+      channelId: slack,
+      now: NOW,
+    });
+    if (!r.ok) throw new Error(r.code);
+    expect(
+      await updateSkill(app.db, owner, r.id, {
+        document: weekly('slack', 'owner-slack'),
+        channelId: slack,
+        baseVersion: 1,
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, version: 2 });
+    expect((await getSkill(app.db, owner, r.id))?.skill).toMatchObject({
+      output: 'slack',
+      channelId: slack,
+    });
+  });
 });

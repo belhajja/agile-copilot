@@ -101,7 +101,12 @@ export interface LoadedSkill {
 /**
  * The one loader of skills with their current document: a single joined query (skill, current
  * version, owner name) for every caller — catalog, planner, runs, pages — never one query per
- * skill. Runs inside the caller's tenant transaction (`withOrg`); `where` narrows the skills.
+ * skill. Runs inside the caller's tenant transaction (`withOrg`).
+ *
+ * Internal use only (packages and server code, never with request input as the filter): it
+ * applies no authorization. RLS bounds it to the tenant, but within the tenant it returns every
+ * member's skills, private ones included. Callers MUST scope `where` themselves (e.g. owner,
+ * enabled, readable-by-actor) before showing or running anything it returns.
  */
 export async function loadSkillsWithDocuments(tx: Tx, where?: SQL): Promise<LoadedSkill[]> {
   const rows = await tx
@@ -304,6 +309,10 @@ export async function createSkill(
   const channelId = input.channelId ?? null;
   const forkedFrom = input.forkedFrom ?? null;
   if (forkedFrom && !isUuid(forkedFrom.id)) return notFound;
+  // Only real built-ins: the catalog hides the stock skill behind any skill carrying its key.
+  if (input.builtinKey != null && !builtinSkill(input.builtinKey)) {
+    return { ok: false, code: 'invalid' };
+  }
   try {
     return await withOrg(db, actor.orgId, async (tx) => {
       // `forked_from_id` has no foreign key: the source must be a skill this actor can read.
@@ -375,6 +384,16 @@ async function lockOwn(tx: Tx, actor: SkillActor, id: string): Promise<SkillRow 
   return row;
 }
 
+/** The unique index a Postgres unique_violation hit (drizzle wraps it in `cause`), else null. */
+function uniqueConstraint(e: unknown): string | null {
+  if (!isUniqueViolation(e)) return null;
+  for (let cur: unknown = e; cur; cur = (cur as { cause?: unknown }).cause) {
+    const name = (cur as { constraint_name?: unknown }).constraint_name;
+    if (typeof name === 'string') return name;
+  }
+  return null;
+}
+
 const isFailure = (v: unknown): v is SkillFailure =>
   typeof v === 'object' && v !== null && (v as { ok?: unknown }).ok === false;
 
@@ -442,12 +461,17 @@ export async function updateSkill(
         action: 'skill.updated',
         targetType: 'skill',
         targetId: id,
-        metadata: { version, trigger: f.trigger, output: f.output },
+        metadata: { name: f.name, version, trigger: f.trigger, output: f.output },
       });
       return { ok: true, version } as const;
     });
   } catch (e) {
-    if (isUniqueViolation(e)) return { ok: false, code: 'duplicate_name' };
+    // The row lock makes a version clash unlikely; if one slips through it is still a conflict.
+    const constraint = uniqueConstraint(e);
+    if (constraint === 'skill_versions_skill_version_uq') {
+      return { ok: false, code: 'version_conflict' };
+    }
+    if (constraint === 'skills_owner_name_uq') return { ok: false, code: 'duplicate_name' };
     throw e;
   }
 }
@@ -533,7 +557,7 @@ export async function setSkillVisibility(
       action: 'skill.visibility_changed',
       targetType: 'skill',
       targetId: id,
-      metadata: { visibility },
+      metadata: { name: row.name, visibility },
     });
     return { ok: true } as const;
   });
@@ -561,7 +585,7 @@ export async function setSkillEnabled(
       action: 'skill.enabled_changed',
       targetType: 'skill',
       targetId: id,
-      metadata: { enabled },
+      metadata: { name: row.name, enabled },
     });
     return { ok: true } as const;
   });
