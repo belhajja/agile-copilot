@@ -142,13 +142,13 @@ The sync never stores raw Jira error messages: a failed sync shows a short reaso
 
 The image is pinned by digest (`ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:…`, the same reference as `MCP_ATLASSIAN_IMAGE` in `packages/jira-tools/src/image.ts`, which the contract test runs; a test keeps the compose files in sync). Both compose files configure it for the deployment, never per workspace:
 
-- `ENABLED_TOOLS`: the shared instance enables the 11 catalog tools plus `jira_search_assignable_users`, which the server uses to resolve an assignee exactly before an assignment (the model never sees it). The read-only twin enables the 6 read tools and sets `READ_ONLY_MODE=true`; nothing calls it yet (Phase 4 scheduled skills will).
+- `ENABLED_TOOLS`: the shared instance enables the 11 catalog tools plus `jira_search_assignable_users`, which the server uses to resolve an assignee exactly before an assignment (the model never sees it). The read-only twin enables the 6 read tools and sets `READ_ONLY_MODE=true`; skill runs (worker) and skill previews (web) use it through `MCP_ATLASSIAN_READONLY_URL`, never the read-write instance.
 - `ATLASSIAN_OAUTH_ENABLE=true`, so the shared instance accepts each user's OAuth token and cloud id per request.
 - Never set `JIRA_URL`, Jira tokens or usernames, or `ALLOW_GLOBAL_CRED_FALLBACK` on it: every request carries its own credentials, and a request without them is refused.
 - `MCP_ALLOWED_URL_DOMAINS` (passed from `.env`): Data Center hosts that resolve to private addresses (list them in `ALLOWED_PRIVATE_HOSTS` too, for the app). Empty = unset. **Once set, it is an allowlist for every Data Center host, public ones included: list them all**, or the others stop working. mcp-atlassian refuses `localhost` and IP-literal URLs even when listed.
 - Each self-host mcp-atlassian container is capped at `mem_limit: 512m`; raise it in the compose file if it is killed under load.
 - The web app does not wait for mcp-atlassian (`depends_on` is `migrate` only): if the sidecar is down or its image cannot be pulled, the app and dashboards still work, and the assistant's Jira tools for Data Center PATs and "Connect with Atlassian" answer *unavailable* until it is back.
-- The self-host compose puts mcp-atlassian on its own `mcp` network, shared only with the web app: it cannot reach Postgres or the worker (its own outbound check, `MCP_ALLOWED_URL_DOMAINS`, is not DNS-pinned like the app's). The app never follows a redirect from `MCP_ATLASSIAN_URL`.
+- The self-host compose puts mcp-atlassian on its own `mcp` network, shared only with the web app: it cannot reach Postgres or the worker (its own outbound check, `MCP_ALLOWED_URL_DOMAINS`, is not DNS-pinned like the app's). The read-only twin has its own `mcp-readonly` network, shared with the web app and the worker (skill runs): the worker can reach the twin, never the read-write instance. The app never follows a redirect from `MCP_ATLASSIAN_URL`.
 - `MCP_ATLASSIAN_URL` (web app) is a trusted deployment setting: the app sends users' Jira tokens to it. Point it only at your own internal service (`http://mcp-atlassian:8000/mcp` in the self-host compose, which sets it for you); never publish mcp-atlassian outside the compose network.
 
 ### Checking AI providers and Jira through the assistant by hand
@@ -190,6 +190,88 @@ Record results here (**NOT YET RUN**: no provider API keys, Atlassian OAuth app,
 | —    | 7. Members get no live Jira tools | — | NOT YET RUN | | |
 | —    | 8. Markdown → wiki markup on both backends | — | NOT YET RUN | | |
 
+## Skills
+
+**Skills** (sidebar) are saved instructions for the assistant, written as a `SKILL.md` document (YAML settings between `---` lines, then Markdown instructions):
+
+```markdown
+---
+name: monday-risks
+description: Stories at risk for the sprint goal, every Monday
+trigger: schedule          # on_demand | always | schedule | alert
+schedule:
+  cron: "0 8 * * 1"         # 5 fields, at most hourly
+  timezone: Europe/Paris
+output: email              # chat | dashboard_card | email | slack | teams
+---
+
+1. Call list_boards. 2. For each Scrum board, check the sprint burndown and list the stories at risk.
+```
+
+- **On demand.** The assistant sees the names and descriptions of your skills and of the built-in library as data, and loads a skill's full text with `load_skill` when your question matches it. Skill text reaches the model as your own instructions inside a fixed `<skill>` envelope, never in the system prompt.
+- **Always (preferences).** Your enabled `always` skills (e.g. "answer in French, never name individuals") are added to every conversation and to every run of your skills.
+- **Schedule.** Runs once per scheduled time (5-field cron, at most hourly, in the skill's time zone), never for times before the skill was saved, and skips a time missed by more than an hour (no catch-up burst after an outage).
+- **Alert.** Compares one KPI metric with a number on each board in scope (`alert: { metric: wip, op: ">", value: 10 }`, `op` one of `>`, `>=`, `<`, `<=`), without any AI call. The skill runs when a board starts matching, at most once every 12 hours.
+- **Outputs.** On-demand and `always` skills answer in the chat. For background runs: `chat` keeps the report on the skill's page, `dashboard_card` shows it as an insight card on your board dashboards, and `email`, `slack` and `teams` are delivered (see Delivery). `scope` lists board ids.
+- **Built-in library.** Nine editable templates: sprint health check, daily stand-up brief, retro prep, stale/aging work, scope-creep watcher, delivery forecast, blocker report, Kanban flow review, team workload balance. Copy one to make it yours; while any copy of a built-in exists (enabled or not) the stock entry is hidden, so delete the copy to get it back.
+- **Versions.** Every save is a new version and any older version can be restored. Two tabs cannot overwrite each other.
+- **Who can do what.** Any member can create skills. Only a skill's owner edits it. The owner can **share** it with the workspace (others can read and copy it) or make it private again. An owner or admin can delete a *shared* skill (moderation); a private skill is deleted only by its owner.
+- **Copying.** A shared skill never reaches another member's assistant until they copy it, and you copy only from the skill's own page, where its text is visible. A copy is a snapshot (later edits of the original do not reach it) and **starts disabled**: read it, then enable it.
+
+### Background runs
+
+- **Read-only.** A scheduled, alert or **Run now** run (and a builder preview) has no write tool. It offers the analytics tools and, for owners and admins, the Jira *read* tools through the read-only mcp-atlassian twin (`MCP_ATLASSIAN_READONLY_URL`; where it is unset, runs use synced data only). A report recommends actions; changes stay in the chat, under approval.
+- **Whose permissions.** A run executes as the skill's owner with the owner's *current* role. **Members get the analytics tools only** (synced, selected boards), as in the chat.
+- **Slack and Teams outputs are for owners and admins only**, until Phase 5 roles: checked when the skill is saved and again at run time (a run whose owner no longer qualifies fails with `forbidden_role`).
+- **Run outputs are private to the owner.** Other members and admins see that a run happened and its status, never its report or delivery detail, even on a shared skill.
+- **Limits per run:** 6 model steps, 2,000 output tokens, 120 seconds, and **no automatic retries** (each attempt costs a model call; a failed run is shown to the owner). Alerts are evaluated without any model call.
+- **`SKILL_RUNS_DAILY_LIMIT`** (default 50): runs per workspace per rolling 24 hours. Over it, a run is recorded as `skipped` with `daily_limit`. `0` disables skill runs. Previews and drafts are metered on **Settings → Usage** (shown apart from chat answers) but do not count against this limit.
+- **Background model.** Runs use the workspace's background model (Settings → AI model → *Use for skill runs*), falling back to the default model.
+- **Owner left.** If the owner is no longer a member of the workspace, the skill is auto-disabled (audited, with one skipped run recorded as `owner_left`) instead of running.
+- **Snapshot delivery.** The output kind and channel are copied into the run when it is planned, and the run is delivered from that snapshot: editing the skill during a run cannot redirect it.
+- **The queue.** The worker (pg-boss, `pgboss` schema) runs a scheduler tick every 5 minutes that plans due schedules and alerts; each run is one job (one job per run id, no job retries, 10-minute expiry). **Run now** in the web app queues a job for the worker; the web app never runs a background run itself, so the worker must be running. A run still `queued` after 10 minutes is queued again, and one queued or running for 30 minutes (e.g. a crashed worker) is closed as failed (`interrupted`).
+
+### Skill builder
+
+Describe the skill in your words, **Draft with AI**, edit the `SKILL.md`, **Preview on real data** (one read-only run as you, nothing delivered), then **Save**. The draft comes from a forced `propose_skill` tool call that the server validates and turns into the document (the model never writes the YAML); an invalid proposal falls back to an on-demand chat skill. **Drafts are never saved automatically**: review before saving, since a draft built from Jira text is stored text that will later run. Each user may make **20 drafts or previews per hour**; a slot is reserved before the model is called, so a burst cannot exceed it.
+
+### Delivery
+
+Configure channels at **Settings → Delivery** (owners and admins). Each channel is tested when saved; URLs and passwords are encrypted and never shown again.
+
+- **Email (SMTP).** One SMTP channel per workspace (Nodemailer, React Email template). The host is resolved once and the connection is **pinned** to the address that passed the outbound check. Security is `starttls` (STARTTLS **required**, no downgrade), `tls` (implicit TLS) or `none`; TLS 1.2 or later. **Plaintext (`none`) only to hosts in `ALLOWED_PRIVATE_HOSTS`**, checked again on every send (`insecure_transport`). Mail goes to the skill owner's account address only, as plain text with nothing remote loaded; subject, footer and link follow the owner's UI language at the last save.
+- **Slack and Teams.** Incoming webhooks. Text is escaped (Slack control characters; Markdown link and image syntax for Teams) so model output built from Jira text cannot ping or link, Slack unfurling is off, and the link back to the app is plain text. A plain `http://` webhook is accepted only for `ALLOWED_PRIVATE_HOSTS`. Owner/admin skills only (above).
+- **Channel usage.** The Delivery page lists, for each channel, the skills that use it. Deleting a channel keeps the run history.
+- **Dev.** `docker compose up -d mailpit` runs a mail catcher (SMTP 127.0.0.1:1025, web UI http://127.0.0.1:8025). Add it as an SMTP channel with security `none` and list `127.0.0.1` in `ALLOWED_PRIVATE_HOSTS`. `docker compose up -d mcp-atlassian-readonly` runs the read-only twin on 4061 (`MCP_ATLASSIAN_READONLY_URL=http://127.0.0.1:4061/mcp`).
+
+### Pinned charts from the chat
+
+Ask "pin the cycle time for DEMO Scrum": the assistant adds a widget from the dashboard catalog (a validated spec, never code) to the **Pinned** tab of that board. It is your own dashboard, so there is no approval; the action is audited as `dashboard.widget_pinned` and removable with one click (on the Pinned tab only). A dashboard holds **at most 40 charts**; beyond that the pin is refused (`dashboard_full`).
+
+### Skills operations
+
+- **Networks (self-host compose).** `mcp` holds the read-write mcp-atlassian and the **web app only**. `mcp-readonly` holds the read-only twin and is shared by the **web app (previews) and the worker (runs)**: the worker can reach the twin and never the read-write instance. Neither is published.
+- **Settings.** The self-host compose sets `MCP_ATLASSIAN_READONLY_URL` (`http://mcp-atlassian-readonly:8000/mcp`) and `SKILL_RUNS_DAILY_LIMIT` for web and worker; both are in `.env.example`.
+- **The twin** runs the same pinned image with the six read tools and `READ_ONLY_MODE=true`.
+
+### Checking delivery by hand
+
+The tests use an SMTP mock, a webhook receiver and (in Vitest) a real Mailpit. Before relying on delivery, run these once against real services:
+
+1. **SMTP.** Add your provider's SMTP with `starttls` (then `tls`), a skill with `output: email`, **Run now**: the mail arrives at the owner's address as plain text with no remote content. `none` towards a public host is refused.
+2. **Slack.** Add an incoming webhook and an admin-owned skill with `output: slack`, **Run now**: the post appears, links are not unfurled, and Jira text containing `@here` or `<!channel>` notifies nobody.
+3. **Teams.** The same with a Teams webhook: the card renders and `[text](url)` in Jira text is not a link.
+4. **Read-only runs on real Jira.** A scheduled skill owned by an admin on a Data Center PAT connection and on a Cloud OAuth connection reads Jira through the twin; a member's skill gets analytics only.
+
+Record results here (**NOT YET RUN**: no SMTP provider, Slack or Teams workspace or real Jira was available when this was written; nothing below has been checked live):
+
+| Date | Check | Provider / service | Result | Notes | Checked by |
+| ---- | ----- | ------------------ | ------ | ----- | ---------- |
+| —    | 1. Live SMTP (STARTTLS and TLS) | — | NOT YET RUN | | |
+| —    | 2. Live Slack webhook | — | NOT YET RUN | | |
+| —    | 3. Live Teams webhook | — | NOT YET RUN | | |
+| —    | 4. Read-only runs through the twin on real Jira | — | NOT YET RUN | | |
+
 ## Validating against a real Jira
 
 Automated tests run the same contract against a Cloud-flavoured and a Data Center-flavoured mock Jira (REST v3/`search/jql` with page tokens, REST v2/`search` with offsets, the Agile API, truncated changelogs and HTTP 429). Before relying on a new Jira version, run this checklist once against a real site (a [Data Center trial container](https://hub.docker.com/r/atlassian/jira-software) with a time-bombed licence, and a Jira Cloud sandbox):
@@ -220,7 +302,8 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - Every connection change is written to an audit log.
 - Connections are tested before they are saved (Jira reachability; LLM tool-calling support).
 - An outbound URL guard blocks requests to private, loopback and link-local addresses unless the host is in `ALLOWED_PRIVATE_HOSTS`. Requests to user-supplied hosts (Jira, OpenAI-compatible model URLs) connect only to the address that passed this check, resolved once at connect time, so DNS rebinding cannot redirect them.
-- The assistant never writes to Jira without the user's explicit approval of that exact change.
+- The assistant never writes to Jira without the user's explicit approval of that exact change. Skill runs have no write tools at all.
+- Skills written by other members never reach your assistant unless you copy them (they start disabled); skill emails go only to the skill owner's own address; Slack/Teams posts are escaped and not unfurled.
 
 ### Known limitations
 
@@ -228,6 +311,13 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - Approval cards show the proposed values, not a before/after diff of the Jira fields.
 - Only workspace owners and admins get live Jira through the assistant (reads and changes) until Phase 5 roles; members use the analytics tools.
 - Assignees: the built-in client (Cloud API tokens) skips deactivated people and Cloud app/customer accounts; mcp-atlassian 0.23.1 does not report those fields, so on its path the exact-name match relies on Jira's assignable-user search (active users who can be assigned the issue).
+- Skill email goes to the skill owner's account address, which is not verified yet (P4-R9). The run uses the owner's role and members get analytics only, so a member can only email themselves data they can already see; an admin with a mistyped or compromised address receives reports. Phase 5 SSO (IdP-verified email) closes this.
+- There is no hard allowlist of Slack/Teams webhook hosts (P4-R26): an admin can point a channel at any public https receiver (plain http only for `ALLOWED_PRIVATE_HOSTS`). A `WEBHOOK_ALLOWED_HOSTS` option is a Phase 5 candidate.
+- Accepted residual: Jira text injected into a chat can make the model pin a chart (own dashboard, audited, capped at 40, removable); it cannot write to Jira.
+- Skill emails go to the skill owner only (no other recipients yet); Slack and Teams channels serve teams.
+- Slack/Teams outputs need an owner/admin skill owner until Phase 5 roles.
+- A workspace-wide preference set by an admin for everyone does not exist yet: each member adds (or copies) their own `always` skills.
+- The `SKILL_RUNS_DAILY_LIMIT` caps a count, not money: an expensive model can still cost more per run (admins see spend on Usage).
 - The key-rotation re-wrap command does not exist yet (Phase 5).
 
 ## Development
@@ -239,4 +329,4 @@ pnpm lint        # Biome
 pnpm typecheck
 ```
 
-Docker is required for tests because the database tests start Postgres through Testcontainers. The e2e suite runs the web app on port 3200 and the sync worker (health on 4030) against Postgres on 5433, with local mock Jira (4010, serving a demo dataset), LLM (4020, a scripted tool-calling model) and mcp-atlassian (4050, a double with the same tools that writes to the mock Jira) servers. `pnpm test` also runs a contract test against the real `ghcr.io/sooperset/mcp-atlassian` image (pulled by Testcontainers). The dev compose's mcp-atlassian uses 4060. The first visit of each page makes `next dev` compile it; if a cold run times out, run it again (CI uses longer timeouts: `CI=true pnpm e2e`).
+Docker is required for tests because the database tests start Postgres through Testcontainers. The e2e suite runs the web app on port 3200 and the sync worker (health on 4030) against Postgres on 5433, with local mock Jira (4010, serving a demo dataset), LLM (4020, a scripted tool-calling model) mcp-atlassian (4050, a double with the same tools that writes to the mock Jira; it also stands in for the read-only twin), plus SMTP and webhook receiver mocks for skill delivery. `pnpm test` also runs a contract test against the real `ghcr.io/sooperset/mcp-atlassian` image (pulled by Testcontainers). The dev compose's mcp-atlassian uses 4060, its read-only twin 4061 and Mailpit 1025/8025. `pnpm test` also runs an email contract test against the real Mailpit image. The first visit of each page makes `next dev` compile it; if a cold run times out, run it again (CI uses longer timeouts: `CI=true pnpm e2e`).

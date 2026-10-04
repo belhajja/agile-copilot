@@ -130,6 +130,18 @@ Operational rules that follow:
 - **Built-in library** (editable templates): Sprint health check, Daily standup brief, Retro prep, Stale/aging work detector, Scope-creep watcher, Delivery forecast, Blocker report, Kanban flow review, Team workload balance.
 - **"Always" preferences** (e.g. "we use story points, sprint = 2 weeks, answer in French, never name individuals in reports") are injected into every conversation.
 
+**Phase 4 decisions (2026-10-04; additions, the text above is unchanged):**
+- **Skill runs are read-only.** Scheduled, alert and "Run now" runs (and builder previews) execute as the skill's owner with the owner's role read at run time: analytics tools for everyone, plus the Jira read tools (read-only mcp-atlassian twin, `MCP_ATLASSIAN_READONLY_URL`) for owners/admins only; members get analytics only (P3-R25). No write tool exists in a run, so nothing is proposed or queued for approval; reports recommend actions.
+- **Skill text reaches the model only as the owner's own instructions**, as messages (never in the system prompt) inside a fixed `<skill>` envelope; names and descriptions are data until `load_skill`. A shared skill never reaches another member's assistant until they copy it from its own page; copies start disabled. Only the owner edits; owners/admins may delete shared skills. Run outputs and delivery detail are owner-only (P4-R1).
+- **Email goes to the skill owner's account address only**, through the workspace's single SMTP channel (admin-configured, tested, encrypted, SSRF-checked, connection pinned to the checked address, STARTTLS required or implicit TLS; plaintext only towards `ALLOWED_PRIVATE_HOSTS`, re-checked at send). The address is not verified until Phase 5 SSO (P4-R9, accepted residual).
+- **Slack/Teams (Teams added) are webhooks**, escaped and never unfurled, usable only by skills whose owner is owner/admin, checked at save and at run time (P4-R4). There is no hard webhook host allowlist (P4-R26); a Phase 5 option.
+- **Alerts are a deterministic comparison** of one KPI metric with a number per board in scope, without a model call; edge-triggered, 12-hour cooldown.
+- **Cost control:** background model per workspace; per run 6 steps, 2,000 output tokens, 120 s, no retries; schedules at most hourly; `SKILL_RUNS_DAILY_LIMIT` (default 50, 0 disables); builder drafts and previews 20 per user per hour (burst-safe reservation, P4-R29).
+- **Runs are queued through pg-boss** (worker tick every 5 minutes; one job per run; stale queued runs re-sent after 10 minutes, closed after 30); delivery uses a snapshot of output and channel taken at planning (P4-R5); a skill whose owner left is auto-disabled (`owner_left`).
+- **Pinning a widget is an in-app write without approval**: catalog-validated, server-made id, the caller's own "Pinned" dashboard, at most 40 widgets, audited, removable. Accepted residual: injected Jira text can make the model pin a chart.
+- **Networks:** the read-only twin has its own `mcp-readonly` network shared by web and worker; `mcp` (read-write) stays web-only.
+- Output values are `chat | dashboard_card | email | slack | teams`; `scope` lists board ids (projects map to boards). Live SMTP/Slack/Teams checks are a README manual checklist, not yet run.
+
 ### 5. Dashboard personalised by prompt
 - Widgets are **declarative zod-validated specs** (`{metric, params, chart, title}`) rendered from a fixed catalog — the agent can "pin this to my dashboard" or "add a cycle-time chart for team X" without generating arbitrary code (safe + consistent).
 - Multiple dashboards per user/board; skill outputs can appear as "insight cards".
@@ -151,7 +163,7 @@ Operational rules that follow:
 1. **Foundation:** monorepo, CI (lint/typecheck/test), Docker Compose, db + RLS, better-auth orgs, crypto package, Jira & LLM connection flows with test buttons.
 2. **Data & dashboard:** sync worker (validated against a DC trial container + Cloud sandbox), status mapping, metrics package (fixture-driven tests), default Scrum and Kanban dashboards.
 3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration (shared instance + per-Cloud-site instances, tool allowlist, live OAuth test), approval cards, audit log, cost meter. *Phase 3 implementation (2026-10-04) changed this as follows (see Phase 3 decisions in* Jira auth & MCP topology*): Cloud API tokens use a built-in REST backend instead of per-Cloud-site instances; approval cards show the exact proposed values, not a diff; the analytics MCP runs in-process only until Phase 5; the live provider (Anthropic/OpenAI/Gemini/Ollama) and live OAuth tests are a README manual checklist, not yet run.*
-4. **Skills:** schema, library, builder with preview, scheduling, email/Slack digests, prompt-driven widgets.
+4. **Skills:** schema, library, builder with preview, scheduling, email/Slack digests, prompt-driven widgets. *Phase 4 implementation (2026-10-04): see the Phase 4 decisions under* Skills *(read-only runs, owner-only email, copy-to-adopt sharing, deterministic alerts, run limits); executive PDF export, org glossary and admin-set workspace preferences remain deferred.*
 5. **Enterprise/SaaS:** SSO via Keycloak/OIDC + admin-only password login, billing, Langfuse, eval suite in CI, Helm chart, retention controls.
 
 ## Next step
