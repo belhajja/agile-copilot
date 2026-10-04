@@ -16,7 +16,8 @@
     "@agile/jira": "workspace:*",
     "@agile/net": "workspace:*",
     "drizzle-orm": "0.45.3",
-    "pg-boss": "12.36.0"
+    "pg-boss": "12.36.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.2.0"

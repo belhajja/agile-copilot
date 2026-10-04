@@ -7,13 +7,51 @@ import {
   organization,
   withOrg,
 } from '@agile/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
-import type { SyncDeps } from './deps';
+import { z } from 'zod';
+import type { SyncDeps, SyncFailureCode } from './deps';
 import { runSync, type SyncJob, type SyncOutcome } from './run-sync';
 
 export const SYNC_QUEUE = 'jira-sync';
 export const SYNC_TICK_QUEUE = 'jira-sync-tick';
+
+/** What a queued job may carry: ids only, validated again by the worker (the queue is untrusted input). */
+export const syncJobSchema = z.object({
+  orgId: z.string().min(1),
+  connectionId: z.string().min(1),
+  trigger: z.enum(['manual', 'schedule']),
+});
+
+/** Failures worth retrying with backoff; everything else is stored on the sync state and final. */
+const RETRYABLE_CODES: ReadonlySet<SyncFailureCode> = new Set(['rate_limited', 'unreachable']);
+/** Failures that need a user action: the scheduled tick skips them until a manual "Sync now". */
+const PERMANENT_CODES = [
+  'unauthorized',
+  'forbidden',
+  'oauth_expired',
+  'oauth_unavailable',
+  'blocked_url',
+];
+
+/** Thrown by the job handler so that pg-boss applies retryLimit/backoff. Carries the code only. */
+export class RetryableSyncError extends Error {
+  override name = 'RetryableSyncError';
+  constructor(readonly code: SyncFailureCode) {
+    super(`Jira sync will be retried: ${code}`);
+  }
+}
+
+class InvalidSyncJobError extends Error {
+  override name = 'InvalidSyncJobError';
+  constructor() {
+    super('Invalid sync job payload');
+  }
+}
+
+/** Logs the error name only (messages may carry secrets). */
+const logErrorName = (error: unknown) =>
+  console.error(`[sync] ${error instanceof Error ? error.name : 'UnknownError'}`);
 
 /**
  * Starts pg-boss as the app role in the `pgboss` schema (created by our migrations; pg-boss
@@ -31,7 +69,7 @@ export async function startSyncQueue(
     ...(opts.role === 'producer' ? { supervise: false, schedule: false } : {}),
   });
   // pg-boss emits 'error' for background failures; an unhandled 'error' event would crash the process.
-  boss.on('error', opts.onError ?? (() => {}));
+  boss.on('error', opts.onError ?? logErrorName);
   await boss.start();
   // One queued-or-active sync per connection (singletonKey = connection id).
   await boss.createQueue(SYNC_QUEUE, {
@@ -71,7 +109,13 @@ export async function requestSync(
       .from(jiraBoards)
       .where(and(eq(jiraBoards.connectionId, connectionId), eq(jiraBoards.selected, true)))
       .limit(1);
-    if (!board) return 'no_boards' as const;
+    return board ? ('ok' as const) : ('no_boards' as const);
+  });
+  if (check !== 'ok') return { ok: false, code: check };
+  // Send first: the state only says "queued" when a job really is. If send throws, nothing changed.
+  const id = await send(deps.boss, { orgId: actor.orgId, connectionId, trigger: 'manual' });
+  if (id === null) return { ok: true, queued: false }; // already queued or running
+  await withOrg(deps.db, actor.orgId, async (tx) => {
     await tx
       .insert(jiraSyncStates)
       .values({ orgId: actor.orgId, connectionId, status: 'queued' })
@@ -89,35 +133,75 @@ export async function requestSync(
       targetType: 'jira_connection',
       targetId: connectionId,
     });
-    return 'ok' as const;
   });
-  if (check !== 'ok') return { ok: false, code: check };
-  const id = await send(deps.boss, { orgId: actor.orgId, connectionId, trigger: 'manual' });
-  return { ok: true, queued: id !== null };
+  return { ok: true, queued: true };
 }
 
 /** Scheduled tick: queue a sync for every connection that has selected boards, in every workspace. */
-export async function enqueueScheduledSyncs(deps: { db: Db; boss: PgBoss }): Promise<number> {
+export async function enqueueScheduledSyncs(deps: {
+  db: Db;
+  boss: PgBoss;
+  onError?: (error: unknown) => void;
+}): Promise<number> {
+  const report = deps.onError ?? logErrorName;
   // `organization` (better-auth) has no org_id column and no RLS: it is the list of tenants.
   const orgs = await deps.db.select({ id: organization.id }).from(organization);
   let sent = 0;
   for (const { id: orgId } of orgs) {
-    const connections = await withOrg(deps.db, orgId, (tx) =>
-      tx
-        .selectDistinct({ connectionId: jiraBoards.connectionId })
-        .from(jiraBoards)
-        .where(eq(jiraBoards.selected, true)),
-    );
-    for (const { connectionId } of connections) {
-      if (await send(deps.boss, { orgId, connectionId, trigger: 'schedule' })) sent++;
+    try {
+      const connections = await withOrg(deps.db, orgId, async (tx) => {
+        const selected = await tx
+          .selectDistinct({ connectionId: jiraBoards.connectionId })
+          .from(jiraBoards)
+          .where(eq(jiraBoards.selected, true));
+        // Connections that failed for a reason only a user can fix wait for a manual "Sync now".
+        const blocked = await tx
+          .select({ connectionId: jiraSyncStates.connectionId })
+          .from(jiraSyncStates)
+          .where(inArray(jiraSyncStates.lastError, PERMANENT_CODES));
+        const skip = new Set(blocked.map((b) => b.connectionId));
+        return selected.filter((c) => !skip.has(c.connectionId));
+      });
+      for (const { connectionId } of connections) {
+        if (await send(deps.boss, { orgId, connectionId, trigger: 'schedule' })) sent++;
+      }
+    } catch (error) {
+      report(error); // one tenant's failure must not starve the others
     }
   }
   return sent;
 }
 
-/** Cron expression for "every N minutes" (N divides 60). */
-export const cronEvery = (minutes: number) =>
-  minutes >= 60 ? '0 * * * *' : `*/${minutes} * * * *`;
+const INTERVALS = [1, 5, 10, 15, 30, 60];
+
+/** Cron expression for "every N minutes" (N in 1, 5, 10, 15, 30, 60). */
+export function cronEvery(minutes: number): string {
+  if (!INTERVALS.includes(minutes)) throw new RangeError('Unsupported sync interval');
+  return minutes === 60 ? '0 * * * *' : `*/${minutes} * * * *`;
+}
+
+/**
+ * One sync job. A malformed payload is reported and dropped (retrying cannot fix it). Retryable
+ * failures throw so pg-boss retries with backoff; permanent ones are final (the code is stored).
+ */
+export async function handleSyncJob(
+  deps: SyncDeps,
+  data: unknown,
+  opts: {
+    onOutcome?: (job: SyncJob, outcome: SyncOutcome) => void;
+    onError?: (error: unknown) => void;
+  } = {},
+): Promise<SyncOutcome | undefined> {
+  const parsed = syncJobSchema.safeParse(data);
+  if (!parsed.success) {
+    (opts.onError ?? logErrorName)(new InvalidSyncJobError());
+    return undefined;
+  }
+  const outcome = await runSync(deps, parsed.data);
+  opts.onOutcome?.(parsed.data, outcome);
+  if (!outcome.ok && RETRYABLE_CODES.has(outcome.code)) throw new RetryableSyncError(outcome.code);
+  return outcome;
+}
 
 /** Registers the sync workers and the recurring tick on a worker-role queue. */
 export async function startSyncWorker(
@@ -127,6 +211,7 @@ export async function startSyncWorker(
     intervalMinutes: number;
     concurrency?: number;
     onOutcome?: (job: SyncJob, outcome: SyncOutcome) => void;
+    onError?: (error: unknown) => void;
   },
 ): Promise<void> {
   await boss.work<SyncJob>(
@@ -134,13 +219,12 @@ export async function startSyncWorker(
     { batchSize: 1, localConcurrency: opts.concurrency ?? 2 },
     async ([job]) => {
       if (!job) return;
-      const outcome = await runSync(deps, job.data);
-      opts.onOutcome?.(job.data, outcome);
-      return outcome;
+      return handleSyncJob(deps, job.data, opts);
     },
   );
   await boss.work(SYNC_TICK_QUEUE, async () => {
-    await enqueueScheduledSyncs({ db: deps.db, boss });
+    // The tick carries no data; never read it.
+    await enqueueScheduledSyncs({ db: deps.db, boss, onError: opts.onError });
   });
   await boss.schedule(SYNC_TICK_QUEUE, cronEvery(opts.intervalMinutes), null, { tz: 'UTC' });
 }

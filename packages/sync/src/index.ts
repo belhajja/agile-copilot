@@ -16,10 +16,13 @@ export { type SyncDeps, SyncError, type SyncFailure, type SyncFailureCode } from
 export {
   cronEvery,
   enqueueScheduledSyncs,
+  handleSyncJob,
+  RetryableSyncError,
   requestSync,
   SYNC_QUEUE,
   SYNC_TICK_QUEUE,
   startSyncQueue,
   startSyncWorker,
+  syncJobSchema,
 } from './queue';
 export { FULL_SYNC_EVERY_MS, runSync, type SyncJob, type SyncOutcome } from './run-sync';
