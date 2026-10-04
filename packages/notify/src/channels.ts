@@ -22,16 +22,14 @@ import {
   isAllowlistedHost,
   normalizeHost,
 } from '@agile/net';
-import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { isSingleAddress, type SmtpSecret, verifySmtp } from './email';
-import { DeliveryError } from './errors';
+import { type DeliveryCode, DeliveryError } from './errors';
 import { type ChannelMessage, postWebhook } from './webhook';
 
 /** What delivery needs from its host: the database, the keyring and the outbound policy. */
 export interface NotifyDeps extends ConnectionDeps {
-  /** Swap the webhook HTTP client (tests). Default: the DNS-pinned outbound fetch. */
-  fetch?: typeof fetch;
   /** Swap the SMTP check (tests). */
   verifySmtp?: typeof verifySmtp;
 }
@@ -60,6 +58,9 @@ export const channelInputSchema = z.discriminatedUnion('kind', [
       username: z.string().trim().max(320).optional(),
       password: z.string().max(1_000).optional(),
       // Exactly one plain address (no display name, list, CR/LF): what `sendEmail` accepts.
+      // Defence in depth: zod's email pattern is already a subset of `isSingleAddress`, so no
+      // address passes the first check and fails the second today; the refine pins the contract
+      // with `sendEmail` should either side change.
       from: z.email().max(254).refine(isSingleAddress),
     })
     .strict(),
@@ -91,7 +92,8 @@ export type ChannelFailure = {
     | 'unreachable'
     | 'rejected'
     | 'timeout'
-    | 'auth_failed';
+    | 'auth_failed'
+    | 'invalid_channel';
   /** Why a URL or host was refused (translated by the UI). */
   reason?: BlockedUrlReason;
   host?: string;
@@ -105,9 +107,38 @@ async function seal(tx: Tx, deps: NotifyDeps, orgId: string, id: string, secret:
   return encryptSecret(dek, secretContext(id), JSON.stringify(secret));
 }
 
-async function unseal(tx: Tx, deps: NotifyDeps, orgId: string, id: string, sealed: string) {
+const webhookSecretSchema = z.object({ url: z.string().min(1) }).strict();
+const smtpSecretSchema = z
+  .object({
+    host: z.string().min(1),
+    port: z.number().int().min(1).max(65_535),
+    security: z.enum(['tls', 'starttls', 'none']),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    from: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Decrypts a channel's secret and checks its shape against the row's kind. A row that cannot be
+ * decrypted or parsed is reported as `invalid_channel` (a code), never as a crypto or type error.
+ */
+async function unseal(
+  tx: Tx,
+  deps: NotifyDeps,
+  orgId: string,
+  row: { id: string; kind: ChannelView['kind']; secret: string },
+): Promise<ChannelSecret> {
   const dek = await getOrgDek(tx, deps.keyring, orgId);
-  return JSON.parse(decryptSecret(dek, secretContext(id), sealed)) as ChannelSecret;
+  let value: unknown;
+  try {
+    value = JSON.parse(decryptSecret(dek, secretContext(row.id), row.secret));
+  } catch {
+    throw new DeliveryError('invalid_channel');
+  }
+  const parsed = (row.kind === 'smtp' ? smtpSecretSchema : webhookSecretSchema).safeParse(value);
+  if (!parsed.success) throw new DeliveryError('invalid_channel');
+  return parsed.data;
 }
 
 /**
@@ -128,6 +159,25 @@ async function checkTarget(
     return { ok: false, code: 'insecure_transport', host };
   }
   return { ok: true, host };
+}
+
+/**
+ * The name, and for SMTP the one-server rule, checked before the outbound test: a duplicate never
+ * posts a test message or logs in. The unique indexes still decide on insert (races).
+ */
+async function isTaken(deps: NotifyDeps, actor: Actor, kind: ChannelView['kind'], name: string) {
+  const rows = await withOrg(deps.db, actor.orgId, (tx) =>
+    tx
+      .select({ id: deliveryChannels.id })
+      .from(deliveryChannels)
+      .where(
+        kind === 'smtp'
+          ? or(eq(deliveryChannels.name, name), eq(deliveryChannels.kind, 'smtp'))
+          : eq(deliveryChannels.name, name),
+      )
+      .limit(1),
+  );
+  return rows.length > 0;
 }
 
 const failureOf = (e: unknown): ChannelFailure => {
@@ -164,6 +214,7 @@ export async function createDeliveryChannel(
       input.security === 'none',
     );
     if (!target.ok) return target;
+    if (await isTaken(deps, actor, input.kind, input.name)) return { ok: false, code: 'duplicate' };
     secret = {
       host,
       port: input.port,
@@ -187,13 +238,11 @@ export async function createDeliveryChannel(
     }
     const target = await checkTarget(deps, input.url, parsedUrl.protocol === 'http:');
     if (!target.ok) return target;
+    if (await isTaken(deps, actor, input.kind, input.name)) return { ok: false, code: 'duplicate' };
     secret = { url: parsedUrl.toString() };
     hint = target.host;
     try {
-      await postWebhook(input.kind, secret.url, opts.testMessage, {
-        outbound: deps,
-        fetch: deps.fetch,
-      });
+      await postWebhook(input.kind, secret.url, opts.testMessage, { outbound: deps });
     } catch (e) {
       return failureOf(e);
     }
@@ -280,7 +329,10 @@ export async function deleteDeliveryChannel(
   });
 }
 
-/** A channel with its decrypted secret, for delivery only (never returned to a browser). */
+/**
+ * A channel with its decrypted secret, for delivery only (never returned to a browser). Throws
+ * `DeliveryError('invalid_channel')` when the stored secret cannot be read.
+ */
 export async function loadChannel(
   deps: NotifyDeps,
   orgId: string,
@@ -297,7 +349,7 @@ export async function loadChannel(
     return {
       id: row.id,
       kind: row.kind,
-      secret: await unseal(tx, deps, orgId, row.id, row.secret),
+      secret: await unseal(tx, deps, orgId, row),
     };
   });
 }
@@ -307,8 +359,9 @@ export async function markChannel(
   db: Db,
   orgId: string,
   id: string,
-  error: string | null,
+  error: DeliveryCode | null,
 ): Promise<void> {
+  if (!isUuid(id)) return;
   await withOrg(db, orgId, (tx) =>
     tx
       .update(deliveryChannels)

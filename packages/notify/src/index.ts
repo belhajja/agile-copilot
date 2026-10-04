@@ -26,9 +26,11 @@ export { type DeliveryCode, DeliveryError } from './errors';
 export { DIGEST_LABELS, type DigestLabels, type DigestLocale, digestLabels } from './labels';
 export {
   type ChannelMessage,
+  type DeliveryErrorHook,
   escapeSlack,
   escapeTeams,
   postWebhook,
   slackPayload,
   teamsPayload,
+  type WebhookOptions,
 } from './webhook';

@@ -8,7 +8,7 @@ import {
   withDeadline,
 } from '@agile/net';
 import { resolvePinnedAddress } from './email';
-import { DeliveryError } from './errors';
+import { type DeliveryCode, DeliveryError } from './errors';
 
 /** A message for a chat channel: plain text, never fetched or unfurled by us or the platform. */
 export interface ChannelMessage {
@@ -18,6 +18,7 @@ export interface ChannelMessage {
   link?: string;
 }
 
+const SLACK_TITLE_MAX = 150;
 const SLACK_TEXT_MAX = 2_900;
 const TEAMS_TEXT_MAX = 20_000;
 
@@ -39,18 +40,46 @@ export const escapeSlack = (text: string) =>
  */
 export const escapeTeams = (text: string) => text.replace(/\[/g, '［').replace(/\]/g, '］');
 
-/** Slack incoming-webhook payload. Link and media unfurling are off: nothing is fetched. */
+/**
+ * Escapes for Slack, then truncates to `max` characters (ellipsis included) without ever cutting
+ * an entity (`&amp;`) or a surrogate pair in half: characters are added whole, escaped.
+ */
+function cutSlack(text: string, max: number) {
+  const escaped = escapeSlack(text);
+  if (escaped.length <= max) return escaped;
+  let out = '';
+  for (const char of text) {
+    const piece = escapeSlack(char);
+    if (out.length + piece.length > max - 1) break;
+    out += piece;
+  }
+  return `${out.trimEnd()}…`;
+}
+
+/**
+ * Slack incoming-webhook payload. Link and media unfurling are off (nothing is fetched), `mrkdwn`
+ * objects are `verbatim` and `link_names` is never set: `@channel`, `@here` and `#general` written
+ * by the model stay plain text.
+ */
 export function slackPayload(m: ChannelMessage) {
-  const body = cut(escapeSlack(m.text), SLACK_TEXT_MAX);
+  const body = cutSlack(m.text, SLACK_TEXT_MAX);
   return {
-    text: escapeSlack(m.title),
+    text: cutSlack(m.title, SLACK_TITLE_MAX),
     unfurl_links: false,
     unfurl_media: false,
     blocks: [
-      { type: 'header', text: { type: 'plain_text', text: cut(m.title, 150), emoji: false } },
-      { type: 'section', text: { type: 'mrkdwn', text: body || ' ' } },
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: cut(m.title, SLACK_TITLE_MAX), emoji: false },
+      },
+      { type: 'section', text: { type: 'mrkdwn', text: body || ' ', verbatim: true } },
       ...(m.link
-        ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: escapeSlack(m.link) }] }]
+        ? [
+            {
+              type: 'context',
+              elements: [{ type: 'mrkdwn', text: escapeSlack(m.link), verbatim: true }],
+            },
+          ]
         : []),
     ],
   };
@@ -103,13 +132,30 @@ async function assertTransportAllowed(url: URL, outbound: OutboundPolicy) {
   throw new DeliveryError('insecure_transport');
 }
 
+/**
+ * Called once per failed delivery with the underlying error and its code. Log the code and the
+ * error's `name` only: messages and causes can carry the webhook URL (a secret).
+ */
+export type DeliveryErrorHook = (error: unknown, code: DeliveryCode) => void;
+
 /** Any failure → a code. The URL (a secret) and the platform's answer never reach the error. */
-function deliveryErrorOf(e: unknown): DeliveryError {
-  if (e instanceof DeliveryError) return e;
-  if (isBlockedAddressError(e)) return new DeliveryError('blocked_url');
-  if (e instanceof RedirectBlockedError) return new DeliveryError('rejected', e.status);
-  if ((e as { name?: string } | null)?.name === 'TimeoutError') return new DeliveryError('timeout');
-  return new DeliveryError('unreachable');
+function deliveryErrorOf(e: unknown, onError?: DeliveryErrorHook): DeliveryError {
+  let error: DeliveryError;
+  if (e instanceof DeliveryError) error = e;
+  else if (isBlockedAddressError(e)) error = new DeliveryError('blocked_url');
+  else if (e instanceof RedirectBlockedError) error = new DeliveryError('rejected', e.status);
+  else if ((e as { name?: string } | null)?.name === 'TimeoutError')
+    error = new DeliveryError('timeout');
+  else error = new DeliveryError('unreachable');
+  onError?.(e, error.code);
+  return error;
+}
+
+export interface WebhookOptions {
+  outbound: OutboundPolicy;
+  /** Overall deadline (ms). Default 10 s. */
+  timeoutMs?: number;
+  onError?: DeliveryErrorHook;
 }
 
 /**
@@ -117,11 +163,24 @@ function deliveryErrorOf(e: unknown): DeliveryError {
  * the DNS-pinned outbound fetch (SSRF policy at connect time, no redirects) under one overall
  * deadline (resolution, connection, answer). Only the status code of the answer is used.
  */
-export async function postWebhook(
+export function postWebhook(
   kind: 'slack' | 'teams',
   url: string,
   message: ChannelMessage,
-  opts: { outbound: OutboundPolicy; timeoutMs?: number; fetch?: typeof fetch },
+  opts: WebhookOptions,
+): Promise<void> {
+  return sendWebhook(kind, url, message, { ...opts, fetch: undefined });
+}
+
+/**
+ * `postWebhook` with a swappable HTTP client, for this package's tests only: it is not exported
+ * from the package, so production code always sends through the pinned outbound fetch.
+ */
+export async function sendWebhook(
+  kind: 'slack' | 'teams',
+  url: string,
+  message: ChannelMessage,
+  opts: WebhookOptions & { fetch?: typeof fetch },
 ): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const signal = AbortSignal.timeout(timeoutMs);
@@ -150,7 +209,8 @@ export async function postWebhook(
   try {
     status = await withDeadline(work, timeoutMs, () => new DeliveryError('timeout'));
   } catch (e) {
-    throw deliveryErrorOf(e);
+    throw deliveryErrorOf(e, opts.onError);
   }
-  if (status < 200 || status >= 300) throw new DeliveryError('rejected', status);
+  if (status < 200 || status >= 300)
+    throw deliveryErrorOf(new DeliveryError('rejected', status), opts.onError);
 }

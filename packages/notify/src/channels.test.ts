@@ -1,9 +1,9 @@
-import { type Actor, ForbiddenError } from '@agile/connections';
-import { parseKeyring } from '@agile/crypto';
+import { type Actor, ForbiddenError, getOrgDek } from '@agile/connections';
+import { encryptSecret, parseKeyring } from '@agile/crypto';
 import { auditLog, createDb, deliveryChannels, skills, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
-import { asc, like } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { asc, eq, like } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createDeliveryChannel,
   deleteDeliveryChannel,
@@ -13,6 +13,7 @@ import {
   markChannel,
   type NotifyDeps,
 } from './channels';
+import { DeliveryError } from './errors';
 import { DIGEST_LABELS } from './labels';
 import { type MockSmtp, type MockWebhook, startMockSmtp, startMockWebhook } from './testing';
 
@@ -74,6 +75,17 @@ describe('delivery channels', () => {
     // Another workspace cannot load it, and a malformed id is simply not found.
     expect(await loadChannel(deps, 'org_b', { id: r.channel.id })).toBeNull();
     expect(await loadChannel(deps, 'org_a', { id: 'not-a-uuid' })).toBeNull();
+    // A second channel with the same name is refused before anything is posted.
+    const posts = hook.posts.length;
+    expect(
+      await createDeliveryChannel(
+        deps,
+        owner,
+        { kind: 'teams', name: 'Delivery team', url: `${hook.url}/teams` },
+        { testMessage },
+      ),
+    ).toEqual({ ok: false, code: 'duplicate' });
+    expect(hook.posts.length).toBe(posts);
   });
 
   it('checks an SMTP server (login included) without sending, and keeps one per workspace', async () => {
@@ -87,6 +99,14 @@ describe('delivery channels', () => {
       password: 'smtp-password-123',
       from: 'copilot@example.com',
     };
+    expect(
+      await createDeliveryChannel(
+        deps,
+        owner,
+        { ...input, name: 'Bad', password: 'x' },
+        { testMessage },
+      ),
+    ).toEqual({ ok: false, code: 'auth_failed' });
     const r = await createDeliveryChannel(deps, owner, input, { testMessage });
     expect(r).toMatchObject({
       ok: true,
@@ -100,17 +120,17 @@ describe('delivery channels', () => {
       kind: 'smtp',
       secret: { host: '127.0.0.1', password: 'smtp-password-123', from: 'copilot@example.com' },
     });
-    expect(
-      await createDeliveryChannel(deps, owner, { ...input, name: 'Second mail' }, { testMessage }),
-    ).toEqual({ ok: false, code: 'duplicate' });
+    // One SMTP server per workspace: a second one is refused before connecting or logging in.
+    const check = vi.fn(async () => undefined);
     expect(
       await createDeliveryChannel(
-        deps,
+        { ...deps, verifySmtp: check },
         owner,
-        { ...input, name: 'Bad', password: 'x' },
+        { ...input, name: 'Second mail' },
         { testMessage },
       ),
-    ).toEqual({ ok: false, code: 'auth_failed' });
+    ).toEqual({ ok: false, code: 'duplicate' });
+    expect(check).not.toHaveBeenCalled();
   });
 
   it('accepts exactly one plain sender address for SMTP', async () => {
@@ -216,6 +236,54 @@ describe('delivery channels', () => {
     expect(
       (await listDeliveryChannels(app.db, 'org_a')).find((c) => c.id === slack.id),
     ).toMatchObject({ lastError: null });
+    // A malformed id is ignored (no query error).
+    await expect(markChannel(app.db, 'org_a', 'not-a-uuid', 'timeout')).resolves.toBeUndefined();
+  });
+
+  it('reports a corrupt stored secret as a code', async () => {
+    const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    await withOrg(app.db, 'org_a', async (tx) => {
+      const dek = await getOrgDek(tx, deps.keyring, 'org_a');
+      const row = (n: number, kind: 'slack' | 'teams', secret: string) => ({
+        id: id(n),
+        orgId: 'org_a',
+        kind,
+        name: `Corrupt ${n}`,
+        hint: 'x',
+        secret,
+        createdBy: 'user_owner',
+      });
+      await tx.insert(deliveryChannels).values([
+        // Not decryptable.
+        row(1, 'slack', 'garbage'),
+        // Decryptable, not JSON.
+        row(2, 'slack', encryptSecret(dek, `delivery_channel:${id(2)}`, 'not json')),
+        // JSON of the wrong shape for its kind (an SMTP secret on a Teams row).
+        row(
+          3,
+          'teams',
+          encryptSecret(
+            dek,
+            `delivery_channel:${id(3)}`,
+            JSON.stringify({ host: 'h', port: 25, security: 'tls', from: 'a@example.com' }),
+          ),
+        ),
+      ]);
+    });
+    for (const n of [1, 2, 3]) {
+      const error = await loadChannel(deps, 'org_a', { id: id(n) }).catch((e: unknown) => e);
+      expect(error, `row ${n}`).toBeInstanceOf(DeliveryError);
+      expect((error as DeliveryError).code).toBe('invalid_channel');
+    }
+    await withOrg(app.db, 'org_a', (tx) =>
+      tx.delete(deliveryChannels).where(like(deliveryChannels.name, 'Corrupt %')),
+    );
+    expect(
+      await raw.db
+        .select()
+        .from(deliveryChannels)
+        .where(eq(deliveryChannels.id, id(1))),
+    ).toEqual([]);
   });
 
   it('lists the skills that post to each channel, for owners and admins only', async () => {

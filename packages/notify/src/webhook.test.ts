@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DeliveryError } from './errors';
 import { type MockWebhook, startMockWebhook } from './testing';
-import { postWebhook, slackPayload, teamsPayload } from './webhook';
+import { postWebhook, sendWebhook, slackPayload, teamsPayload } from './webhook';
 
 const message = {
   title: 'Report: sprint-digest',
@@ -19,6 +19,28 @@ describe('Slack and Teams payloads', () => {
       'Ping &lt;!channel&gt; and see &lt;https://evil.example|the report&gt; &amp; more',
     );
     expect(JSON.stringify(p)).not.toContain('<!channel>');
+  });
+
+  it('keeps @channel, @here and #channel names literal (verbatim, no link_names)', () => {
+    const p = slackPayload({ title: 't', text: 'Hi @channel @here see #general', link: 'l' });
+    expect(p).not.toHaveProperty('link_names');
+    const section = p.blocks[1] as { text: { type: string; text: string; verbatim?: boolean } };
+    expect(section.text).toEqual({
+      type: 'mrkdwn',
+      text: 'Hi @channel @here see #general',
+      verbatim: true,
+    });
+    const context = p.blocks[2] as { elements: { verbatim?: boolean }[] };
+    expect(context.elements[0]?.verbatim).toBe(true);
+  });
+
+  it('never cuts an escaped entity in half, and caps the fallback text', () => {
+    const p = slackPayload({ title: '<'.repeat(400), text: '&'.repeat(5_000) });
+    const section = (p.blocks[1] as { text: { text: string } }).text.text;
+    expect(section.length).toBeLessThanOrEqual(2_900);
+    expect(section).toMatch(/^(?:&amp;)+…$/);
+    expect(p.text.length).toBeLessThanOrEqual(150);
+    expect(p.text).toMatch(/^(?:&lt;)+…$/);
   });
 
   it('neutralises Markdown links and images in Teams text and titles', () => {
@@ -120,14 +142,38 @@ describe('postWebhook', () => {
         }),
       ),
     ).toEqual(['blocked_url', null]);
+    // https too: the pinned connection refuses the rebound address at connect time.
+    expect(
+      await failure(
+        postWebhook('slack', `https://hooks.rebind.example:${port}/x`, message, {
+          outbound: { allowedPrivateHosts: [], resolve: async () => ['127.0.0.1'] },
+        }),
+      ),
+    ).toEqual(['blocked_url', null]);
     expect(hook.posts.length).toBe(before);
+  });
+
+  it('reports each failure to onError with its code (for logging error names)', async () => {
+    const onError = vi.fn();
+    await postWebhook('slack', 'http://127.0.0.1:1/x', message, { outbound, onError }).catch(
+      () => undefined,
+    );
+    expect(onError).toHaveBeenCalledOnce();
+    const [error, code] = onError.mock.calls[0] ?? [];
+    expect(code).toBe('unreachable');
+    expect(typeof (error as Error).name).toBe('string');
+    onError.mockClear();
+    await postWebhook('slack', `${hook.url}/fail`, message, { outbound, onError }).catch(
+      () => undefined,
+    );
+    expect(onError).toHaveBeenCalledWith(expect.any(DeliveryError), 'rejected');
   });
 
   it('re-checks the plaintext rule when sending: http only to allowlisted hosts', async () => {
     const send = vi.fn<typeof fetch>();
     expect(
       await failure(
-        postWebhook('teams', 'http://hooks.example.com/workflow', message, {
+        sendWebhook('teams', 'http://hooks.example.com/workflow', message, {
           outbound: { allowedPrivateHosts: [], resolve: async () => ['93.184.216.34'] },
           fetch: send,
         }),
@@ -136,10 +182,17 @@ describe('postWebhook', () => {
     expect(send).not.toHaveBeenCalled();
     // The same host over https goes out (through the injected client here).
     send.mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    await postWebhook('teams', 'https://hooks.example.com/workflow', message, {
+    await sendWebhook('teams', 'https://hooks.example.com/workflow', message, {
       outbound: { allowedPrivateHosts: [], resolve: async () => ['93.184.216.34'] },
       fetch: send,
     });
     expect(send).toHaveBeenCalledOnce();
+  });
+});
+
+describe('public surface', () => {
+  it('offers no way to swap the pinned HTTP client outside tests', async () => {
+    const notify = await import('./index');
+    expect(notify).not.toHaveProperty('sendWebhook');
   });
 });
