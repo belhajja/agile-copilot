@@ -1,5 +1,18 @@
 export type { AutomationDeps } from './deps';
+export { executeSkillRun, type RunOutcome } from './execute';
 export { ALERT_COOLDOWN_HOURS, type PlanDeps, planSkillRuns } from './plan';
+export {
+  createSkillQueues,
+  enqueueSkillRuns,
+  handleSkillJob,
+  requestSkillRun,
+  SKILL_RUN_QUEUE,
+  SKILL_TICK_CRON,
+  SKILL_TICK_QUEUE,
+  type SkillJob,
+  skillJobSchema,
+  startSkillWorker,
+} from './queue';
 export {
   claimRun,
   closeStaleRuns,
