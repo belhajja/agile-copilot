@@ -97,7 +97,7 @@ test('ask about velocity, then approve and reject proposed Jira comments', async
   await expect(page.getByText('Posez une question sur vos tableaux')).toBeVisible();
 });
 
-test('a member gets no Jira change proposals and sees only their own usage', async ({
+test('a viewer gets analytics only; promoted to manager, they approve a Jira comment', async ({
   page,
   browser,
 }) => {
@@ -110,9 +110,9 @@ test('a member gets no Jira change proposals and sees only their own usage', asy
   try {
     const member = await context.newPage();
     const { email } = await signUp(member, 'Sam Member');
-    await joinAsMember(email, orgId);
+    await joinAsMember(email, orgId); // as a viewer
 
-    // Members are offered no Jira write tools, so no approval card can appear.
+    // Viewers are offered no Jira write tools, so no approval card can appear.
     await member.goto('/agent');
     const note = `Member note ${Date.now()}`;
     await ask(member, `Please comment on DEMO-4: ${note}`);
@@ -132,14 +132,40 @@ test('a member gets no Jira change proposals and sees only their own usage', asy
     await expect(member.locator('tbody tr')).toHaveCount(1);
     await expect(member.locator('tbody tr')).toContainText('Sam Member');
     await expect(member.getByRole('cell', { name: 'Pat Manager' })).toHaveCount(0);
+
+    // The admin sees the whole workspace
+    await page.goto('/settings/usage');
+    await expect(chatKpi(page, '[data-kpi="replies"]')).toHaveText('2');
+    await expect(page.locator('tbody tr')).toHaveCount(2);
+
+    // Promoted to Manager on the Members page, the same person is offered the comment; it waits
+    // for their approval and is written exactly once.
+    await page.goto('/settings/members');
+    const row = page.locator(`[data-member="${email}"]`);
+    await row.getByLabel('Role of Sam Member').selectOption('manager');
+    await expect(row.locator('[data-role="manager"]')).toBeVisible();
+    await member.goto('/agent');
+    const comment = `Manager note ${Date.now()}`;
+    await ask(member, `Please comment on DEMO-4: ${comment}`);
+    const card = member.locator('[data-approval]').last();
+    await expect(card.getByText(comment)).toBeVisible({ timeout: 60_000 });
+    expect((await jiraWrites(member)).some((w) => w.body?.body === comment)).toBe(false);
+    await card.getByRole('button', { name: 'Approve' }).click();
+    await expect(card.getByText('Approved')).toBeVisible();
+    const posted = async () =>
+      (await jiraWrites(member))
+        .filter((w) => w.path === '/rest/api/2/issue/DEMO-4/comment' && w.body?.body === comment)
+        .map(({ method, path }) => ({ method, path }));
+    const once = [{ method: 'POST', path: '/rest/api/2/issue/DEMO-4/comment' }];
+    await expect.poll(posted).toEqual(once);
+    await expect
+      .poll(() => auditFor(orgId, 'DEMO-4'))
+      .toEqual(['agent_action.proposed', 'agent_action.approved', 'agent_action.executed']);
+    // Executed means finished: a duplicate write would already be in the mock's log.
+    expect(await posted()).toEqual(once);
   } finally {
     await context.close();
   }
-
-  // The admin sees the whole workspace
-  await page.goto('/settings/usage');
-  await expect(chatKpi(page, '[data-kpi="replies"]')).toHaveText('2');
-  await expect(page.locator('tbody tr')).toHaveCount(2);
 });
 
 test('the assistant fits a phone screen', async ({ page }) => {

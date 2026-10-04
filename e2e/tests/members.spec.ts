@@ -8,9 +8,10 @@ test('an owner invites with a role, changes a role and removes a member', async 
   const { email: ownerEmail } = await signUpWithWorkspace(page);
   await page.goto('/settings/members');
   await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
-  // The owner has no controls on their own row; without SSO the page warns about link possession.
+  // The owner has no controls on their own row. e2e runs with SSO (accepting needs an
+  // IdP-verified address), so the page does not warn about link possession.
   await expect(page.locator(`[data-member="${ownerEmail}"] [data-role="owner"]`)).toBeVisible();
-  await expect(page.getByText('Without single sign-on', { exact: false })).toBeVisible();
+  await expect(page.getByText('Without single sign-on', { exact: false })).toHaveCount(0);
 
   // Invite: the owner role is offered (owners may give it), the default is viewer.
   const invited = `invited+${Date.now()}@example.com`;

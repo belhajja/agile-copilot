@@ -49,8 +49,9 @@ export async function orgIdOf(email: string) {
 }
 
 /**
- * Test-only stand-in for an accepted invitation (there is no invitation UI yet): it writes what
- * accepting one produces, a `member` row with role `viewer` and the session's active workspace.
+ * Test-only shortcut for an accepted invitation (the invitation and SSO flow is covered by
+ * enterprise.spec.ts): it writes what accepting one produces, a `member` row with role `viewer`
+ * and the session's active workspace.
  */
 export async function joinAsMember(email: string, orgId: string) {
   await asOwner(sql`

@@ -20,7 +20,8 @@ export default async function globalSetup() {
   );
   // Playwright only waits for 4010. Locally it may reuse a `pnpm mocks` started before the
   // mcp-atlassian doubles (4050, read-only twin under /readonly), the SMTP mock (4070) or the
-  // webhook receiver (4080) existed; fail early and clearly instead of in the tests.
+  // webhook receiver (4080) or the OIDC provider (4090) existed; fail early and clearly instead of
+  // in the tests.
   const missing: string[] = [];
   if (!(await listening(4050))) missing.push('mcp-atlassian double (4050)');
   else {
@@ -30,6 +31,7 @@ export default async function globalSetup() {
   }
   if (!(await listening(4070))) missing.push('SMTP mock (4070)');
   if (!(await listening(4080))) missing.push('webhook mock (4080)');
+  if (!(await listening(4090))) missing.push('OIDC mock (4090)');
   if (missing.length > 0) {
     throw new Error(
       `Not listening: ${missing.join(', ')}. Stop the old \`pnpm mocks\` process (port 4010) and run the e2e suite again.`,

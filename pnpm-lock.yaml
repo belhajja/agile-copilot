@@ -238,6 +238,9 @@ importers:
 
   e2e:
     devDependencies:
+      '@agile/auth':
+        specifier: workspace:*
+        version: link:../packages/auth
       '@agile/db':
         specifier: workspace:*
         version: link:../packages/db

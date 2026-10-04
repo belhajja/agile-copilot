@@ -17,6 +17,16 @@ const env = {
   // read-only twin (skill runs in the worker, previews in the web app), on the same port.
   MCP_ATLASSIAN_URL: 'http://127.0.0.1:4050/mcp',
   MCP_ATLASSIAN_READONLY_URL: 'http://127.0.0.1:4050/readonly/mcp',
+  // Single sign-on against the mock OIDC provider (`pnpm mocks`, port 4090). Passwords stay on
+  // for everyone (PASSWORD_LOGIN=all): the other specs sign up with a password; `admin_only` is
+  // covered by Vitest.
+  OIDC_PROVIDER: 'oidc',
+  // oauth2-mock-server names its issuer `localhost` (it listens on 127.0.0.1); discovery must match.
+  OIDC_ISSUER: 'http://localhost:4090',
+  OIDC_CLIENT_ID: 'agile-e2e',
+  OIDC_CLIENT_SECRET: 'agile-e2e-secret',
+  OIDC_DISPLAY_NAME: 'Acme SSO',
+  PASSWORD_LOGIN: 'all',
 };
 
 export default defineConfig({
@@ -26,7 +36,7 @@ export default defineConfig({
   expect: { timeout: process.env.CI ? 30_000 : 5_000 },
   use: { baseURL: 'http://localhost:3200', trace: 'retain-on-failure' },
   webServer: [
-    // 4010 opens last (after 4020, 4050, 4070 and 4080); global-setup checks that they answer.
+    // 4010 opens last (after 4020, 4050, 4070, 4080 and 4090); global-setup checks that they answer.
     { command: 'pnpm mocks', port: 4010, reuseExistingServer: !process.env.CI },
     {
       // The sync worker (pg-boss); its /health answers once it is connected and scheduled.

@@ -7,6 +7,7 @@
     "mocks": "tsx mocks/serve.ts"
   },
   "devDependencies": {
+    "@agile/auth": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/jira": "workspace:*",
     "@agile/jira-tools": "workspace:*",
