@@ -18,6 +18,8 @@ export interface NoRedirectClientConfig {
   timeoutMs?: number;
   /** Largest accepted response body (default 20 MB). */
   maxResponseBytes?: number;
+  /** Redirect-refusing fetch to use (default fetchNoRedirect; createOutboundFetch pins DNS too). */
+  fetch?: typeof fetch;
 }
 
 export const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
@@ -125,7 +127,7 @@ export function createNoRedirectClient(config: NoRedirectClientConfig): Client {
         // undici's message quotes the offending value, i.e. the credential: drop it, no `cause`.
         throw new InvalidCredentialsError();
       }
-      const res = await fetchNoRedirect(url, {
+      const res = await (config.fetch ?? fetchNoRedirect)(url, {
         method: options.method ?? 'GET',
         headers,
         body: hasBody ? JSON.stringify(options.body) : undefined,

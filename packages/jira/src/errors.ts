@@ -1,3 +1,4 @@
+import { isBlockedAddressError } from '@agile/net';
 import { isApiError, isNetworkError } from 'jira.js';
 import type { JiraFailure } from './types';
 
@@ -9,6 +10,13 @@ const readField = (e: unknown, key: string): unknown =>
 
 /** Maps jira.js v6 (fetch) and v5 (axios) errors to stable codes. Never echoes raw error text. */
 export function mapJiraError(e: unknown): JiraFailure {
+  if (isBlockedAddressError(e)) {
+    return {
+      ok: false,
+      code: 'blocked_url',
+      message: 'This Jira host now points to a private or reserved address.',
+    };
+  }
   const status = isApiError(e)
     ? e.status
     : (readField(e, 'status') ?? readField(readField(e, 'response'), 'status'));

@@ -18,7 +18,13 @@ export type LlmConfig =
 const AZURE_RESOURCE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
 /** Builds a model from a tenant's own key at call time (keys are never read from process.env). */
-export function createLanguageModel(cfg: LlmConfig): LanguageModel {
+export function createLanguageModel(
+  cfg: LlmConfig,
+  opts: {
+    /** Fetch for the user-supplied OpenAI-compatible URL (pass createOutboundFetch to pin DNS). */
+    fetch?: typeof fetch;
+  } = {},
+): LanguageModel {
   switch (cfg.provider) {
     case 'anthropic':
       return createAnthropic({ apiKey: cfg.apiKey })(cfg.model);
@@ -37,8 +43,10 @@ export function createLanguageModel(cfg: LlmConfig): LanguageModel {
         name: 'openai_compatible',
         baseURL: cfg.baseUrl,
         apiKey: cfg.apiKey || 'not-needed',
+        // Ask for token usage in streamed answers (the agent's cost meter needs it).
+        includeUsage: true,
         // A user-supplied URL must not bounce us to internal hosts.
-        fetch: fetchNoRedirect,
+        fetch: opts.fetch ?? fetchNoRedirect,
       })(cfg.model);
   }
 }

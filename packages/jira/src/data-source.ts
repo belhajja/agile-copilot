@@ -1,7 +1,9 @@
+import { createOutboundFetch, type OutboundPolicy } from '@agile/net';
 import { createAgileClient, createCloudClient } from 'jira.js';
 import { AgileClient, Version2Client } from 'jira-js-v5';
 import { createNoRedirectClient, MAX_RESPONSE_BYTES } from './no-redirect-client';
 import { offsetPager, type PaginationLimits, tokenPager } from './pagination';
+import { pinnedRequestConfig } from './pinned-config';
 import { type RetryOptions, withRateLimitRetry } from './rate-limit';
 import {
   boardConfigSchema,
@@ -54,6 +56,8 @@ export interface DataSourceOptions {
   maxPages?: number;
   maxItems?: number;
   retry?: RetryOptions;
+  /** Pins connections to the Jira host to addresses this policy allows (DNS rebinding). */
+  outbound?: OutboundPolicy;
 }
 
 const PAGE = 50;
@@ -133,6 +137,7 @@ export function createJiraDataSource(
 }
 
 function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOptions): JiraDataSource {
+  const pinnedFetch = opts.outbound ? createOutboundFetch(opts.outbound) : undefined;
   // Credentials are read for every request, so an OAuth token refreshed mid-sync is picked up.
   const clients = async () => {
     const c = await getCreds();
@@ -146,6 +151,8 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
       schemaValidation: 'lenient',
       timeoutMs: opts.timeoutMs,
       maxResponseBytes: opts.maxResponseBytes,
+      // OAuth calls go to Atlassian's fixed gateway; API-token calls go to the user-supplied host.
+      fetch: c.kind === 'cloud_basic' ? pinnedFetch : undefined,
     });
     return { jira: createCloudClient(client), agile: createAgileClient(client) };
   };
@@ -231,6 +238,7 @@ function dataCenter(
   getCreds: () => Promise<DataCenterCredentials>,
   opts: DataSourceOptions,
 ): JiraDataSource {
+  const pinned = pinnedRequestConfig(opts.outbound);
   const clients = async () => {
     const c = await getCreds();
     const config = {
@@ -242,6 +250,7 @@ function dataCenter(
         timeout: opts.timeoutMs ?? 30_000,
         maxContentLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
         maxBodyLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
+        ...pinned,
       },
     };
     return { v2: new Version2Client(config), agile: new AgileClient(config) };

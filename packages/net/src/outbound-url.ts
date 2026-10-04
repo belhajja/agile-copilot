@@ -21,6 +21,13 @@ export type OutboundUrlCheck =
 const defaultResolver: Resolver = async (host) =>
   (await lookup(host, { all: true })).map((a) => a.address);
 
+/** Lower-case, no IPv6 brackets, no trailing dot ("jira.corp.test." is the same host). */
+export const normalizeHost = (hostname: string) =>
+  hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+
 const ALWAYS_BLOCKED = new Set(['metadata.google.internal', 'metadata']);
 
 /** Cloud metadata hosts: refused even when allowlisted. */
@@ -54,7 +61,7 @@ export async function checkOutboundUrl(
   if (url.username || url.password)
     return { ok: false, code: 'credentials', reason: 'URLs must not contain credentials' };
 
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const host = normalizeHost(url.hostname);
   if (isAlwaysBlockedHost(host)) {
     return { ok: false, code: 'blocked_host', reason: `Host ${host} is blocked`, host };
   }

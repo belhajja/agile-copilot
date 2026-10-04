@@ -9,6 +9,7 @@ import {
   isAllowlistedHost,
   isAlwaysBlockedHost,
   isPublicAddress,
+  normalizeHost,
   type Resolver,
 } from './outbound-url';
 
@@ -27,13 +28,6 @@ export class BlockedAddressError extends Error {
     super(`Connection to ${host} blocked: it resolves to a private or reserved address`);
   }
 }
-
-/** Lower-case, no IPv6 brackets, no trailing dot ("jira.corp.test." is the same host). */
-const normalizeHost = (hostname: string) =>
-  hostname
-    .toLowerCase()
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.$/, '');
 
 const systemResolve: Resolver = (host) =>
   new Promise((resolve, reject) =>

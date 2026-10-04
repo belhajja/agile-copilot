@@ -1,3 +1,4 @@
+import { BlockedAddressError, isBlockedAddressError } from '@agile/net';
 import { JiraHttpError } from './no-redirect-client';
 import { errorRetryAfterMs, errorStatus } from './rate-limit';
 
@@ -18,6 +19,7 @@ const field = (e: unknown, key: string): unknown =>
  * (status, Retry-After, a network code) in a fresh error with no cause.
  */
 export function sanitizeDataCenterError(e: unknown): Error {
+  if (isBlockedAddressError(e)) return new BlockedAddressError('jira');
   const status = errorStatus(e);
   if (status !== undefined) return new JiraHttpError(status, errorRetryAfterMs(e));
   const code = field(e, 'code') ?? field(field(e, 'cause'), 'code');

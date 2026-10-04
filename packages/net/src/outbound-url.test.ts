@@ -19,12 +19,22 @@ describe('checkOutboundUrl', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('treats a trailing-dot host as the allowlisted host', async () => {
+    const r = await checkOutboundUrl('http://jira.corp.test./', {
+      allowedPrivateHosts: ['corp.test'],
+      resolve: resolveTo('10.0.0.5'),
+    });
+    expect(r.ok).toBe(true);
+  });
+
   it.each([
     ['ftp://jira.example.com', /http/, 'scheme'],
     ['https://user:pw@jira.example.com', /credentials/, 'credentials'],
     ['not a url', /valid URL/, 'invalid_url'],
     ['http://localhost:8080', /private|localhost/, 'localhost'],
     ['http://metadata.google.internal', /blocked/, 'blocked_host'],
+    ['http://metadata./', /blocked/, 'blocked_host'],
+    ['http://metadata.google.internal./', /blocked/, 'blocked_host'],
   ])('rejects %s', async (url, reason, code) => {
     const r = await checkOutboundUrl(url, opts(resolveTo('8.8.8.8')));
     expect(r).toMatchObject({ ok: false, code, reason: expect.stringMatching(reason) });

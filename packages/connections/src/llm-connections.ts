@@ -9,7 +9,7 @@ import {
   type ProbeFailureCode,
   probeModel,
 } from '@agile/llm';
-import { type BlockedUrlReason, checkOutboundUrl } from '@agile/net';
+import { type BlockedUrlReason, checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { desc, eq, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
@@ -114,7 +114,12 @@ async function probe(
   if (deps.probe) return deps.probe(config);
   let model: ReturnType<typeof createLanguageModel>;
   try {
-    model = createLanguageModel(config);
+    model = createLanguageModel(config, {
+      fetch: createOutboundFetch({
+        allowedPrivateHosts: deps.allowedPrivateHosts,
+        resolve: deps.resolve,
+      }),
+    });
   } catch (e) {
     if (config.provider === 'azure' && e instanceof TypeError)
       return { ok: false, code: 'provider_error', message: 'Invalid Azure resource name.' };

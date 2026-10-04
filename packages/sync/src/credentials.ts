@@ -70,5 +70,7 @@ export async function openDataSource(
   return (deps.createSource ?? createJiraDataSource)(input, {
     atlassianApiBase: deps.atlassianApiBase,
     retry: deps.retry,
+    // resolveCredentials checked the URL; pin every connection to an address passing the same rule.
+    outbound: { allowedPrivateHosts: deps.allowedPrivateHosts, resolve: deps.resolve },
   });
 }

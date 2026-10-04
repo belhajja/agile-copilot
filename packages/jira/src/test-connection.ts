@@ -45,5 +45,9 @@ export async function testJiraConnection(
       };
     }
   }
-  return probeJira(creds, { atlassianApiBase: opts.atlassianApiBase });
+  return probeJira(creds, {
+    atlassianApiBase: opts.atlassianApiBase,
+    // The URL was checked above; pin the connection to an address that passes the same rule.
+    outbound: { allowedPrivateHosts: opts.allowedPrivateHosts, resolve: opts.resolve },
+  });
 }
