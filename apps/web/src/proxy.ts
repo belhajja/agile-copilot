@@ -4,8 +4,9 @@ import { loginPath } from './lib/next-path';
 
 const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
 // Not session-authenticated, exact paths only: /api/billing/webhook (Stripe's signature over the
-// raw body) and /api/mcp (personal tokens of external MCP clients, never the session cookie).
-const PUBLIC_PATHS = new Set(['/api/billing/webhook', '/api/mcp']);
+// raw body), /api/mcp (personal tokens of external MCP clients, never the session cookie) and
+// /healthz (the probes; it reads nothing).
+const PUBLIC_PATHS = new Set(['/api/billing/webhook', '/api/mcp', '/healthz']);
 // Browser navigations (Jira OAuth start/callback): keep the redirect to /login, not JSON.
 const NAVIGATION_API_PREFIXES = ['/api/jira/oauth'];
 

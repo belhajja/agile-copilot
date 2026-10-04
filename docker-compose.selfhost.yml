@@ -65,9 +65,13 @@ services:
     # `mcp`: the only service that can reach mcp-atlassian (and the only one it can reach);
     # `mcp-readonly`: the read-only twin, for skill previews (shared with the worker).
     networks: [default, mcp, mcp-readonly]
+    # On stop the server lets running requests (downloads, chat answers) finish and flushes
+    # traces (at most 10 s) before it exits.
+    stop_grace_period: 30s
     healthcheck:
-      # busybox wget ships with node:24-alpine
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      # busybox wget ships with node:24-alpine. /healthz reads nothing: no database, no identity
+      # provider (/login would start IdP discovery).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 20s

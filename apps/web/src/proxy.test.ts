@@ -64,6 +64,15 @@ describe('proxy', () => {
     }
   });
 
+  it('lets the health check through, at its exact path only', () => {
+    const ok = proxy(req('/healthz', undefined, 'GET'));
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('x-middleware-next')).toBe('1');
+    for (const path of ['/healthz/x', '/healthzz', '/HEALTHZ']) {
+      expect(proxy(req(path, undefined, 'GET')).status).toBe(307);
+    }
+  });
+
   it('makes only the exact webhook path public (no sub-paths, no other case)', async () => {
     for (const path of [
       '/api/billing',

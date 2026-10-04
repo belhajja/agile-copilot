@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseWorkerEnv } from '@agile/config';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
 import { MCP_ATLASSIAN_IMAGE } from './image';
@@ -295,14 +296,17 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     );
   });
 
-  it('probes the web app without touching the identity provider', () => {
+  it('probes the web app on /healthz, never touching the identity provider or the database', () => {
     // /login and /api/auth start SSO discovery (AuthHolder.ssoReady): an IdP outage must not
     // take every web pod out of the Service.
     const [web] = pod(ms, 'Deployment', 'web').containers;
     for (const probe of [web?.readinessProbe, web?.livenessProbe]) {
-      expect(probe).toBeDefined();
-      expect(probe?.httpGet?.path ?? '').not.toMatch(/^\/(login|signup|api\/auth)/);
+      expect(probe?.httpGet?.path).toBe('/healthz');
     }
+  });
+
+  it('gives the web app 30 s to finish requests and flush traces on shutdown', () => {
+    expect(pod(ms, 'Deployment', 'web').terminationGracePeriodSeconds).toBe(30);
   });
 
   it('sets every server setting on web and worker, and nothing outside the env schemas', () => {
@@ -319,11 +323,54 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     // Set by the image (NODE_ENV) or for development only (STRIPE_API_URL: stripe-mock).
     const expected = server.filter((k) => !['NODE_ENV', 'STRIPE_API_URL'].includes(k));
     const web = envNames(pod(ms, 'Deployment', 'web').containers[0]);
-    const worker = envNames(pod(ms, 'Deployment', 'worker').containers[0]);
     expect([...web].sort()).toEqual(expected.sort());
-    expect([...worker].sort()).toEqual(
-      [...expected.filter((k) => k !== 'MCP_ATLASSIAN_URL'), ...workerExtras].sort(),
+    const worker = envNames(pod(ms, 'Deployment', 'worker').containers[0]);
+    expect(worker.every((k) => server.includes(k) || workerExtras.includes(k))).toBe(true);
+  });
+
+  it('gives the worker only what its env schema needs and its code reads, no web secrets (L16)', () => {
+    const worker = envNames(pod(ms, 'Deployment', 'worker').containers[0]);
+    expect(worker.sort()).toEqual(
+      [
+        'DEPLOYMENT_MODE',
+        'DATABASE_URL',
+        'BETTER_AUTH_SECRET',
+        'BETTER_AUTH_URL',
+        'ENCRYPTION_KEYS',
+        'ALLOWED_PRIVATE_HOSTS',
+        'ATLASSIAN_OAUTH_CLIENT_ID',
+        'ATLASSIAN_OAUTH_CLIENT_SECRET',
+        'MCP_ATLASSIAN_READONLY_URL',
+        'SKILL_RUNS_DAILY_LIMIT',
+        'LANGFUSE_PUBLIC_KEY',
+        'LANGFUSE_SECRET_KEY',
+        'LANGFUSE_BASE_URL',
+        'SYNC_INTERVAL_MINUTES',
+        'WORKER_HEALTH_HOST',
+        'WORKER_HEALTH_PORT',
+      ].sort(),
     );
+    // Every setting the worker's code reads is set.
+    const dir = new URL('../../../apps/worker/src/', import.meta.url);
+    const source = readdirSync(dir)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+      .map((f) => repoFile(`apps/worker/src/${f}`))
+      .join('\n');
+    for (const [, key] of source.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) {
+      expect(worker, key).toContain(key);
+    }
+    // What it is given passes the worker's env schema (the web app's checks are all-or-none:
+    // no OIDC or Stripe setting at all is valid).
+    const given = Object.fromEntries(
+      (pod(ms, 'Deployment', 'worker').containers[0]?.env ?? []).map((e) => [e.name, e.value]),
+    );
+    const secrets = {
+      DATABASE_URL: 'postgres://app_user:x@db:5432/agile',
+      BETTER_AUTH_SECRET: 's'.repeat(32),
+      BETTER_AUTH_URL: 'https://agile.example.com',
+      ENCRYPTION_KEYS: `v1:${Buffer.alloc(32, 1).toString('base64')}`,
+    };
+    expect(() => parseWorkerEnv({ ...given, ...secrets })).not.toThrow();
   });
 
   it('trusts one proxy hop behind the chart ingress, none without it, or the configured count', () => {
@@ -335,7 +382,8 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     expect(hops(ms, 'web')).toBe('0');
     const withIngress = render('ingress.enabled=true');
     expect(hops(withIngress, 'web')).toBe('1');
-    expect(hops(withIngress, 'worker')).toBe('1');
+    // The worker serves no client traffic: it does not get the setting.
+    expect(hops(withIngress, 'worker')).toBeUndefined();
     // An explicit value wins, 0 included (e.g. a CDN in front of the ingress: 2).
     expect(hops(render('ingress.enabled=true', 'config.trustedProxyHops=2'), 'web')).toBe('2');
     expect(hops(render('ingress.enabled=true', 'config.trustedProxyHops=0'), 'web')).toBe('0');

@@ -17,6 +17,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@agile/config": "workspace:*",
     "testcontainers": "12.2.0",
     "yaml": "2.9.1"
   }

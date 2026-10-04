@@ -100,3 +100,21 @@ describe('self-host settings (docker-compose.selfhost.yml, .env.example)', () =>
     }
   });
 });
+
+describe('self-host web service (docker-compose.selfhost.yml)', () => {
+  const web = (
+    parse(read('docker-compose.selfhost.yml')) as {
+      services: Record<string, { healthcheck?: { test: string[] }; stop_grace_period?: string }>;
+    }
+  ).services.web;
+
+  it('checks health on /healthz, never a page that starts identity-provider discovery', () => {
+    const test = web?.healthcheck?.test.join(' ') ?? '';
+    expect(test).toContain('http://127.0.0.1:3000/healthz');
+    expect(test).not.toMatch(/\/(login|signup|api\/auth)/);
+  });
+
+  it('gives running requests and the trace flush 30 s to finish on stop', () => {
+    expect(web?.stop_grace_period).toBe('30s');
+  });
+});

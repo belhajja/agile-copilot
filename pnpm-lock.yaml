@@ -624,6 +624,9 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
+      '@agile/config':
+        specifier: workspace:*
+        version: link:../config
       testcontainers:
         specifier: 12.2.0
         version: 12.2.0
