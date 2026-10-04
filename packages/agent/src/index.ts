@@ -28,9 +28,9 @@ export { AgentToolError } from './tool-errors';
 export { type AgentErrorCode, agentRequestSchema, handleAgentRequest } from './turn';
 export { asUntrustedData } from './untrusted';
 export {
-  builderCallsSince,
   costMicros,
   type Prices,
+  reserveBuilderCall,
   SKILL_BUILDER_HOURLY_LIMIT,
   type UsageTotals,
   usageSummary,

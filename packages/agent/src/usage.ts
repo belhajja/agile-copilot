@@ -1,6 +1,6 @@
 import { assertCanManage } from '@agile/connections';
-import { agentUsage, type Db, user, withOrg } from '@agile/db';
-import { and, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm';
+import { agentUsage, type Db, skillBuilderCalls, user, withOrg } from '@agile/db';
+import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
 
 export interface TokenUsage {
@@ -90,27 +90,36 @@ export async function recordUsage(
 
 /** Skill-builder drafts and previews per member and rolling hour (P4-R16): BYOK spend bound. */
 export const SKILL_BUILDER_HOURLY_LIMIT = 20;
+const BUILDER_WINDOW_MS = 3_600_000;
 
 /**
- * The actor's skill-builder calls (drafts and previews) metered since `since`: their usage rows
- * have neither a conversation (chat replies) nor a recorded run (background runs and "Run now").
+ * Reserves one skill-builder call (a draft or a preview) for the actor before the model is called;
+ * false when they already made `SKILL_BUILDER_HOURLY_LIMIT` in the last hour (P4-R29). The count
+ * and the insert run under a per-member transaction lock, so parallel requests cannot overshoot,
+ * and a reservation counts even when the call or its metering fails.
  */
-export async function builderCallsSince(db: Db, actor: AgentActor, since: Date): Promise<number> {
-  const [row] = await withOrg(db, actor.orgId, (tx) =>
-    tx
+export async function reserveBuilderCall(db: Db, actor: AgentActor, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - BUILDER_WINDOW_MS);
+  return withOrg(db, actor.orgId, async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`skill_builder:${actor.orgId}:${actor.userId}`}))`,
+    );
+    const mine = and(
+      eq(skillBuilderCalls.orgId, actor.orgId),
+      eq(skillBuilderCalls.userId, actor.userId),
+    );
+    // The window's older rows are no longer needed.
+    await tx.delete(skillBuilderCalls).where(and(mine, lt(skillBuilderCalls.createdAt, since)));
+    const [row] = await tx
       .select({ n: sql<number>`count(*)::int` })
-      .from(agentUsage)
-      .where(
-        and(
-          eq(agentUsage.orgId, actor.orgId),
-          eq(agentUsage.userId, actor.userId),
-          isNull(agentUsage.conversationId),
-          isNull(agentUsage.skillRunId),
-          gte(agentUsage.createdAt, since),
-        ),
-      ),
-  );
-  return row?.n ?? 0;
+      .from(skillBuilderCalls)
+      .where(and(mine, gte(skillBuilderCalls.createdAt, since)));
+    if ((row?.n ?? 0) >= SKILL_BUILDER_HOURLY_LIMIT) return false;
+    await tx
+      .insert(skillBuilderCalls)
+      .values({ orgId: actor.orgId, userId: actor.userId, createdAt: now });
+    return true;
+  });
 }
 
 export interface UsageTotals {

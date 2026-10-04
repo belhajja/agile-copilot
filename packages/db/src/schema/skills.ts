@@ -172,3 +172,22 @@ export const deliveryChannels = pgTable(
     tenantPolicy('delivery_channels', t.orgId),
   ],
 );
+
+/**
+ * Skill-builder calls (drafts and previews) reserved before the model is called (P4-R29): the
+ * per-member hourly limit counts these rows, so a burst of parallel requests or a call whose
+ * metering failed still counts. Rows older than the window are deleted on the next reservation.
+ */
+export const skillBuilderCalls = pgTable(
+  'skill_builder_calls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    createdAt,
+  },
+  (t) => [
+    index('skill_builder_calls_user_created_idx').on(t.orgId, t.userId, t.createdAt),
+    tenantPolicy('skill_builder_calls', t.orgId),
+  ],
+);

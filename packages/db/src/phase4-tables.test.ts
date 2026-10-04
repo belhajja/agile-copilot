@@ -3,10 +3,23 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Tx, withOrg } from './client';
 import { purgeOrgTenantRows } from './purge';
-import { deliveryChannels, llmConnections, skillRuns, skills, skillVersions } from './schema';
+import {
+  deliveryChannels,
+  llmConnections,
+  skillBuilderCalls,
+  skillRuns,
+  skills,
+  skillVersions,
+} from './schema';
 import { startTestDatabase, type TestDatabase } from './testing';
 
-const PHASE4_TABLES = ['delivery_channels', 'skill_runs', 'skill_versions', 'skills'];
+const PHASE4_TABLES = [
+  'delivery_channels',
+  'skill_builder_calls',
+  'skill_runs',
+  'skill_versions',
+  'skills',
+];
 
 const skillRow = (orgId: string, name = 'sprint-digest') => ({
   orgId,
@@ -44,6 +57,7 @@ async function seed(tx: Tx, orgId: string) {
     secret: 's1.x.y.z',
     createdBy: 'user_1',
   });
+  await tx.insert(skillBuilderCalls).values({ orgId, userId: 'user_1' });
   return skill.id;
 }
 
@@ -314,10 +328,11 @@ describe('Phase 4 tenant tables (as app_user)', () => {
     expect(await countAll('org_a')).toEqual(before);
   });
 
-  it('deleting a skill removes its versions and runs, not the channel', async () => {
+  it('deleting a skill removes its versions and runs, not the channel or builder calls', async () => {
     await withOrg(app.db, 'org_a', (tx) => tx.delete(skills).where(eq(skills.id, skillA)));
     expect(await countAll('org_a')).toEqual({
       delivery_channels: 1,
+      skill_builder_calls: 1,
       skill_runs: 0,
       skill_versions: 0,
       skills: 0,

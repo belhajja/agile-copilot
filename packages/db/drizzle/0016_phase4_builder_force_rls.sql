@@ -1,0 +1,1 @@
+ALTER TABLE skill_builder_calls FORCE ROW LEVEL SECURITY;

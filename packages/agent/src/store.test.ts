@@ -25,7 +25,7 @@ import {
 import type { AgentActor } from './deps';
 import { toolErrorText } from './tool-errors';
 import { parseUntrustedData } from './untrusted';
-import { builderCallsSince, recordUsage, usageSummary } from './usage';
+import { recordUsage, reserveBuilderCall, usageSummary } from './usage';
 
 const alice: AgentActor = { orgId: 'org_a', userId: 'user_alice', roles: ['member'] };
 const bob: AgentActor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
@@ -715,31 +715,20 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
       ).toEqual([]);
     });
 
-    it("counts only the actor's own drafts and previews, in the window (P4-R16)", async () => {
-      const carol: AgentActor = { orgId: 'org_a', userId: 'user_carol', roles: ['member'] };
-      const since = new Date(Date.now() - 60_000);
-      const entry = {
-        llmConnectionId: randomUUID(),
-        provider: 'openai',
-        model: 'gpt-test',
-        usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
-        prices: { inputMicros: null, outputMicros: null },
-      };
-      // Two builder calls (a draft and a preview: no conversation, no run)…
-      await recordUsage(app.db, carol, { ...entry, conversationId: null });
-      await recordUsage(app.db, carol, { ...entry, conversationId: null, skillRunId: null });
-      // …not a chat reply, a recorded run, another member's call or another workspace's.
-      await recordUsage(app.db, carol, { ...entry, conversationId: randomUUID() });
-      await recordUsage(app.db, carol, {
-        ...entry,
-        conversationId: null,
-        skillRunId: randomUUID(),
-      });
-      await recordUsage(app.db, alice, { ...entry, conversationId: null });
-      await recordUsage(app.db, { ...carol, orgId: 'org_b' }, { ...entry, conversationId: null });
-
-      expect(await builderCallsSince(app.db, carol, since)).toBe(2);
-      expect(await builderCallsSince(app.db, carol, new Date(Date.now() + 60_000))).toBe(0);
+    it('reserves at most 20 builder calls per member and hour, even in a burst (P4-R29)', async () => {
+      const dave: AgentActor = { orgId: 'org_a', userId: 'user_dave', roles: ['member'] };
+      const now = new Date();
+      const results = await Promise.all(
+        Array.from({ length: 25 }, () => reserveBuilderCall(app.db, dave, now)),
+      );
+      expect(results.filter(Boolean)).toHaveLength(20);
+      expect(results.filter((r) => !r)).toHaveLength(5);
+      // Per member and per workspace: others still have their own 20.
+      expect(await reserveBuilderCall(app.db, alice, now)).toBe(true);
+      expect(await reserveBuilderCall(app.db, { ...dave, orgId: 'org_b' }, now)).toBe(true);
+      // An hour later the window is free again.
+      const later = new Date(now.getTime() + 3_600_001);
+      expect(await reserveBuilderCall(app.db, dave, later)).toBe(true);
     });
   });
 });
