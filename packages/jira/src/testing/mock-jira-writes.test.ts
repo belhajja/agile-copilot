@@ -73,12 +73,148 @@ describe('mock Jira: issue detail and writes', () => {
     expect((await call('GET', '/rest/api/2/user/search?username=alex')).body).toMatchObject([
       { name: 'alex', displayName: 'Alex Martin' },
     ]);
-    const sprint = await call('GET', '/rest/api/2/search?jql=sprint%20%3D%204');
-    expect(sprint.body.issues.length).toBeGreaterThan(0);
+    expect((await call('GET', '/rest/api/2/user/search')).status).toBe(400);
+    expect((await call('GET', '/rest/api/2/user/search?username=')).status).toBe(400);
+    const viaJql = await call('GET', '/rest/api/2/search?jql=sprint%20%3D%204');
+    const viaAgile = await call('GET', '/rest/agile/1.0/sprint/4/issue');
+    const keys = (r: { body: Json }) => r.body.issues.map((i: { key: string }) => i.key).sort();
+    expect(keys(viaJql)).toEqual([
+      'DEMO-18',
+      'DEMO-20',
+      'DEMO-21',
+      'DEMO-22',
+      'DEMO-23',
+      'DEMO-24',
+      'DEMO-25',
+    ]);
+    expect(keys(viaAgile)).toEqual(keys(viaJql));
+  });
+
+  it('assigns by name on Data Center and reads it back', async () => {
+    const before = jira.writes.length;
+    expect((await call('PUT', '/rest/api/2/issue/DEMO-3/assignee', { name: 'sam' })).status).toBe(
+      204,
+    );
+    expect((await call('GET', '/rest/api/2/issue/DEMO-3')).body.fields.assignee.name).toBe('sam');
+    expect((await call('PUT', '/rest/api/2/issue/DEMO-3/assignee', { name: null })).status).toBe(
+      204,
+    );
+    expect((await call('GET', '/rest/api/2/issue/DEMO-3')).body.fields.assignee).toBeNull();
+    expect(
+      (await call('PUT', '/rest/api/2/issue/DEMO-3/assignee', { accountId: 'u-sam' })).status,
+    ).toBe(400);
+    expect(
+      (await call('PUT', '/rest/api/2/issue/DEMO-3/assignee', { name: 'nobody' })).status,
+    ).toBe(404);
+    expect(jira.writes.length).toBe(before + 2);
+  });
+
+  it('edits fields, refuses read-only ones and bumps updated', async () => {
+    const before = jira.writes.length;
+    const old = (await call('GET', '/rest/api/2/issue/DEMO-4')).body.fields.updated;
+    expect(
+      (await call('PUT', '/rest/api/2/issue/DEMO-4', { fields: { summary: 'Renamed' } })).status,
+    ).toBe(204);
+    const after = (await call('GET', '/rest/api/2/issue/DEMO-4')).body.fields;
+    expect(after.summary).toBe('Renamed');
+    expect(after.updated).not.toBe(old);
+    for (const field of ['status', 'created', 'updated', 'id', 'key']) {
+      expect(
+        (await call('PUT', '/rest/api/2/issue/DEMO-4', { fields: { [field]: 'x' } })).status,
+      ).toBe(400);
+    }
+    expect((await call('PUT', '/rest/api/2/issue/DEMO-4', { fields: 'nope' })).status).toBe(400);
+    expect((await call('PUT', '/rest/api/2/issue/DEMO-4', [1])).status).toBe(400);
+    // Extra, unknown top-level keys (e.g. `update`) are tolerated like Jira does.
+    expect(
+      (
+        await call('PUT', '/rest/api/2/issue/DEMO-4', {
+          fields: { __proto__: { polluted: true }, labels: ['a'] },
+          update: {},
+        })
+      ).status,
+    ).toBe(204);
+    expect(({} as Json).polluted).toBeUndefined();
+    expect(jira.writes.length).toBe(before + 2);
+  });
+
+  it('rejects invalid JSON, bad transitions and unknown projects without recording', async () => {
+    const before = jira.writes.length;
+    const raw = await fetch(`${jira.url}/rest/api/2/issue/DEMO-1/comment`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer pat', 'content-type': 'application/json' },
+      body: '{not json',
+    });
+    expect(raw.status).toBe(400);
+    expect(await raw.json()).toEqual({ errorMessages: ['Invalid JSON'] });
+    expect(
+      (await call('POST', '/rest/api/2/issue/DEMO-1/transitions', { transition: { id: '999' } }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await call('POST', '/rest/api/2/issue', {
+          fields: { project: { key: 'NOPE' }, summary: 'x' },
+        })
+      ).status,
+    ).toBe(400);
+    expect((await call('POST', '/rest/api/2/issue', { fields: 'x' })).status).toBe(400);
+    expect(jira.writes.length).toBe(before);
+  });
+
+  it('does not record an unauthenticated write', async () => {
+    const before = jira.writes.length;
+    const res = await fetch(`${jira.url}/rest/api/2/issue/DEMO-1/comment`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer wrong', 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'x' }),
+    });
+    expect(res.status).toBe(401);
+    expect(jira.writes.length).toBe(before);
+  });
+
+  it('a transition adds a status history entry and bumps updated', async () => {
+    const t = (await call('GET', '/rest/api/2/issue/DEMO-5/transitions')).body.transitions;
+    const done = t.find((x: { name: string }) => x.name === 'Done');
+    await call('POST', '/rest/api/2/issue/DEMO-5/transitions', { transition: { id: done.id } });
+    const issue = (await call('GET', '/rest/api/2/issue/DEMO-5')).body;
+    const last = issue.changelog.histories.at(-1);
+    expect(last.items[0]).toMatchObject({ field: 'status', fieldtype: 'jira', toString: 'Done' });
+    expect(Date.parse(issue.fields.updated)).toBeGreaterThan(Date.parse('2026-10-03T00:00:00Z'));
   });
 
   it('refuses unknown issues and invalid writes', async () => {
     expect((await call('GET', '/rest/api/2/issue/NOPE-1')).status).toBe(404);
     expect((await call('POST', '/rest/api/2/issue/DEMO-1/comment', {})).status).toBe(400);
+  });
+});
+
+describe('mock Jira: Cloud assignment', () => {
+  it('assigns by accountId only', async () => {
+    const jira = await startMockJira({
+      flavor: 'cloud',
+      validAuthorization: 'Bearer pat',
+      dataset: demoDataset(new Date('2026-10-04T00:00:00Z')),
+    });
+    try {
+      const put = (body: unknown) =>
+        fetch(`${jira.url}/rest/api/3/issue/DEMO-3/assignee`, {
+          method: 'PUT',
+          headers: { authorization: 'Bearer pat', 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      expect((await put({ accountId: 'u-kim' })).status).toBe(204);
+      const issue: Json = await (
+        await fetch(`${jira.url}/rest/api/3/issue/DEMO-3`, {
+          headers: { authorization: 'Bearer pat' },
+        })
+      ).json();
+      expect(issue.fields.assignee.accountId).toBe('u-kim');
+      expect((await put({ name: 'kim' })).status).toBe(400);
+      expect((await put({ accountId: 'u-none' })).status).toBe(404);
+      expect((await put({ accountId: null })).status).toBe(204);
+    } finally {
+      await jira.close();
+    }
   });
 });

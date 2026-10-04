@@ -122,6 +122,9 @@ function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] |
     .sort((a, b) => time(a.fields.created) - time(b.fields.created) || Number(a.id) - Number(b.id));
 }
 
+const INVALID_JSON = Symbol('invalid json');
+
+/** The parsed JSON body (undefined when empty); INVALID_JSON when it does not parse. */
 const readBody = (req: IncomingMessage) =>
   new Promise<unknown>((resolve) => {
     let raw = '';
@@ -132,10 +135,24 @@ const readBody = (req: IncomingMessage) =>
       try {
         resolve(raw ? JSON.parse(raw) : undefined);
       } catch {
-        resolve(undefined);
+        resolve(INVALID_JSON);
       }
     });
   });
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+/** Own-property merge that never touches the prototype chain. */
+function safeAssign(target: Record<string, unknown>, source: Record<string, unknown>) {
+  for (const [k, v] of Object.entries(source)) {
+    if (!UNSAFE_KEYS.has(k)) target[k] = v;
+  }
+}
+
+/** Fields a client cannot set through an edit. */
+const READ_ONLY_FIELDS = ['status', 'created', 'updated', 'id', 'key'];
 
 export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
   const api = opts.flavor === 'cloud' ? '3' : '2';
@@ -316,6 +333,15 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     if (issueRoutes(req, res, path, { categoryOf, issueJson })) return;
     json(res, 404, { errorMessages: ['Not found'] });
   });
+  const knownUsers = (ds: MockJiraDataset) => {
+    const users = new Map<string, Record<string, unknown>>();
+    for (const i of ds.issues) {
+      const a = i.fields.assignee as Record<string, unknown> | null;
+      if (a && typeof a.accountId === 'string') users.set(a.accountId, a);
+    }
+    return users;
+  };
+
   // ---- Issue detail and the writes the agent's Jira tools use (REST v2 and v3 alike) ----
   function issueRoutes(
     req: IncomingMessage,
@@ -346,12 +372,12 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     if (new RegExp(`^${prefix}/rest/api/[23]/user/search$`).test(path) && req.method === 'GET') {
       // Users are the dataset's assignees; DC matches `username`, Cloud matches `query`.
       const params = new URL(req.url ?? '/', 'http://mock').searchParams;
-      const wanted = (params.get('query') ?? params.get('username') ?? '').toLowerCase();
-      const users = new Map<string, Record<string, unknown>>();
-      for (const i of ds.issues) {
-        const a = i.fields.assignee as Record<string, unknown> | null;
-        if (a && typeof a.accountId === 'string') users.set(a.accountId, a);
+      const wanted = (params.get('query') || params.get('username') || '').toLowerCase();
+      if (!wanted) {
+        json(res, 400, { errorMessages: ['The query parameter is required.'] });
+        return true;
       }
+      const users = knownUsers(ds);
       json(
         res,
         200,
@@ -423,48 +449,99 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return false;
     void readBody(req).then((body) => {
-      const b = (body ?? {}) as {
+      if (body === INVALID_JSON) return json(res, 400, { errorMessages: ['Invalid JSON'] });
+      if (!isPlainObject(body)) {
+        return json(res, 400, { errorMessages: ['A JSON object body is required.'] });
+      }
+      const b = body as {
         body?: unknown;
         transition?: { id?: string };
-        fields?: {
-          project?: { key?: unknown };
-          summary?: unknown;
-          description?: unknown;
-          issuetype?: unknown;
-        } & Record<string, unknown>;
+        fields?: unknown;
+      };
+      const touch = (i: MockIssue) => {
+        i.fields.updated = jiraTime(now());
       };
       if (req.method === 'POST' && issue && sub === 'comment') {
         if (b.body === undefined)
           return json(res, 400, { errors: { comment: 'Comment body can not be empty!' } });
         const comment = { id: String(nextId++), body: b.body, created: jiraTime(now()) };
         comments.set(issue.key, [...(comments.get(issue.key) ?? []), comment]);
+        touch(issue);
         record(body);
         return json(res, 201, { ...comment, author: { displayName: 'Pat' } });
       }
       if (req.method === 'POST' && issue && sub === 'transitions') {
         const to = ds.statuses.find((_, i) => String(11 + 10 * i) === String(b.transition?.id));
         if (!to) return json(res, 400, { errorMessages: ['Transition is not valid.'] });
+        const from = issue.fields.status as { id?: string; name?: string } | null;
+        issue.histories.push({
+          id: String(nextId++),
+          created: jiraTime(now()),
+          items: [
+            {
+              field: 'status',
+              fieldId: 'status',
+              fieldtype: 'jira',
+              from: from?.id ?? null,
+              fromString: from?.name ?? null,
+              to: to.id,
+              toString: to.name,
+            },
+          ],
+        });
         issue.fields.status = { id: to.id, name: to.name };
+        touch(issue);
         record(body);
         res.writeHead(204).end();
         return;
       }
       if (req.method === 'PUT' && issue && sub === 'assignee') {
+        // Cloud identifies the user by `accountId`, Data Center by `name`; null unassigns.
+        const prop = opts.flavor === 'cloud' ? 'accountId' : 'name';
+        const wanted = body[prop];
+        if (!(prop in body) || (wanted !== null && typeof wanted !== 'string')) {
+          return json(res, 400, { errorMessages: [`The assignee must be given as ${prop}.`] });
+        }
+        const user =
+          wanted === null ? null : [...knownUsers(ds).values()].find((u) => u[prop] === wanted);
+        if (wanted !== null && !user) {
+          return json(res, 404, { errorMessages: ['The user does not exist.'] });
+        }
+        issue.fields.assignee = user;
+        touch(issue);
         record(body);
         res.writeHead(204).end();
         return;
       }
       if (req.method === 'PUT' && issue && !sub) {
-        const fields = (b.fields ?? {}) as Record<string, unknown>;
-        Object.assign(issue.fields, fields);
+        if (!isPlainObject(b.fields)) {
+          return json(res, 400, { errorMessages: ['`fields` must be an object.'] });
+        }
+        const locked = READ_ONLY_FIELDS.find((f) => Object.hasOwn(b.fields as object, f));
+        if (locked) {
+          return json(res, 400, { errors: { [locked]: `Field '${locked}' cannot be set.` } });
+        }
+        safeAssign(issue.fields, b.fields);
+        touch(issue);
         record(body);
         res.writeHead(204).end();
         return;
       }
       if (req.method === 'POST' && !key) {
-        const project = b.fields?.project?.key;
-        const summary = b.fields?.summary;
-        if (typeof project !== 'string' || typeof summary !== 'string') {
+        if (!isPlainObject(b.fields)) {
+          return json(res, 400, { errorMessages: ['`fields` must be an object.'] });
+        }
+        const f = b.fields;
+        const project = isPlainObject(f.project) ? f.project.key : undefined;
+        const summary = f.summary;
+        const projects = new Set([
+          ...ds.boards.map((x) => x.projectKey),
+          ...ds.issues.map((x) => x.key.slice(0, x.key.lastIndexOf('-'))),
+        ]);
+        if (typeof project !== 'string' || !projects.has(project)) {
+          return json(res, 400, { errors: { project: 'You must specify a valid project.' } });
+        }
+        if (typeof summary !== 'string' || !summary) {
           return json(res, 400, {
             errors: { summary: 'You must specify a summary of the issue.' },
           });
@@ -478,8 +555,8 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
           filterIds: [], // not on any board: a sync never sees it
           fields: {
             summary,
-            description: b.fields?.description ?? null,
-            issuetype: { name: (b.fields?.issuetype as { name?: string })?.name ?? 'Task' },
+            description: f.description ?? null,
+            issuetype: { name: (f.issuetype as { name?: string } | undefined)?.name ?? 'Task' },
             status: { id: ds.statuses[0]?.id, name: ds.statuses[0]?.name },
             assignee: null,
             created: jiraTime(now()),
