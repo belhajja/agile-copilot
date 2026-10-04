@@ -381,19 +381,35 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
       });
       return true;
     }
-    if (new RegExp(`^${prefix}/rest/api/[23]/user/search$`).test(path) && req.method === 'GET') {
+    const userSearch = new RegExp(`^${prefix}/rest/api/[23]/user/(assignable/)?search$`).exec(path);
+    if (userSearch && req.method === 'GET') {
       // Users are the dataset's assignees; DC matches `username`, Cloud matches `query`.
+      // The assignable variant (mcp-atlassian's jira_search_assignable_users) needs an issue or a
+      // project and, like Jira, only returns active users.
+      const assignable = !!userSearch[1];
       const params = new URL(req.url ?? '/', 'http://mock').searchParams;
       const wanted = (params.get('query') || params.get('username') || '').toLowerCase();
       if (!wanted) {
         json(res, 400, { errorMessages: ['The query parameter is required.'] });
         return true;
       }
+      if (assignable) {
+        const issueKey = params.get('issueKey');
+        if (!issueKey && !params.get('project')) {
+          json(res, 400, { errorMessages: ['An issue key or a project is required.'] });
+          return true;
+        }
+        if (issueKey && !ds.issues.some((i) => i.key === issueKey || i.id === issueKey)) {
+          json(res, 404, { errorMessages: ['Issue does not exist'] });
+          return true;
+        }
+      }
       const users = knownUsers(ds);
       json(
         res,
         200,
         [...users.values()]
+          .filter((u) => !assignable || u.active !== false)
           .filter((u) =>
             [u.accountId, u.name, u.displayName].some(
               (v) => typeof v === 'string' && v.toLowerCase().includes(wanted),

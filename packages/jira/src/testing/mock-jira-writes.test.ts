@@ -259,3 +259,33 @@ describe('mock Jira: user search', () => {
     }
   });
 });
+
+describe('mock Jira: assignable user search (mcp-atlassian jira_search_assignable_users)', () => {
+  it('needs an issue or project, matches like user search and leaves out inactive users', async () => {
+    const jira = await startMockJira({
+      flavor: 'datacenter',
+      validAuthorization: 'Bearer pat',
+      dataset: demoDataset(new Date('2026-10-04T00:00:00Z')),
+      extraUsers: [
+        { accountId: 'u-alex-old', name: 'alex.old', displayName: 'Alex Martin', active: false },
+      ],
+    });
+    try {
+      const get = async (search: string) => {
+        const res = await fetch(`${jira.url}/rest/api/2/user/assignable/search?${search}`, {
+          headers: { authorization: 'Bearer pat' },
+        });
+        return { status: res.status, body: (await res.json()) as Json };
+      };
+      expect(await get('username=alex%20martin&issueKey=DEMO-2')).toEqual({
+        status: 200,
+        body: [{ key: 'alex', name: 'alex', displayName: 'Alex Martin', active: true }],
+      });
+      expect((await get('username=sam&project=DEMO')).body).toMatchObject([{ name: 'sam' }]);
+      expect((await get('username=alex')).status).toBe(400);
+      expect((await get('username=alex&issueKey=NOPE-1')).status).toBe(404);
+    } finally {
+      await jira.close();
+    }
+  });
+});
