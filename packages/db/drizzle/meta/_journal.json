@@ -169,6 +169,20 @@
       "when": 1791123554718,
       "tag": "0023_phase5_billing_force_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791124407821,
+      "tag": "0024_phase5_privacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791124411313,
+      "tag": "0025_phase5_privacy_rls_audit_purge",
+      "breakpoints": true
     }
   ]
 }

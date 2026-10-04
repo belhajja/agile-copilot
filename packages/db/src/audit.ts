@@ -41,7 +41,8 @@ export type AuditAction =
   | 'member.removed'
   | 'member.left'
   | 'billing.checkout_started'
-  | 'billing.subscription_changed';
+  | 'billing.subscription_changed'
+  | 'workspace.settings_changed';
 
 /** metadata must never contain secrets — pass only non-sensitive descriptors. */
 export async function recordAudit(

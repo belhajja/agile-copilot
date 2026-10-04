@@ -3,6 +3,7 @@ import type { WorkerEnv } from '@agile/config';
 import { parseKeyring } from '@agile/crypto';
 import { createDb } from '@agile/db';
 import { createAtlassianOAuth } from '@agile/jira';
+import { startRetentionWorker } from '@agile/privacy';
 import { SYNC_QUEUE, type SyncDeps, startSyncQueue, startSyncWorker } from '@agile/sync';
 import { sql } from 'drizzle-orm';
 import { startHealthServer } from './health';
@@ -25,7 +26,7 @@ export interface RunningWorker {
 
 const errorName = (error: unknown) => (error instanceof Error ? error.name : 'unknown');
 
-/** Wires the sync and skill workers (pg-boss) and the health endpoint. */
+/** Wires the sync, skill and retention workers (pg-boss) and the health endpoint. */
 export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningWorker> {
   const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
   const shutdown = new AbortController();
@@ -88,6 +89,21 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
           ...('code' in outcome ? { code: outcome.code } : {}),
         }),
     });
+    // Daily data retention (conversations, skill runs, usage, audit) for every workspace.
+    await startRetentionWorker(
+      started,
+      {
+        db,
+        // Workspace id and error name only.
+        onError: (error, orgId) =>
+          log('warn', 'retention_failed', { orgId, error: errorName(error) }),
+      },
+      {
+        // A stopping worker ends the run between workspaces (the next run picks up the rest).
+        signal: shutdown.signal,
+        onDone: (result) => log('info', 'retention_finished', { ...result }),
+      },
+    );
     // Ready = the database answers and both job queues are reachable through pg-boss.
     health = await startHealthServer(env.WORKER_HEALTH_PORT, env.WORKER_HEALTH_HOST, async () => {
       await db.execute(sql`select 1`);

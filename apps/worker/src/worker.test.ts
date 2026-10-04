@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { SKILL_RUN_MAX_MS, SKILL_TICK_CRON, SKILL_TICK_QUEUE } from '@agile/automation';
 import { parseWorkerEnv } from '@agile/config';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
+import { RETENTION_CRON, RETENTION_QUEUE } from '@agile/privacy';
 import { SYNC_TICK_QUEUE, startSyncQueue } from '@agile/sync';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Logger } from './log';
@@ -57,6 +58,8 @@ describe('worker', () => {
           .sort(([a], [b]) => String(a).localeCompare(String(b))),
       ).toEqual([
         [SYNC_TICK_QUEUE, '*/30 * * * *'],
+        // Phase 5: the daily retention run.
+        [RETENTION_QUEUE, RETENTION_CRON],
         [SKILL_TICK_QUEUE, SKILL_TICK_CRON],
       ]);
     } finally {
