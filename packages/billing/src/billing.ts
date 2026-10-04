@@ -3,6 +3,7 @@ import {
   type AuditAction,
   billingSubscriptions,
   type Db,
+  deletedOrganizations,
   organization,
   recordAudit,
   stripeEvents,
@@ -12,6 +13,22 @@ import {
 import { eq, lt } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Entitlements, entitlementsOf, SELFHOST } from './plans';
+
+/**
+ * Metadata we put on every Stripe customer, Checkout session and subscription we create (P5-R46):
+ * an app marker and the workspace id under an app-specific key. Other products on the same Stripe
+ * account cannot be mistaken for ours by a common key such as `orgId`.
+ */
+export const STRIPE_APP_MARKER = 'agile-copilot';
+export const STRIPE_ORG_KEY = 'agile_copilot_org_id';
+/** The workspace key used before P5-R46; still read (never written). */
+const LEGACY_ORG_KEY = 'orgId';
+
+const ourMetadata = (orgId: string) => ({ app: STRIPE_APP_MARKER, [STRIPE_ORG_KEY]: orgId });
+
+/** The workspace id in Stripe metadata: the app-specific key, else the legacy one. */
+const orgIdOf = (metadata: Stripe.Metadata | null | undefined): string | null =>
+  metadata?.[STRIPE_ORG_KEY] || metadata?.[LEGACY_ORG_KEY] || null;
 
 /** SaaS billing settings. Absent (null) in self-host builds: billing is off. */
 export interface BillingConfig {
@@ -142,8 +159,9 @@ const lockedRow = async (tx: Tx, orgId: string) =>
   )[0];
 
 /**
- * The workspace's Stripe customer row, created on first use. The customer carries the workspace
- * id as metadata only: no names or addresses are sent (Checkout collects billing details itself).
+ * The workspace's Stripe customer row, created on first use. The customer carries our marker and
+ * the workspace id as metadata only: no names or addresses are sent (Checkout collects billing
+ * details itself).
  */
 async function ensureCustomerRow(deps: BillingDeps, stripe: Stripe, orgId: string) {
   const [existing] = await withOrg(deps.db, orgId, (tx) =>
@@ -153,7 +171,7 @@ async function ensureCustomerRow(deps: BillingDeps, stripe: Stripe, orgId: strin
       .where(eq(billingSubscriptions.orgId, orgId)),
   );
   if (existing) return;
-  const customer = await stripe.customers.create({ metadata: { orgId } });
+  const customer = await stripe.customers.create({ metadata: ourMetadata(orgId) });
   // A concurrent checkout may have stored one first: keep that one.
   await withOrg(deps.db, orgId, (tx) =>
     tx
@@ -223,8 +241,8 @@ export async function startCheckout(
         customer: row.stripeCustomerId,
         line_items: [{ price: config.priceTeam, quantity: 1 }],
         client_reference_id: actor.orgId,
-        metadata: { orgId: actor.orgId },
-        subscription_data: { metadata: { orgId: actor.orgId } },
+        metadata: ourMetadata(actor.orgId),
+        subscription_data: { metadata: ourMetadata(actor.orgId) },
         expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
         success_url: urls.successUrl,
         cancel_url: urls.cancelUrl,
@@ -421,12 +439,30 @@ async function applySubscription(
 
 /**
  * A subscription naming a workspace that no longer exists must not keep billing: unless Stripe
- * says it has ended (or this is its deletion), it is canceled.
+ * says it has ended (or this is its deletion), it is canceled. Only when it is provably ours
+ * (P5-R46): the id was one of our workspaces (`deleted_organizations`, kept 90 days) and the
+ * subscription's customer is one we created for that workspace (our marker and its id). Anything
+ * else (another product on the same Stripe account, a subscription made by hand) is left alone.
  */
-async function cancelOrphan(stripe: Stripe, event: Stripe.Event, sub: Stripe.Subscription) {
-  if (event.type === 'customer.subscription.deleted' || ended(sub.status)) return;
+async function cancelOrphan(
+  tx: Tx,
+  stripe: Stripe,
+  event: Stripe.Event,
+  sub: Stripe.Subscription,
+  orgId: string,
+): Promise<WebhookOutcome> {
+  if (event.type === 'customer.subscription.deleted' || ended(sub.status)) return 'ignored';
+  const wasOurs =
+    (await tx.$count(deletedOrganizations, eq(deletedOrganizations.deletedOrgId, orgId))) > 0;
+  if (!wasOurs) return ignore('webhook_unknown_workspace');
+  const customer = await stripe.customers.retrieve(idOf(sub.customer), {}, UNDER_LOCK);
+  const meta = customer.deleted ? null : customer.metadata;
+  if (meta?.app !== STRIPE_APP_MARKER || orgIdOf(meta) !== orgId) {
+    return ignore('webhook_unknown_workspace');
+  }
   const current = await stripe.subscriptions.retrieve(sub.id, {}, UNDER_LOCK);
   if (!ended(current.status)) await stripe.subscriptions.cancel(sub.id, {}, UNDER_LOCK);
+  return 'ignored';
 }
 
 export type WebhookOutcome = 'processed' | 'duplicate' | 'ignored';
@@ -480,7 +516,7 @@ async function applyEvent(
   if (event.type === 'checkout.session.completed') {
     orgId = event.data.object.client_reference_id ?? null;
   } else if (SUBSCRIPTION_EVENTS.includes(event.type)) {
-    orgId = (event.data.object as Stripe.Subscription).metadata?.orgId ?? null;
+    orgId = orgIdOf((event.data.object as Stripe.Subscription).metadata);
   }
 
   if (!orgId) {
@@ -499,10 +535,7 @@ async function applyEvent(
       return applyCheckout(tx, ctx, event.data.object);
     }
     const sub = event.data.object as Stripe.Subscription;
-    if (!(await orgExists(tx, ctx.orgId))) {
-      await cancelOrphan(stripe, event, sub);
-      return 'ignored';
-    }
+    if (!(await orgExists(tx, ctx.orgId))) return cancelOrphan(tx, stripe, event, sub, ctx.orgId);
     return applySubscription(tx, ctx, sub);
   });
 }

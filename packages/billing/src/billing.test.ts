@@ -1,4 +1,11 @@
-import { auditLog, billingSubscriptions, createDb, organization, stripeEvents } from '@agile/db';
+import {
+  auditLog,
+  billingSubscriptions,
+  createDb,
+  deletedOrganizations,
+  organization,
+  stripeEvents,
+} from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { and, eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
@@ -87,7 +94,7 @@ describe('billing (stripe-mock + Postgres)', () => {
     customer: customerA,
     status: 'active',
     cancel_at_period_end: false,
-    metadata: { orgId: 'org_a' },
+    metadata: { app: 'agile-copilot', agile_copilot_org_id: 'org_a' },
     items: {
       data: [{ price: { id: 'price_team' }, current_period_end: T0 + 30 * 86_400 }],
     },
@@ -164,14 +171,19 @@ describe('billing (stripe-mock + Postgres)', () => {
       code: 'forbidden_role',
     });
     const create = vi.spyOn(stripe.checkout.sessions, 'create');
+    const createCustomer = vi.spyOn(stripe.customers, 'create');
     const now = Math.floor(Date.now() / 1000);
     expect(await startCheckout(deps, owner, urls)).toMatch(CHECKOUT_URL);
+    // Our marker and an app-specific workspace key (P5-R46), on the customer and the subscription.
+    const ours = { app: 'agile-copilot', agile_copilot_org_id: 'org_a' };
+    expect(createCustomer.mock.calls[0]?.[0]).toEqual({ metadata: ours });
+    createCustomer.mockRestore();
     const [params] = create.mock.calls[0] ?? [];
     expect(params).toMatchObject({
       mode: 'subscription',
       client_reference_id: 'org_a',
-      metadata: { orgId: 'org_a' },
-      subscription_data: { metadata: { orgId: 'org_a' } },
+      metadata: ours,
+      subscription_data: { metadata: ours },
     });
     expect(params?.expires_at).toBeGreaterThanOrEqual(now + 30 * 60);
     expect(params?.expires_at).toBeLessThanOrEqual(now + 30 * 60 + 5);
@@ -322,19 +334,31 @@ describe('billing (stripe-mock + Postgres)', () => {
     });
     expect(await deliver(other)).toBe('ignored');
 
+    await raw.db.insert(deletedOrganizations).values({ deletedOrgId: 'org_deleted' });
     const holds = stripeHolds({
       sub_gone: { status: 'active' },
       sub_gone_old: { status: 'canceled' },
     });
+    // The customer we created for the deleted workspace, with our marker.
+    const customers = vi.spyOn(stripe.customers, 'retrieve').mockResolvedValue({
+      id: 'cus_gone',
+      object: 'customer',
+      metadata: { app: 'agile-copilot', agile_copilot_org_id: 'org_deleted' },
+    } as never);
     const cancel = vi.spyOn(stripe.subscriptions, 'cancel').mockResolvedValue({} as never);
     try {
       const gone = (id: string, type: string, sub: string) =>
-        subscriptionEvent(id, type, T0, { id: sub, metadata: { orgId: 'org_deleted' } });
+        subscriptionEvent(id, type, T0, {
+          id: sub,
+          customer: 'cus_gone',
+          metadata: { app: 'agile-copilot', agile_copilot_org_id: 'org_deleted' },
+        });
       expect(await deliver(await gone('evt_g1', 'customer.subscription.created', 'sub_gone'))).toBe(
         'ignored',
       );
       expect(cancel).toHaveBeenCalledTimes(1);
       expect(cancel.mock.calls[0]?.[0]).toBe('sub_gone');
+      expect(customers.mock.calls[0]?.[0]).toBe('cus_gone');
       // Already ended at Stripe, or a deletion: nothing to cancel.
       expect(
         await deliver(await gone('evt_g2', 'customer.subscription.updated', 'sub_gone_old')),
@@ -343,8 +367,72 @@ describe('billing (stripe-mock + Postgres)', () => {
         'ignored',
       );
       expect(cancel).toHaveBeenCalledTimes(1);
+      // The key subscriptions carried before P5-R46 is still read.
+      expect(
+        await deliver(
+          await subscriptionEvent('evt_g4', 'customer.subscription.updated', T0, {
+            id: 'sub_gone',
+            customer: 'cus_gone',
+            metadata: { orgId: 'org_deleted' },
+          }),
+        ),
+      ).toBe('ignored');
+      expect(cancel).toHaveBeenCalledTimes(2);
     } finally {
       holds.mockRestore();
+      customers.mockRestore();
+      cancel.mockRestore();
+    }
+  });
+
+  it('never cancels a subscription that is not ours (P5-R46)', async () => {
+    const warn = silenceWarnings();
+    const holds = stripeHolds({ sub_foreign: { status: 'active' } });
+    const customerMeta: Record<string, Record<string, string>> = {
+      cus_ours_never: { app: 'agile-copilot', agile_copilot_org_id: 'org_never' },
+      cus_other_app: { orgId: 'org_deleted' },
+      cus_ours_other_ws: { app: 'agile-copilot', agile_copilot_org_id: 'org_other' },
+    };
+    const customers = vi
+      .spyOn(stripe.customers, 'retrieve')
+      .mockImplementation((async (id: string) => ({
+        id,
+        object: 'customer',
+        metadata: customerMeta[id] ?? {},
+      })) as never);
+    const cancel = vi.spyOn(stripe.subscriptions, 'cancel').mockResolvedValue({} as never);
+    try {
+      const event = (id: string, customer: string, metadata: Record<string, string>) =>
+        subscriptionEvent(id, 'customer.subscription.updated', T0, {
+          id: 'sub_foreign',
+          customer,
+          metadata,
+        });
+      // Another product on the same Stripe account: a common `orgId` key, a workspace id that
+      // was never one of ours.
+      expect(await deliver(await event('evt_f1', 'cus_ours_never', { orgId: 'org_never' }))).toBe(
+        'ignored',
+      );
+      // A deleted workspace's id, but a customer we did not create.
+      expect(await deliver(await event('evt_f2', 'cus_other_app', { orgId: 'org_deleted' }))).toBe(
+        'ignored',
+      );
+      // Our customer, but for another workspace.
+      expect(
+        await deliver(
+          await event('evt_f3', 'cus_ours_other_ws', { agile_copilot_org_id: 'org_deleted' }),
+        ),
+      ).toBe('ignored');
+      expect(cancel).not.toHaveBeenCalled();
+      expect(warn.mock.calls.map(([line]) => line)).toEqual([
+        '[billing] webhook_unknown_workspace',
+        '[billing] webhook_unknown_workspace',
+        '[billing] webhook_unknown_workspace',
+      ]);
+    } finally {
+      warn.mockRestore();
+      holds.mockRestore();
+      customers.mockRestore();
       cancel.mockRestore();
     }
   });
