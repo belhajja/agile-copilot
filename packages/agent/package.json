@@ -1,0 +1,35 @@
+{
+  "name": "@agile/agent",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./untrusted": "./src/untrusted.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/analytics-mcp": "workspace:*",
+    "@agile/connections": "workspace:*",
+    "@agile/db": "workspace:*",
+    "@agile/jira": "workspace:*",
+    "@agile/jira-tools": "workspace:*",
+    "@agile/llm": "workspace:*",
+    "@agile/net": "workspace:*",
+    "@agile/sync": "workspace:*",
+    "@ai-sdk/mcp": "2.0.66",
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "ai": "7.0.127",
+    "drizzle-orm": "0.45.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "4.0.71",
+    "@ai-sdk/google": "4.0.87",
+    "@ai-sdk/mistral": "4.0.56",
+    "@ai-sdk/openai": "4.0.83",
+    "@ai-sdk/openai-compatible": "3.0.62",
+    "@testcontainers/postgresql": "12.2.0"
+  }
+}

@@ -182,6 +182,67 @@ importers:
         specifier: ^4.20.0
         version: 4.23.15
 
+  packages/agent:
+    dependencies:
+      '@agile/analytics-mcp':
+        specifier: workspace:*
+        version: link:../analytics-mcp
+      '@agile/connections':
+        specifier: workspace:*
+        version: link:../connections
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../db
+      '@agile/jira':
+        specifier: workspace:*
+        version: link:../jira
+      '@agile/jira-tools':
+        specifier: workspace:*
+        version: link:../jira-tools
+      '@agile/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@agile/net':
+        specifier: workspace:*
+        version: link:../net
+      '@agile/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@ai-sdk/mcp':
+        specifier: 2.0.66
+        version: 2.0.66(zod@4.6.5)
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.0
+        version: 1.32.0(zod@4.6.5)
+      ai:
+        specifier: 7.0.127
+        version: 7.0.127(zod@4.6.5)
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@ai-sdk/anthropic':
+        specifier: 4.0.71
+        version: 4.0.71(zod@4.6.5)
+      '@ai-sdk/google':
+        specifier: 4.0.87
+        version: 4.0.87(zod@4.6.5)
+      '@ai-sdk/mistral':
+        specifier: 4.0.56
+        version: 4.0.56(zod@4.6.5)
+      '@ai-sdk/openai':
+        specifier: 4.0.83
+        version: 4.0.83(zod@4.6.5)
+      '@ai-sdk/openai-compatible':
+        specifier: 3.0.62
+        version: 3.0.62(zod@4.6.5)
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
+
   packages/analytics-mcp:
     dependencies:
       '@agile/dashboards':
@@ -453,6 +514,12 @@ packages:
 
   '@ai-sdk/google@4.0.87':
     resolution: {integrity: sha512-s0tWc+QeSce7O2ZLm+VWSRQy16dGfqEcMIUxEWh+LFvXX3h0TLH8jxCQ2H1qhiBgTta+6A97eHPhBlRFu1xy+g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/mcp@2.0.66':
+    resolution: {integrity: sha512-wFAL5rL/CQljgrhrtpzvrmLJ1tY7Q3o9+SQR+02ZYff3jzXOpj3vfCdi6PjJ1jS3jDd8rkmE9QFlfOFKztI3pg==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -5591,6 +5658,14 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 4.0.21
       '@ai-sdk/provider-utils': 5.0.53(zod@4.6.5)
+      zod: 4.6.5
+
+  '@ai-sdk/mcp@2.0.66(zod@4.6.5)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.21
+      '@ai-sdk/provider-utils': 5.0.53(zod@4.6.5)
+      cross-spawn: 7.0.6
+      pkce-challenge: 5.0.1
       zod: 4.6.5
 
   '@ai-sdk/mistral@4.0.56(zod@4.6.5)':
