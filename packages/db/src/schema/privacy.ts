@@ -34,8 +34,9 @@ export const deletedOrganizations = pgTable('deleted_organizations', {
 });
 
 /**
- * Exports (personal data, audit log), to throttle them: one running per person and a few per
- * hour. Not tenant data (an export spans workspaces); deleted with the person.
+ * Exports (personal data, audit log) and account-deletion attempts, to throttle them: one export
+ * running per person and a few per hour. Not tenant data (an export spans workspaces); deleted
+ * with the person.
  */
 export const personalDataExports = pgTable(
   'personal_data_exports',
@@ -44,7 +45,10 @@ export const personalDataExports = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
-    /** Throttled separately per kind: 'personal' (GDPR access) or 'audit' (audit log export). */
+    /**
+     * Throttled separately per kind: 'personal' (GDPR access), 'audit' (audit log export) or
+     * 'deletion' (an account-deletion attempt, P5-R44). A CHECK closes the set (0033).
+     */
     kind: text('kind').notNull().default('personal'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     /** Null while the export streams (or after a crash: stale after a while, see @agile/privacy). */
