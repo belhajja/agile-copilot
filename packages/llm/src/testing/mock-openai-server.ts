@@ -27,7 +27,8 @@ const textOf = (m: MockChatMessage | undefined) =>
 
 /** The tool call a tool message answers, found in the assistant message before it. */
 function toolNameOf(messages: MockChatMessage[], toolCallId: string | undefined) {
-  for (const m of messages) {
+  // From the end: ids restart after a mock restart, the latest call wins.
+  for (const m of [...messages].reverse()) {
     const call = m.tool_calls?.find((c) => c.id === toolCallId);
     if (call) return call.function.name;
   }
@@ -78,6 +79,8 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
       };
     }
     if (name === 'jira_add_comment') {
+      // "denied" mirrors the AI SDK's OpenAI-compatible adapter, which sends a denied approval
+      // as the tool result "Tool call execution denied." (or the denial reason, when given).
       return /denied|rejected|not approved/i.test(content)
         ? { text: 'Understood, I did not post the comment.' }
         : { text: 'Done: the comment is posted.' };
@@ -141,7 +144,19 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
       raw += c;
     });
     req.on('end', () => {
-      const body = (parse(raw) ?? {}) as {
+      try {
+        handle(raw);
+      } catch (error) {
+        if (res.headersSent) return res.destroy();
+        send(res, 500, {
+          error: {
+            message: `mock server error: ${error instanceof Error ? error.message : 'unknown'}`,
+          },
+        });
+      }
+    });
+    const handle = (raw: string) => {
+      const body = JSON.parse(raw) as {
         messages?: MockChatMessage[];
         tools?: { function: { name: string } }[];
         tool_choice?: unknown;
@@ -201,7 +216,26 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
         );
       chunk({ role: 'assistant', content: '' });
       if (toolCalls) {
-        chunk({ tool_calls: toolCalls.map((c, index) => ({ index, ...c })) });
+        // Like real servers: id + name + the start of the arguments first, then the rest in pieces.
+        toolCalls.forEach((c, index) => {
+          const args = c.function.arguments;
+          const cut = Math.max(1, Math.floor(args.length / 3));
+          chunk({
+            tool_calls: [
+              {
+                index,
+                id: c.id,
+                type: c.type,
+                function: { name: c.function.name, arguments: args.slice(0, cut) },
+              },
+            ],
+          });
+          const rest = args.slice(cut);
+          const size = Math.max(1, Math.ceil(rest.length / 3));
+          for (let at = 0; at < rest.length; at += size) {
+            chunk({ tool_calls: [{ index, function: { arguments: rest.slice(at, at + size) } }] });
+          }
+        });
       } else if ('text' in turn) {
         // A few deltas, so clients really stream.
         for (const piece of turn.text.match(/.{1,16}/gs) ?? []) chunk({ content: piece });
@@ -213,7 +247,7 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
         );
       }
       res.end('data: [DONE]\n\n');
-    });
+    };
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;

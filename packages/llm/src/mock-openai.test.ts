@@ -96,4 +96,80 @@ describe('scripted mock OpenAI server', () => {
     });
     expect(await second.text).toBe('Understood, I did not post the comment.');
   });
+
+  it('streams two parallel tool calls in fragments', async () => {
+    const calls: unknown[] = [];
+    const m = await startMockOpenAI({
+      validKey: 'k',
+      script: ({ messages }) =>
+        messages.at(-1)?.role === 'tool'
+          ? { text: 'done' }
+          : {
+              toolCalls: [
+                { name: 'a', args: { value: 'first call argument' } },
+                { name: 'b', args: { value: 'second call argument' } },
+              ],
+            },
+    });
+    try {
+      const result = streamText({
+        model: createLanguageModel({
+          provider: 'openai_compatible',
+          model: 'mock',
+          baseUrl: m.baseUrl,
+          apiKey: 'k',
+        }),
+        tools: {
+          a: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: async (i) => calls.push(['a', i]),
+          }),
+          b: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute: async (i) => calls.push(['b', i]),
+          }),
+        },
+        stopWhen: stepCountIs(3),
+        prompt: 'go',
+      });
+      const argDeltas: string[] = [];
+      for await (const part of result.fullStream) {
+        if (part.type === 'tool-input-delta') argDeltas.push(part.delta);
+      }
+      expect(argDeltas.length).toBeGreaterThan(2);
+      expect(calls).toEqual([
+        ['a', { value: 'first call argument' }],
+        ['b', { value: 'second call argument' }],
+      ]);
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('answers 500 with a JSON error when the script throws or the body is malformed', async () => {
+    const m = await startMockOpenAI({
+      validKey: 'k',
+      script: () => {
+        throw new Error('boom');
+      },
+    });
+    try {
+      const post = (body: string) =>
+        fetch(`${m.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer k', 'content-type': 'application/json' },
+          body,
+        });
+      const thrown = await post(JSON.stringify({ messages: [] }));
+      expect(thrown.status).toBe(500);
+      expect(await thrown.json()).toMatchObject({
+        error: { message: expect.stringContaining('boom') },
+      });
+      const malformed = await post('{not json');
+      expect(malformed.status).toBe(500);
+      expect(await malformed.json()).toHaveProperty('error.message');
+    } finally {
+      await m.close();
+    }
+  });
 });
