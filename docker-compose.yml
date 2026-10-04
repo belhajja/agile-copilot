@@ -37,7 +37,29 @@ services:
     ports: ["127.0.0.1:4060:8000"]
     # Its own network: it cannot reach the dev Postgres (the app reaches it through the port).
     networks: [mcp]
+  # Same image, read tools only (READ_ONLY_MODE): skill runs and previews read Jira through it
+  # (MCP_ATLASSIAN_READONLY_URL=http://127.0.0.1:4061/mcp). Loopback only, its own network.
+  mcp-atlassian-readonly:
+    image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+    environment:
+      TRANSPORT: streamable-http
+      PORT: "8000"
+      TOOLSETS: all
+      # MCP_ATLASSIAN_READONLY_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested).
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+      READ_ONLY_MODE: "true"
+      ATLASSIAN_OAUTH_ENABLE: "true"
+      MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    ports: ["127.0.0.1:4061:8000"]
+    networks: [mcp-readonly]
+  # Development mail catcher for skill emails: add an SMTP channel (Settings → Delivery) with host
+  # 127.0.0.1, port 1025, no encryption (ALLOWED_PRIVATE_HOSTS must list 127.0.0.1), then read the
+  # mail at http://127.0.0.1:8025. Pinned like MAILPIT_IMAGE in packages/notify (tested).
+  mailpit:
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
 networks:
   mcp: {}
+  mcp-readonly: {}
 volumes:
   pgdata:

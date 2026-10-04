@@ -1,3 +1,4 @@
+import { SKILL_TICK_CRON, SKILL_TICK_QUEUE } from '@agile/automation';
 import { parseWorkerEnv } from '@agile/config';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { SYNC_TICK_QUEUE, startSyncQueue } from '@agile/sync';
@@ -23,7 +24,7 @@ describe('worker', () => {
     await tdb?.stop();
   });
 
-  it('starts, schedules the sync tick, answers health checks and stops cleanly', async () => {
+  it('starts, schedules the sync and skill ticks, answers health checks and stops cleanly', async () => {
     const env = parseWorkerEnv({
       DATABASE_URL: tdb.appUrl,
       BETTER_AUTH_SECRET: 's'.repeat(32),
@@ -44,8 +45,13 @@ describe('worker', () => {
 
     const probe = await startSyncQueue(tdb.appUrl, { role: 'producer' });
     try {
-      expect((await probe.getSchedules()).map((s) => [s.name, s.cron])).toEqual([
+      expect(
+        (await probe.getSchedules())
+          .map((s) => [s.name, s.cron])
+          .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      ).toEqual([
         [SYNC_TICK_QUEUE, '*/30 * * * *'],
+        [SKILL_TICK_QUEUE, SKILL_TICK_CRON],
       ]);
     } finally {
       await probe.stop({ graceful: false });

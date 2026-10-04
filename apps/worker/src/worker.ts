@@ -1,3 +1,4 @@
+import { type AutomationDeps, SKILL_RUN_QUEUE, startSkillWorker } from '@agile/automation';
 import type { WorkerEnv } from '@agile/config';
 import { parseKeyring } from '@agile/crypto';
 import { createDb } from '@agile/db';
@@ -16,7 +17,7 @@ export interface RunningWorker {
 
 const errorName = (error: unknown) => (error instanceof Error ? error.name : 'unknown');
 
-/** Wires the sync workers (pg-boss) and the health endpoint. */
+/** Wires the sync and skill workers (pg-boss) and the health endpoint. */
 export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningWorker> {
   const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
   const shutdown = new AbortController();
@@ -58,15 +59,41 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
             : { code: outcome.code }),
         }),
     });
-    // Ready = the database answers and the job queue is reachable through pg-boss.
+    const { onError: _syncLog, ...shared } = deps;
+    const automation: AutomationDeps = {
+      ...shared,
+      // Skill runs read Jira through the read-only twin only (never the read-write instance).
+      mcpAtlassianReadonlyUrl: env.MCP_ATLASSIAN_READONLY_URL,
+      appUrl: env.BETTER_AUTH_URL,
+      dailyLimit: env.SKILL_RUNS_DAILY_LIMIT,
+      // Code and error name only: messages may carry provider bodies, Jira content or secrets.
+      onError: (error, code) => log('warn', 'skill_error', { code, error: errorName(error) }),
+    };
+    await startSkillWorker(started, automation, {
+      signal: shutdown.signal,
+      onError: (error) => log('error', 'skill_job_error', { error: errorName(error) }),
+      onOutcome: (job, outcome) =>
+        log(outcome.status === 'succeeded' ? 'info' : 'warn', 'skill_run_finished', {
+          orgId: job.orgId,
+          runId: job.runId,
+          status: outcome.status,
+          ...('code' in outcome ? { code: outcome.code } : {}),
+        }),
+    });
+    // Ready = the database answers and both job queues are reachable through pg-boss.
     health = await startHealthServer(env.WORKER_HEALTH_PORT, env.WORKER_HEALTH_HOST, async () => {
       await db.execute(sql`select 1`);
-      return (await started.getQueue(SYNC_QUEUE)) !== null;
+      return (
+        (await started.getQueue(SYNC_QUEUE)) !== null &&
+        (await started.getQueue(SKILL_RUN_QUEUE)) !== null
+      );
     });
     log('info', 'worker_started', {
       healthPort: health.port,
       syncIntervalMinutes: env.SYNC_INTERVAL_MINUTES,
       oauth: Boolean(oauth),
+      liveJiraInRuns: Boolean(env.MCP_ATLASSIAN_READONLY_URL),
+      skillRunsDailyLimit: env.SKILL_RUNS_DAILY_LIMIT,
     });
   } catch (error) {
     // Startup failed half-way: release what was opened so the process can exit.

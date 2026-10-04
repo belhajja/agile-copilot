@@ -39,6 +39,24 @@ describe('parseServerEnv', () => {
     );
   });
 
+  it('reads the read-only mcp-atlassian URL and the daily skill-run limit', () => {
+    expect(parseServerEnv(valid)).toMatchObject({ SKILL_RUNS_DAILY_LIMIT: 50 });
+    expect(parseServerEnv(valid).MCP_ATLASSIAN_READONLY_URL).toBeUndefined();
+    expect(
+      parseServerEnv({
+        ...valid,
+        MCP_ATLASSIAN_READONLY_URL: 'http://mcp-atlassian-readonly:8000/mcp',
+        SKILL_RUNS_DAILY_LIMIT: '200',
+      }),
+    ).toMatchObject({
+      MCP_ATLASSIAN_READONLY_URL: 'http://mcp-atlassian-readonly:8000/mcp',
+      SKILL_RUNS_DAILY_LIMIT: 200,
+    });
+    expect(() => parseServerEnv({ ...valid, SKILL_RUNS_DAILY_LIMIT: '-1' })).toThrow(
+      /SKILL_RUNS_DAILY_LIMIT/,
+    );
+  });
+
   it('normalises the private host allowlist', () => {
     const env = parseServerEnv({
       ...valid,

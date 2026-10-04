@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@agile/automation": "workspace:*",
     "@agile/config": "workspace:*",
     "@agile/crypto": "workspace:*",
     "@agile/db": "workspace:*",

@@ -1,7 +1,7 @@
 # Usage: cp .env.example .env (fill secrets), then: docker compose -f docker-compose.selfhost.yml up -d --build
-# Services: postgres, migrate (one-shot), web (the app), worker (Jira sync jobs) and mcp-atlassian
-# (the assistant's live Jira tools; a read-only twin, mcp-atlassian-readonly, is ready for scheduled
-# runs).
+# Services: postgres, migrate (one-shot), web (the app), worker (Jira sync and skill runs) and
+# mcp-atlassian (the assistant's live Jira tools; a read-only twin, mcp-atlassian-readonly, serves
+# skill runs and previews).
 # Set WEB_PORT in .env to publish the app on a port other than 3000 (and match BETTER_AUTH_URL).
 services:
   postgres:
@@ -39,9 +39,13 @@ services:
       ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
       # The internal service only: the app sends users' Jira credentials to this URL.
       MCP_ATLASSIAN_URL: http://mcp-atlassian:8000/mcp
+      # Skill previews read Jira through the read-only twin only.
+      MCP_ATLASSIAN_READONLY_URL: http://mcp-atlassian-readonly:8000/mcp
+      SKILL_RUNS_DAILY_LIMIT: ${SKILL_RUNS_DAILY_LIMIT:-50}
     ports: ["${WEB_PORT:-3000}:3000"]
-    # `mcp`: the only service that can reach mcp-atlassian (and the only one it can reach).
-    networks: [default, mcp]
+    # `mcp`: the only service that can reach mcp-atlassian (and the only one it can reach);
+    # `mcp-readonly`: the read-only twin, for skill previews (shared with the worker).
+    networks: [default, mcp, mcp-readonly]
     healthcheck:
       # busybox wget ships with node:24-alpine
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
@@ -70,6 +74,9 @@ services:
       ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
       ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
       SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
+      # Scheduled and alert skill runs: read-only Jira tools only, through the read-only twin.
+      MCP_ATLASSIAN_READONLY_URL: http://mcp-atlassian-readonly:8000/mcp
+      SKILL_RUNS_DAILY_LIMIT: ${SKILL_RUNS_DAILY_LIMIT:-50}
       # Listen on all interfaces inside the container for the health check; no port is published.
       WORKER_HEALTH_HOST: 0.0.0.0
       WORKER_HEALTH_PORT: "8080"
@@ -80,6 +87,8 @@ services:
       start_period: 20s
       retries: 3
     depends_on: { migrate: { condition: service_completed_successfully } }
+    # Skill runs reach the read-only twin only (never `mcp`, the read-write instance).
+    networks: [default, mcp-readonly]
   # One shared instance for every workspace: each request carries its own Jira URL and token (Data
   # Center) or OAuth token and cloud id (Cloud). Never set JIRA_URL, Jira tokens or
   # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, on the `mcp`
@@ -109,8 +118,10 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
-  # Same, with the read tools only and READ_ONLY_MODE, for scheduled/background runs (Phase 4
-  # skills). Nothing calls it yet. Not published.
+  # Same, with the read tools only and READ_ONLY_MODE: skill runs (worker) and skill previews (web)
+  # read Jira through it, never through the read-write instance. Not published. Its own network,
+  # `mcp-readonly`, is shared by web and worker only: the worker can reach this twin and nothing on
+  # `mcp` (the read-write instance).
   mcp-atlassian-readonly:
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
     restart: unless-stopped
@@ -124,10 +135,12 @@ services:
       READ_ONLY_MODE: "true"
       ATLASSIAN_OAUTH_ENABLE: "true"
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
-    networks: [mcp]
+    networks: [mcp-readonly]
     healthcheck: *mcp-atlassian-health
 networks:
   # A normal bridge network (Jira on the internet stays reachable), shared by web and mcp-atlassian.
   mcp: {}
+  # The same for the read-only twin, shared by web (previews) and the worker (skill runs).
+  mcp-readonly: {}
 volumes:
   pgdata:

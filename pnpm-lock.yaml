@@ -189,6 +189,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@agile/automation':
+        specifier: workspace:*
+        version: link:../../packages/automation
       '@agile/config':
         specifier: workspace:*
         version: link:../../packages/config

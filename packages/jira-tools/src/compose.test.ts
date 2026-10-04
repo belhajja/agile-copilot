@@ -50,11 +50,17 @@ describe.each(['docker-compose.yml', 'docker-compose.selfhost.yml'])('%s', (file
     expect(toolList(all['mcp-atlassian'])).toEqual([...MCP_ATLASSIAN_ENABLED_TOOLS].sort());
   });
 
-  it('keeps mcp-atlassian on its own network, away from the database', () => {
+  it('keeps each mcp-atlassian instance on its own network, away from the database', () => {
     // Its only SSRF guard is its own (unpinned) domain check: it must not reach Postgres.
-    for (const [, s] of mcp) expect(networksOf(s)).toEqual(['mcp']);
+    for (const [, s] of mcp) {
+      const readOnly = s.environment?.READ_ONLY_MODE === 'true';
+      expect(networksOf(s)).toEqual([readOnly ? 'mcp-readonly' : 'mcp']);
+    }
     for (const [name, s] of Object.entries(all)) {
-      if (!isMcpAtlassian(s) && name !== 'web') expect(networksOf(s)).not.toContain('mcp');
+      if (isMcpAtlassian(s)) continue;
+      // The read-write instance: the web app only. The read-only twin: web and worker only.
+      if (name !== 'web') expect(networksOf(s)).not.toContain('mcp');
+      if (name !== 'web' && name !== 'worker') expect(networksOf(s)).not.toContain('mcp-readonly');
     }
   });
 
@@ -91,6 +97,11 @@ describe('docker-compose.yml (development)', () => {
   it('publishes mcp-atlassian on loopback only, on a port no other project uses', () => {
     expect(all['mcp-atlassian']?.ports).toEqual(['127.0.0.1:4060:8000']);
   });
+
+  it('publishes the read-only twin (skill runs) on loopback only', () => {
+    expect(all['mcp-atlassian-readonly']?.environment?.READ_ONLY_MODE).toBe('true');
+    expect(all['mcp-atlassian-readonly']?.ports).toEqual(['127.0.0.1:4061:8000']);
+  });
 });
 
 describe('docker-compose.selfhost.yml', () => {
@@ -107,8 +118,9 @@ describe('docker-compose.selfhost.yml', () => {
     }
   });
 
-  it('lets only the web app reach mcp-atlassian', () => {
-    expect(networksOf(all.web).sort()).toEqual(['default', 'mcp']);
+  it('lets only the web app reach mcp-atlassian, and web and worker its read-only twin', () => {
+    expect(networksOf(all.web).sort()).toEqual(['default', 'mcp', 'mcp-readonly']);
+    expect(networksOf(all.worker).sort()).toEqual(['default', 'mcp-readonly']);
   });
 
   it('points the web app at the internal service without depending on it', () => {
@@ -117,6 +129,16 @@ describe('docker-compose.selfhost.yml', () => {
     for (const name of ['web', 'worker']) {
       expect(Object.keys(all[name]?.depends_on ?? {})).toEqual(['migrate']);
     }
+  });
+
+  it('points skill runs (worker) and previews (web) at the read-only twin only', () => {
+    for (const name of ['web', 'worker']) {
+      expect(all[name]?.environment?.MCP_ATLASSIAN_READONLY_URL).toBe(
+        'http://mcp-atlassian-readonly:8000/mcp',
+      );
+    }
+    // Background runs never get the read-write instance.
+    expect(all.worker?.environment?.MCP_ATLASSIAN_URL).toBeUndefined();
   });
 
   it('never gives the web app or the worker the owner credentials', () => {
