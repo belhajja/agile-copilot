@@ -113,7 +113,8 @@
     "skills": "Skills",
     "skill": "Skill",
     "delivery": "Delivery",
-    "account": "Account"
+    "account": "Account",
+    "members": "Members"
   },
   "dashboard": {
     "title": "Get started",
@@ -965,5 +966,32 @@
     "deleteMismatch": "Type your e-mail address exactly to confirm.",
     "deleteReauth": "For your security, sign out and sign in again, then delete your account within 10 minutes.",
     "deleteSoleOwner": "You are the only owner of: {workspaces}. Give the owner role to someone else or delete the workspace first."
+  },
+  "members": {
+    "title": "Members",
+    "intro": "People in this workspace and what their role lets them do.",
+    "person": "Person",
+    "role": "Role",
+    "joined": "Joined",
+    "actions": "Actions",
+    "noRole": "No role",
+    "roleOf": "Role of {name}",
+    "remove": "Remove",
+    "removeTitle": "Remove {name}?",
+    "removeDescription": "They lose access to this workspace at once. Their conversations stay private and are deleted with the workspace's retention settings. Removing someone also ends their personal MCP tokens.",
+    "cancel": "Cancel",
+    "pending": "Pending invitations",
+    "copyLink": "Copy link",
+    "copied": "Copied",
+    "cancelInvitation": "Cancel invitation",
+    "cancelInvitationTitle": "Cancel the invitation for {email}?",
+    "cancelInvitationDescription": "The link stops working.",
+    "inviteTitle": "Invite someone",
+    "inviteHint": "Send them the invitation link. They join after signing in with this address.",
+    "email": "E-mail",
+    "invite": "Invite",
+    "rolesHint": "Viewers see dashboards and ask the assistant about synced data. Managers also read Jira live and propose changes they approve. Admins manage connections, members and settings. Owners also manage billing and can delete the workspace.",
+    "readOnlyNotice": "Only owners and admins manage members.",
+    "noSsoHint": "Without single sign-on, anyone holding an invitation link who signs in with the invited address can accept it: send links only to the invited person."
   }
 }

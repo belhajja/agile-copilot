@@ -113,7 +113,8 @@
     "skills": "Compétences",
     "skill": "Compétence",
     "delivery": "Diffusion",
-    "account": "Compte"
+    "account": "Compte",
+    "members": "Membres"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -965,5 +966,32 @@
     "deleteMismatch": "Saisissez exactement votre adresse e-mail pour confirmer.",
     "deleteReauth": "Par sécurité, déconnectez-vous puis reconnectez-vous, et supprimez votre compte dans les 10 minutes.",
     "deleteSoleOwner": "Vous êtes le seul propriétaire de : {workspaces}. Donnez ce rôle à quelqu'un d'autre ou supprimez d'abord l'espace."
+  },
+  "members": {
+    "title": "Membres",
+    "intro": "Les personnes de cet espace et ce que leur rôle leur permet.",
+    "person": "Personne",
+    "role": "Rôle",
+    "joined": "Arrivée",
+    "actions": "Actions",
+    "noRole": "Aucun rôle",
+    "roleOf": "Rôle de {name}",
+    "remove": "Retirer",
+    "removeTitle": "Retirer {name} ?",
+    "removeDescription": "Cette personne perd immédiatement l'accès à cet espace. Ses conversations restent privées et sont supprimées selon la durée de conservation de l'espace. Retirer une personne met aussi fin à ses jetons MCP personnels.",
+    "cancel": "Annuler",
+    "pending": "Invitations en attente",
+    "copyLink": "Copier le lien",
+    "copied": "Copié",
+    "cancelInvitation": "Annuler l'invitation",
+    "cancelInvitationTitle": "Annuler l'invitation de {email} ?",
+    "cancelInvitationDescription": "Le lien ne fonctionnera plus.",
+    "inviteTitle": "Inviter quelqu'un",
+    "inviteHint": "Envoyez-lui le lien d'invitation. La personne rejoint l'espace après s'être connectée avec cette adresse.",
+    "email": "E-mail",
+    "invite": "Inviter",
+    "rolesHint": "Les lecteurs consultent les tableaux de bord et interrogent l'assistant sur les données synchronisées. Les managers lisent aussi Jira en direct et proposent des modifications qu'ils approuvent. Les administrateurs gèrent les connexions, les membres et les réglages. Les propriétaires gèrent aussi la facturation et peuvent supprimer l'espace.",
+    "readOnlyNotice": "Seuls les propriétaires et les administrateurs gèrent les membres.",
+    "noSsoHint": "Sans authentification unique, toute personne qui détient un lien d'invitation et se connecte avec l'adresse invitée peut l'accepter : n'envoyez le lien qu'à la personne invitée."
   }
 }

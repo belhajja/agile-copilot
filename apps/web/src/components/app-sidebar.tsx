@@ -8,6 +8,7 @@ import {
   ReceiptText,
   Send,
   Sparkles,
+  Users,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { ComponentProps } from 'react';
@@ -35,6 +36,7 @@ export function AppSidebar({
     { title: t('llm'), url: '/settings/llm', icon: Bot },
     { title: t('delivery'), url: '/settings/delivery', icon: Send },
     { title: t('usage'), url: '/settings/usage', icon: ReceiptText },
+    { title: t('members'), url: '/settings/members', icon: Users },
   ];
   return (
     <Sidebar collapsible="icon" {...props}>
