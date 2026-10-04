@@ -1,6 +1,6 @@
 # Agile Copilot
 
-Agile Copilot is a dashboard and AI agent for managers running Scrum or Kanban projects in Jira. It aims to give reliable, actionable insight (sprint health, flow, risks, forecasts) without analyst skills: you bring your own LLM key (BYOK), connect Jira (Cloud or Server/Data Center), and personalise the analysis by writing natural-language instructions. The UI is bilingual (English and French). This repository holds Phases 1 and 2: workspaces and roles, encrypted Jira and LLM connections, a background worker that syncs Jira boards, sprints and issue history, a deterministic metrics engine, and default Scrum and Kanban dashboards that work without any LLM. See `docs/superpowers/specs/2026-10-03-agile-copilot-design.md` for the full design.
+Agile Copilot is a dashboard and AI agent for managers running Scrum or Kanban projects in Jira. It aims to give reliable, actionable insight (sprint health, flow, risks, forecasts) without analyst skills: you bring your own LLM key (BYOK), connect Jira (Cloud or Server/Data Center), and personalise the analysis by writing natural-language instructions. The UI is bilingual (English and French). This repository holds Phases 1 to 3: workspaces and roles, encrypted Jira and LLM connections, a background worker that syncs Jira boards, sprints and issue history, a deterministic metrics engine, default Scrum and Kanban dashboards that work without any LLM, and an assistant (chat) that answers from that data and proposes Jira changes you approve. See `docs/superpowers/specs/2026-10-03-agile-copilot-design.md` for the full design.
 
 Authentication today is email and password. The plan is to add Keycloak/OIDC single sign-on later, with password login then restricted to admins.
 
@@ -38,9 +38,19 @@ pnpm dev                               # web on http://localhost:3000 + the sync
 
 Environment variables are read lazily at request time, so `next build` needs none.
 
+The assistant's live Jira tools for Data Center PATs and "Connect with Atlassian" connections go through [mcp-atlassian](https://github.com/sooperset/mcp-atlassian). To use them in development against a real Jira, start it (published on `127.0.0.1:4060` only) and point the app at it:
+
+```bash
+docker compose up -d mcp-atlassian
+# in .env
+MCP_ATLASSIAN_URL=http://127.0.0.1:4060/mcp
+```
+
+Without `MCP_ATLASSIAN_URL` the assistant still answers from synced data, and Cloud API-token connections keep their live Jira tools (built in). mcp-atlassian refuses `localhost` and IP-literal Jira URLs, so it cannot reach a Jira on your machine by IP; without a real Jira, use the double started by `pnpm --filter @agile/e2e mocks` (`MCP_ATLASSIAN_URL=http://127.0.0.1:4050/mcp`).
+
 ## Self-hosting
 
-`docker-compose.selfhost.yml` runs Postgres, a one-shot `migrate` service, the web app, and the sync worker.
+`docker-compose.selfhost.yml` runs Postgres, a one-shot `migrate` service, the web app, the sync worker, and mcp-atlassian (`mcp-atlassian`, the assistant's live Jira tools, and a read-only twin `mcp-atlassian-readonly`). Neither mcp-atlassian service is published: only the web app reaches them, inside the compose network.
 
 ```bash
 cp .env.example .env
@@ -115,6 +125,65 @@ The sync never stores raw Jira error messages: a failed sync shows a short reaso
 - **Board problems** (`board_query_rejected`, the board's filter was rejected by Jira; `board_not_found`; `jira_paging`; …): the other boards keep syncing; the failing board is tried again at every scheduled sync and its row shows the reason until it succeeds.
 - **Permanent** (`unauthorized`, `forbidden`, `oauth_expired`, `oauth_unavailable`, `blocked_url`): only a person can fix these, so the scheduled sync skips the connection. Fix the cause (update the token, **Reconnect with Atlassian**, ask the administrator to allow the host), then **Retest** the connection or reconnect — a successful retest or reconnect clears the error — or click **Sync now**.
 
+## Assistant
+
+**Assistant** (sidebar) is a chat that uses the workspace's default AI model (Settings → AI model).
+
+- **Numbers come from the metrics engine.** The assistant calls an internal analytics MCP server (`packages/analytics-mcp`: `list_boards`, `list_metrics`, `get_metric`, `forecast`, `find_issues`, `explain_metric`) that computes the same numbers as the dashboards, from synced data, inside your workspace only. It runs in-process; it is not exposed over the network (an external endpoint for other MCP clients is planned for Phase 5).
+- **Live Jira** goes through an explicit allowlist of 11 tools (search, read issue, transitions, boards, sprints, sprint issues; comment, transition, assign, create, update). Data Center PATs and "Connect with Atlassian" connections use the shared [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) container (the self-host compose runs it; set `MCP_ATLASSIAN_URL` otherwise). Cloud **API-token** connections use a built-in client instead (mcp-atlassian would need one container per Cloud site for them).
+- **Every Jira change needs your approval.** The model can only *propose* a write: the chat shows exactly what will be sent, with **Approve** / **Reject**. Nothing reaches Jira before you approve; each decision and each executed change is written to the audit log (`agent_action.*`). An approval is bound to you, the conversation and the exact proposal, and runs at most once.
+- **Only owners and admins can propose Jira changes** for now (writes use the connection's Jira credentials). Members get the read tools, and the assistant tells them changes are not available for their role. Finer roles (e.g. Manager) come with Phase 5.
+- **Markdown becomes Jira wiki markup.** Comments, transition comments and descriptions are converted the same way on both backends (the built-in client ports mcp-atlassian's own converter), so `**bold**` and `- lists` render in Jira. NUL characters are removed first; that is the only intended difference from mcp-atlassian's converter.
+- **Jira content is data, not instructions.** Tool results reach the model inside a fixed `<data>` envelope that Jira text cannot close, and the system prompt tells the model never to follow instructions found there. Tools take no workspace or connection ids: the server binds them to you.
+- **Cost meter.** Token usage is recorded per answer. Set your provider's prices per million tokens on the AI model connection to see costs; **Settings → Usage** shows this month's usage (owners/admins see every member).
+
+### mcp-atlassian settings
+
+The image is pinned by digest (`ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:…`, the same reference as `MCP_ATLASSIAN_IMAGE` in `packages/jira-tools/src/image.ts`, which the contract test runs; a test keeps the compose files in sync). Both compose files configure it for the deployment, never per workspace:
+
+- `ENABLED_TOOLS`: the shared instance enables the 11 catalog tools plus `jira_search_assignable_users`, which the server uses to resolve an assignee exactly before an assignment (the model never sees it). The read-only twin enables the 6 read tools and sets `READ_ONLY_MODE=true`; nothing calls it yet (Phase 4 scheduled skills will).
+- `ATLASSIAN_OAUTH_ENABLE=true`, so the shared instance accepts each user's OAuth token and cloud id per request.
+- Never set `JIRA_URL`, Jira tokens or usernames, or `ALLOW_GLOBAL_CRED_FALLBACK` on it: every request carries its own credentials, and a request without them is refused.
+- `MCP_ALLOWED_URL_DOMAINS` (passed from `.env`; empty means unset): if a Data Center host resolves to a private address, list it here, in addition to `ALLOWED_PRIVATE_HOSTS` for the app. **Once set, it is an allowlist for every Data Center host the assistant reaches, public ones included**: list them all, or the others stop working. mcp-atlassian refuses `localhost` and IP-literal URLs even when listed.
+- `MCP_ATLASSIAN_URL` (web app) is a trusted deployment setting: the app sends users' Jira tokens to it. Point it only at your own internal service (`http://mcp-atlassian:8000/mcp` in the self-host compose, which sets it for you); never publish mcp-atlassian outside the compose network.
+
+### Checking AI providers and Jira through the assistant by hand
+
+Automated tests cover tool calling, streaming, approvals and usage against an OpenAI-compatible mock, check that every provider adapter (Anthropic, OpenAI, Google, Mistral, OpenAI-compatible) accepts the assistant's tool definitions, and run all 11 Jira tools through the real mcp-atlassian image against a mock Data Center Jira. What they cannot cover needs real keys and real Jira sites. Before a release, and whenever a provider SDK or the mcp-atlassian image is upgraded, run this:
+
+1. **Providers.** For each of Anthropic, OpenAI, Google Gemini and Ollama (OpenAI-compatible, a tool-capable model such as `llama3.1`): add the connection, make it the default, open **Assistant**.
+   - Ask "What is our velocity?" on a synced Scrum board: the answer quotes the dashboard's number and the chat shows the `get_metric` call.
+   - Ask "Comment on <ISSUE-KEY>: test from the assistant": an approval card appears and Jira is unchanged; **Reject** → nothing is written; ask again and **Approve** → the comment appears in Jira once.
+   - **Settings → Usage** shows the answers with non-zero tokens (and a cost once prices are set).
+2. **Cloud OAuth through mcp-atlassian.** With an Atlassian OAuth app configured, "Connect with Atlassian" to a Cloud site and repeat step 1 on it. The contract test only proves that mcp-atlassian accepts the bearer token and cloud id; also check:
+   - Jira receives the calls (through `api.atlassian.com/ex/jira/<cloudId>`) as the connected user;
+   - a search on more than one page of results: Cloud returns no total (`total: -1`, `next_page_token`), so the assistant should still see that more results exist;
+   - "Assign <ISSUE-KEY> to <name>": the exact-match assignee lookup (`query=`) and the assignment by `accountId`;
+   - create an issue with a Markdown description and update one: mcp-atlassian writes Cloud descriptions as ADF (REST v3), so check that bold text and lists render.
+3. **Data Center PAT through mcp-atlassian.** Connect a Data Center site with a personal access token (a private host needs both `ALLOWED_PRIVATE_HOSTS` and `MCP_ALLOWED_URL_DOMAINS`) and run all 11 tools once: search, read issue, transitions, boards, sprints, sprint issues, then approve a comment, a transition, an assignment, a create and an update.
+4. **Latency.** Note how long a Jira tool call takes on each path (mcp-atlassian builds a Jira client per request and calls `/myself` before each call; the built-in client for Cloud API tokens does not). If it hurts, the spec's fallback is a per-site instance.
+5. **Transitions.** On the mcp-atlassian path the target status of a transition (`to`) is `null` (mcp-atlassian 0.23.1 does not return it against Jira); check that the model still picks the right transition by name, and record whether a real Jira returns it.
+6. **Updates really change Jira.** Update an issue's summary, description and labels and check each one in Jira. mcp-atlassian silently drops any field that Jira's `/field` does not list and still reports success; this is harmless for these system fields, but **any field added to the tool catalog later (custom fields in particular) must be checked here**.
+7. **Members.** As a workspace member (not owner/admin), ask for a comment: no approval card appears and the assistant says Jira changes are not available for the role.
+8. **Markdown.** Comment `Blocked by the **API** team:` followed by a ``- `npm ci` fails`` list item on a Cloud API-token connection (built-in client) and on a Data Center connection (mcp-atlassian): both render the same in Jira (bold, bullet, monospace).
+9. Record provider, model, Jira version, date and results below and in the pull request.
+
+Record results here (**NOT YET RUN**: no provider API keys, Atlassian OAuth app, Jira Cloud sandbox or Data Center licence were available when this was written; nothing below has been checked live):
+
+| Date | Check | Provider / model or Jira (deployment, version) | Result | Notes (latency, …) | Checked by |
+| ---- | ----- | ---------------------------------------------- | ------ | ------------------ | ---------- |
+| —    | 1. Anthropic tool calling + approvals | — | NOT YET RUN | | |
+| —    | 1. OpenAI tool calling + approvals | — | NOT YET RUN | | |
+| —    | 1. Google Gemini tool calling + approvals | — | NOT YET RUN | | |
+| —    | 1. Ollama tool calling + approvals | — | NOT YET RUN | | |
+| —    | 2. Cloud OAuth through mcp-atlassian | Cloud — | NOT YET RUN | | |
+| —    | 3. Data Center PAT through mcp-atlassian | Data Center — | NOT YET RUN | | |
+| —    | 4. Per-request latency | — | NOT YET RUN | | |
+| —    | 5. Transitions `to` on the mcp-atlassian path | — | NOT YET RUN | | |
+| —    | 6. Updates change Jira (no silently dropped fields) | — | NOT YET RUN | | |
+| —    | 7. Members cannot propose Jira changes | — | NOT YET RUN | | |
+| —    | 8. Markdown → wiki markup on both backends | — | NOT YET RUN | | |
+
 ## Validating against a real Jira
 
 Automated tests run the same contract against a Cloud-flavoured and a Data Center-flavoured mock Jira (REST v3/`search/jql` with page tokens, REST v2/`search` with offsets, the Agile API, truncated changelogs and HTTP 429). Before relying on a new Jira version, run this checklist once against a real site (a [Data Center trial container](https://hub.docker.com/r/atlassian/jira-software) with a time-bombed licence, and a Jira Cloud sandbox):
@@ -144,11 +213,14 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - Secrets (Jira tokens, LLM API keys) are encrypted with AES-256-GCM using a per-organisation data key, itself wrapped by the key-encryption key from `ENCRYPTION_KEYS`. Secrets never go to the browser.
 - Every connection change is written to an audit log.
 - Connections are tested before they are saved (Jira reachability; LLM tool-calling support).
-- An outbound URL guard blocks requests to private, loopback and link-local addresses unless the host is in `ALLOWED_PRIVATE_HOSTS`.
+- An outbound URL guard blocks requests to private, loopback and link-local addresses unless the host is in `ALLOWED_PRIVATE_HOSTS`. Requests to user-supplied hosts (Jira, OpenAI-compatible model URLs) connect only to the address that passed this check, resolved once at connect time, so DNS rebinding cannot redirect them.
+- The assistant never writes to Jira without the user's explicit approval of that exact change.
 
 ### Known limitations
 
-- DNS rebinding between the outbound-URL check and the actual connection is not yet pinned (planned for Phase 3). The sync re-checks the outbound URL policy before every run.
+- mcp-atlassian applies its own outbound rules (`MCP_ALLOWED_URL_DOMAINS`), separate from `ALLOWED_PRIVATE_HOSTS`.
+- Approval cards show the proposed values, not a before/after diff of the Jira fields.
+- Only workspace owners and admins can propose Jira changes through the assistant until Phase 5 roles.
 - The key-rotation re-wrap command does not exist yet (Phase 5).
 
 ## Development
@@ -160,4 +232,4 @@ pnpm lint        # Biome
 pnpm typecheck
 ```
 
-Docker is required for tests because the database tests start Postgres through Testcontainers. The e2e suite runs the web app on port 3200 and the sync worker (health on 4030) against Postgres on 5433, with local mock Jira (4010, serving a demo dataset) and LLM (4020) servers. The first visit of each page makes `next dev` compile it; if a cold run times out, run it again (CI uses longer timeouts: `CI=true pnpm e2e`).
+Docker is required for tests because the database tests start Postgres through Testcontainers. The e2e suite runs the web app on port 3200 and the sync worker (health on 4030) against Postgres on 5433, with local mock Jira (4010, serving a demo dataset), LLM (4020, a scripted tool-calling model) and mcp-atlassian (4050, a double with the same tools that writes to the mock Jira) servers. `pnpm test` also runs a contract test against the real `ghcr.io/sooperset/mcp-atlassian` image (pulled by Testcontainers). The dev compose's mcp-atlassian uses 4060. The first visit of each page makes `next dev` compile it; if a cold run times out, run it again (CI uses longer timeouts: `CI=true pnpm e2e`).

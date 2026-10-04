@@ -96,6 +96,13 @@ Operational rules that follow:
 - **Tool surface:** mcp-atlassian exposes ~61 tools (Jira + Confluence, incl. writes). The agent gets an explicit allowlist of ~10–15 Jira tools; scheduled/background runs use a `--read-only` instance.
 - The sync worker does **not** go through MCP; it calls Jira directly with jira.js using the same stored credentials.
 
+**Phase 3 decisions (2026-10-04, recorded after implementation; the table above is the Phase 0 finding and stays as written):**
+- **Cloud + email/API token uses a built-in REST tool backend, not per-site mcp-atlassian instances.** Starting containers from the worker needs the Docker socket (root on the host) or a Kubernetes API role in every deployment, a privilege we refuse, and O(sites) processes. The built-in backend reuses our redirect-free, DNS-pinned Jira client, exposes the same 11 tool names and inputs, and goes through the same approval gate; it converts Markdown to Jira wiki markup with a port of mcp-atlassian's converter so both backends post the same text. DC + PAT and Cloud + OAuth use the shared instance as above. If mcp-atlassian-only behaviour is ever needed for API tokens, a per-site instance operator can be added later.
+- The shared instance runs mcp-atlassian `0.23.1`, pinned by digest and contract-tested (Testcontainers) against a mock Jira with all 11 tools. Its `ENABLED_TOOLS` is the 11-tool catalog plus `jira_search_assignable_users` (backend-only, for exact assignee resolution); the read-only twin (`READ_ONLY_MODE=true`) enables the 6 read tools and is shipped for Phase 4's scheduled runs. Neither is published outside the compose network. Live Cloud OAuth and per-request latency remain on the README's manual checklist.
+- **Approval cards show the exact proposed values, not a before/after diff** (the "before" would need an extra Jira read per proposal and is stale by approval time). This refines "diff + Approve/Reject" in *Agent runtime* below.
+- **The analytics MCP server runs in-process only until Phase 5** (in-memory transport, tools bound to the caller's workspace). Exposing it over streamable HTTP to external MCP clients needs its own authentication, rate limits and audit, which Phase 5 brings.
+- Jira write tools are offered to workspace owners/admins only until Phase 5 roles.
+
 ### 2. Sync + metrics engine (the trustworthy core)
 - Worker syncs issues, sprints, boards and **status changelogs** incrementally and stores normalised tables (`issues`, `issue_transitions`, `sprints`, `sprint_membership`, `boards`).
 - `packages/metrics` = pure functions over that data:
@@ -141,7 +148,7 @@ Operational rules that follow:
 0. **Spike (throwaway):** ✅ mcp-atlassian multi-tenancy — done 2026-10-03 (results in *Jira auth & MCP topology*). ⏳ jira.js vs a DC trial container → moved into Phase 2. ⏳ tool calling + MCP + approvals across Anthropic/OpenAI/Gemini/Ollama → moved into Phase 3 (needs real API keys).
 1. **Foundation:** monorepo, CI (lint/typecheck/test), Docker Compose, db + RLS, better-auth orgs, crypto package, Jira & LLM connection flows with test buttons.
 2. **Data & dashboard:** sync worker (validated against a DC trial container + Cloud sandbox), status mapping, metrics package (fixture-driven tests), default Scrum and Kanban dashboards.
-3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration (shared instance + per-Cloud-site instances, tool allowlist, live OAuth test), approval cards, audit log, cost meter.
+3. **Agent:** chat UI, BYOK registry, analytics MCP, mcp-atlassian integration (shared instance + per-Cloud-site instances, tool allowlist, live OAuth test), approval cards, audit log, cost meter. *Phase 3 implementation (2026-10-04) changed this as follows (see Phase 3 decisions in* Jira auth & MCP topology*): Cloud API tokens use a built-in REST backend instead of per-Cloud-site instances; approval cards show the exact proposed values, not a diff; the analytics MCP runs in-process only until Phase 5; the live provider (Anthropic/OpenAI/Gemini/Ollama) and live OAuth tests are a README manual checklist, not yet run.*
 4. **Skills:** schema, library, builder with preview, scheduling, email/Slack digests, prompt-driven widgets.
 5. **Enterprise/SaaS:** SSO via Keycloak/OIDC + admin-only password login, billing, Langfuse, eval suite in CI, Helm chart, retention controls.
 
