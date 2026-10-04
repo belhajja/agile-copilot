@@ -191,7 +191,7 @@
     "outputPrice": "Output, per 1M tokens",
     "savePrices": "Save prices",
     "pricesSaved": "Prices saved.",
-    "pricesInvalid": "Enter prices as numbers, e.g. 3 or 0.15.",
+    "pricesInvalid": "Enter prices as numbers up to 1,000 with at most 6 decimals, e.g. 3 or 0.15.",
     "pricesHint": "Optional: your provider’s prices, to show the assistant’s cost."
   },
   "boards": {

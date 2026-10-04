@@ -17,6 +17,7 @@ import {
   retestLlmConnectionAction,
   setDefaultLlmConnectionAction,
 } from './actions';
+import { LlmPriceForm } from './llm-price-form';
 
 export async function LlmConnectionItem({
   c,
@@ -52,6 +53,13 @@ export async function LlmConnectionItem({
           <p className="text-sm text-destructive">
             {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
           </p>
+        )}
+        {canManage && (
+          <LlmPriceForm
+            id={c.id}
+            inputMicros={c.inputPriceMicros}
+            outputMicros={c.outputPriceMicros}
+          />
         )}
       </ItemContent>
       {canManage && (

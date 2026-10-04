@@ -191,7 +191,7 @@
     "outputPrice": "Sortie, par million de jetons",
     "savePrices": "Enregistrer les prix",
     "pricesSaved": "Prix enregistrés.",
-    "pricesInvalid": "Saisissez des nombres, par ex. 3 ou 0.15.",
+    "pricesInvalid": "Saisissez des prix en nombres jusqu’à 1 000 avec au plus 6 décimales, p. ex. 3 ou 0,15.",
     "pricesHint": "Facultatif : les prix de votre fournisseur, pour afficher le coût de l’assistant."
   },
   "boards": {

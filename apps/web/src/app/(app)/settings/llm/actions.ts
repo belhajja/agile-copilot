@@ -6,11 +6,13 @@ import {
   ForbiddenError,
   retestLlmConnection,
   setDefaultLlmConnection,
+  setLlmConnectionPrices,
 } from '@agile/connections';
 import type { LlmConfig } from '@agile/llm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { connectionDeps, requireActor } from '@/server/context';
+import { parsePrice } from './price';
 
 export type FormState =
   | { status: 'idle' }
@@ -90,4 +92,28 @@ export async function setDefaultLlmConnectionAction(id: string): Promise<void> {
   if (!isId(id)) return;
   await setDefaultLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
+}
+
+export async function setLlmPricesAction(
+  id: string,
+  _prev: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const actor = await requireActor();
+  const input = parsePrice(String(form.get('input') ?? ''));
+  const output = parsePrice(String(form.get('output') ?? ''));
+  if (!isId(id) || !input.ok || !output.ok) return { status: 'error', code: 'invalid_price' };
+  try {
+    const result = await setLlmConnectionPrices(connectionDeps(), actor, id, {
+      inputMicros: input.micros,
+      outputMicros: output.micros,
+    });
+    if (!result.ok) return { status: 'error', code: result.code };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };
+    throw e;
+  }
+  revalidatePath(PATH);
+  revalidatePath('/settings/usage');
+  return { status: 'ok' };
 }
