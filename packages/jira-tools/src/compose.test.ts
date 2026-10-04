@@ -10,7 +10,10 @@ type Service = {
   ports?: string[];
   depends_on?: Record<string, { condition?: string }>;
   mem_limit?: string;
+  networks?: string[] | Record<string, unknown>;
 };
+const networksOf = (s: Service | undefined) =>
+  Array.isArray(s?.networks) ? s.networks : Object.keys(s?.networks ?? { default: null });
 const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
 // `merge: true` resolves `<<: *anchor` like Docker Compose does.
 const services = (file: string) =>
@@ -45,6 +48,14 @@ describe.each(['docker-compose.yml', 'docker-compose.selfhost.yml'])('%s', (file
       expect(toolList(s)).toEqual([...expected].sort());
     }
     expect(toolList(all['mcp-atlassian'])).toEqual([...MCP_ATLASSIAN_ENABLED_TOOLS].sort());
+  });
+
+  it('keeps mcp-atlassian on its own network, away from the database', () => {
+    // Its only SSRF guard is its own (unpinned) domain check: it must not reach Postgres.
+    for (const [, s] of mcp) expect(networksOf(s)).toEqual(['mcp']);
+    for (const [name, s] of Object.entries(all)) {
+      if (!isMcpAtlassian(s) && name !== 'web') expect(networksOf(s)).not.toContain('mcp');
+    }
   });
 
   it('serves per-request Cloud OAuth and data-center credentials only', () => {
@@ -94,6 +105,10 @@ describe('docker-compose.selfhost.yml', () => {
       // A modest cap: a runaway sidecar must not starve the app and Postgres.
       expect(s.mem_limit).toBe('512m');
     }
+  });
+
+  it('lets only the web app reach mcp-atlassian', () => {
+    expect(networksOf(all.web).sort()).toEqual(['default', 'mcp']);
   });
 
   it('points the web app at the internal service without depending on it', () => {

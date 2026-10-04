@@ -35,5 +35,9 @@ services:
       # allowlist for every Data Center host, public ones included: list them all.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
     ports: ["127.0.0.1:4060:8000"]
+    # Its own network: it cannot reach the dev Postgres (the app reaches it through the port).
+    networks: [mcp]
+networks:
+  mcp: {}
 volumes:
   pgdata:

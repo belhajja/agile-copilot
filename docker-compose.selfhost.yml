@@ -40,6 +40,8 @@ services:
       # The internal service only: the app sends users' Jira credentials to this URL.
       MCP_ATLASSIAN_URL: http://mcp-atlassian:8000/mcp
     ports: ["${WEB_PORT:-3000}:3000"]
+    # `mcp`: the only service that can reach mcp-atlassian (and the only one it can reach).
+    networks: [default, mcp]
     healthcheck:
       # busybox wget ships with node:24-alpine
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
@@ -80,8 +82,9 @@ services:
     depends_on: { migrate: { condition: service_completed_successfully } }
   # One shared instance for every workspace: each request carries its own Jira URL and token (Data
   # Center) or OAuth token and cloud id (Cloud). Never set JIRA_URL, Jira tokens or
-  # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, inside the compose
-  # network.
+  # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, on the `mcp`
+  # network, which it shares with nothing else (not Postgres, not the worker): its own outbound
+  # check (MCP_ALLOWED_URL_DOMAINS) is not DNS-pinned like the app's.
   mcp-atlassian:
     # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
@@ -98,6 +101,7 @@ services:
       # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
       # allowlist for every Data Center host, public ones included: list them all.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    networks: [mcp]
     healthcheck: &mcp-atlassian-health
       # busybox wget ships with the image
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz >/dev/null || exit 1"]
@@ -120,6 +124,10 @@ services:
       READ_ONLY_MODE: "true"
       ATLASSIAN_OAUTH_ENABLE: "true"
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    networks: [mcp]
     healthcheck: *mcp-atlassian-health
+networks:
+  # A normal bridge network (Jira on the internet stays reachable), shared by web and mcp-atlassian.
+  mcp: {}
 volumes:
   pgdata:
