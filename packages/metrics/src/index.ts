@@ -1,3 +1,25 @@
+export {
+  type AgingItem,
+  agingWip,
+  type CompletedItem,
+  completedItems,
+  cumulativeFlow,
+  cycleTime,
+  flowEfficiency,
+  leadTime,
+  type PercentileSummary,
+  throughputPerWeek,
+  weeklyThroughput,
+  wipNow,
+  wipSeries,
+} from './flow';
+export {
+  dailyThroughputSamples,
+  type Forecast,
+  forecastHowMany,
+  forecastWhen,
+} from './forecast';
+export { type HygieneFinding, type HygieneProblem, hygiene } from './hygiene';
 export { categoryAt, currentCategory, cycleStart, doneAt, estimateAt } from './issue';
 export type {
   BoardDataset,

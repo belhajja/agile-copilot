@@ -7,7 +7,7 @@ import {
   valueAt,
 } from './issue';
 import type { BoardDataset, MetricIssue, MetricSprint, Unit } from './model';
-import { round, sum } from './stats';
+import { round, sum, total } from './stats';
 import { eachUtcDay, endOfDayCapped, isoDay } from './time';
 
 export interface SprintVelocity {
@@ -40,7 +40,6 @@ export interface CarryOver {
 }
 
 const ms = (d: Date) => d.getTime();
-const total = (values: number[]) => round(sum(values), 2);
 
 /**
  * Issues in the sprint at its start, excluding ones already done then (Jira's "completed outside

@@ -18,6 +18,9 @@ export const round = (value: number, digits = 2): number => {
   return Math.round(value * f) / f;
 };
 
+/** Sum rounded to 2 decimals (hides float noise in reported totals). */
+export const total = (values: readonly number[]): number => round(sum(values), 2);
+
 /** Total milliseconds covered by the union of the intervals, clipped to [from, to]. */
 export function coveredMs(intervals: readonly Interval[], from: Date, to: Date): number {
   const clipped = intervals
