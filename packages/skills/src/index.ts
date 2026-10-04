@@ -1,4 +1,11 @@
 export {
+  type CatalogEntry,
+  loadSkillSet,
+  MAX_CATALOG,
+  MAX_PREFERENCES,
+  type SkillSet,
+} from './catalog';
+export {
   MAX_DOCUMENT_CHARS,
   MAX_INSTRUCTIONS_CHARS,
   type ParseResult,
@@ -7,6 +14,7 @@ export {
   type SkillIssue,
   type SkillIssueCode,
   serializeSkill,
+  withName,
 } from './document';
 export { BUILTIN_SKILLS, type BuiltinSkill, type BuiltinSkillKey, builtinSkill } from './library';
 export {
@@ -34,3 +42,24 @@ export {
   type SkillTrigger,
   skillFrontmatterSchema,
 } from './schema';
+export {
+  copyBuiltinSkill,
+  createSkill,
+  currentDocument,
+  deleteSkill,
+  forkSkill,
+  getSkill,
+  getSkillVersion,
+  type LoadedSkill,
+  listSkills,
+  loadSkillsWithDocuments,
+  type SkillActor,
+  type SkillDetail,
+  type SkillFailure,
+  type SkillLocale,
+  type SkillRow,
+  type SkillView,
+  setSkillEnabled,
+  setSkillVisibility,
+  updateSkill,
+} from './store';

@@ -136,3 +136,15 @@ export function serializeSkill(skill: {
   ordered.output = f.output;
   return `---\n${stringify(ordered, { lineWidth: 0 })}---\n\n${skill.instructions.trim()}\n`;
 }
+
+/**
+ * The same document under another name (a copy that would clash with one of the owner's skills).
+ * Only the frontmatter's `name` changes; comments, order and the instructions are kept.
+ */
+export function withName(document: string, name: string): string {
+  const match = FRONTMATTER.exec(document.replace(/^﻿/, ''));
+  if (!match) return document;
+  const doc = parseDocument(match[1] ?? '', { schema: 'core' });
+  doc.set('name', name);
+  return `---\n${doc.toString({ lineWidth: 0 })}---\n${match[2] ?? ''}`;
+}

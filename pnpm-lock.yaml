@@ -569,18 +569,34 @@ importers:
 
   packages/skills:
     dependencies:
+      '@agile/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@agile/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@agile/dashboards':
         specifier: workspace:*
         version: link:../dashboards
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../db
       cron-parser:
         specifier: 5.10.1
         version: 5.10.1
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
       yaml:
         specifier: 2.9.1
         version: 2.9.1
       zod:
         specifier: 4.6.5
         version: 4.6.5
+    devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
 
   packages/sync:
     dependencies:

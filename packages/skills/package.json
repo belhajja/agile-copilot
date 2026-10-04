@@ -9,9 +9,16 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@agile/auth": "workspace:*",
+    "@agile/connections": "workspace:*",
     "@agile/dashboards": "workspace:*",
+    "@agile/db": "workspace:*",
     "cron-parser": "5.10.1",
+    "drizzle-orm": "0.45.3",
     "yaml": "2.9.1",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.0"
   }
 }

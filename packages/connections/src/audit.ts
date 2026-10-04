@@ -18,7 +18,19 @@ export type AuditAction =
   | 'agent_action.approved'
   | 'agent_action.rejected'
   | 'agent_action.executed'
-  | 'agent_action.failed';
+  | 'agent_action.failed'
+  | 'llm_connection.background_changed'
+  | 'skill.created'
+  | 'skill.updated'
+  | 'skill.forked'
+  | 'skill.visibility_changed'
+  | 'skill.enabled_changed'
+  | 'skill.deleted'
+  | 'skill.run_requested'
+  | 'delivery_channel.created'
+  | 'delivery_channel.deleted'
+  | 'dashboard.widget_pinned'
+  | 'dashboard.widget_removed';
 
 /** metadata must never contain secrets — pass only non-sensitive descriptors. */
 export async function recordAudit(
