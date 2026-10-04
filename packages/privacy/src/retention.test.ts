@@ -6,6 +6,7 @@ import {
   auditLog,
   createDb,
   deletedOrganizations,
+  invitation,
   jiraConnections,
   jiraSyncRuns,
   mcpRateBuckets,
@@ -22,7 +23,12 @@ import {
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyRetention, RETENTION_BATCH_SIZE, runRetention } from './retention';
+import {
+  applyRetention,
+  INVITATIONS_RETENTION_DAYS,
+  RETENTION_BATCH_SIZE,
+  runRetention,
+} from './retention';
 import {
   DEFAULT_SETTINGS,
   getWorkspaceSettings,
@@ -456,6 +462,7 @@ describe('retention and workspace settings', () => {
       deletedUsage: 0,
       sessions: 0,
       verifications: 0,
+      invitations: 0,
       interrupted: true,
     });
   });
@@ -505,6 +512,7 @@ describe('retention and workspace settings', () => {
       deletedUsage: 0,
       sessions: 1,
       verifications: 1,
+      invitations: 0,
       interrupted: false,
     });
     const remaining = await raw.db.select({ org: auditLog.orgId }).from(auditLog);
@@ -522,6 +530,51 @@ describe('retention and workspace settings', () => {
     expect(
       (await raw.db.select({ id: verification.id }).from(verification)).map((r) => r.id),
     ).toEqual(['v_live']);
+  });
+
+  it('deletes answered invitations and long-expired pending ones, in batches (P5-R45)', async () => {
+    expect(INVITATIONS_RETENTION_DAYS).toBe(30);
+    await raw.db.insert(user).values({
+      id: 'u_inviter',
+      name: 'Inviter',
+      email: 'inviter@example.com',
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const inv = (id: string, status: string, createdDaysAgo: number, expiresDaysAgo: number) => ({
+      id,
+      organizationId: 'org_a',
+      email: `${id}@example.com`,
+      role: 'viewer',
+      status,
+      createdAt: daysAgo(createdDaysAgo),
+      expiresAt: daysAgo(expiresDaysAgo),
+      inviterId: 'u_inviter',
+    });
+    await raw.db
+      .insert(invitation)
+      .values([
+        inv('i_accepted_old', 'accepted', 40, 38),
+        inv('i_rejected_old', 'rejected', 31, 29),
+        inv('i_canceled_old', 'canceled', 45, 43),
+        inv('i_expired_old', 'expired', 50, 48),
+        inv('i_canceled_recent', 'canceled', 10, 8),
+        inv('i_pending_long_expired', 'pending', 40, 31),
+        inv('i_pending_recently_expired', 'pending', 40, 29),
+        inv('i_pending_live', 'pending', 1, -1),
+      ]);
+    const result = await runRetention(app.db, { now: NOW, batchSize: 2 });
+    expect(result.invitations).toBe(5);
+    expect(result.failed.global).toBe(0);
+    const left = await raw.db
+      .select({ id: invitation.id })
+      .from(invitation)
+      .where(eq(invitation.organizationId, 'org_a'));
+    expect(left.map((r) => r.id).sort()).toEqual([
+      'i_canceled_recent',
+      'i_pending_live',
+      'i_pending_recently_expired',
+    ]);
   });
 
   it('deletes usage written for a deleted workspace after its purge (an in-flight run)', async () => {

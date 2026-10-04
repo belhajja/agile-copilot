@@ -3,6 +3,7 @@ import {
   agentUsage,
   type Db,
   deletedOrganizations,
+  invitation,
   jiraSyncRuns,
   mcpRateBuckets,
   mcpTokens,
@@ -14,7 +15,7 @@ import {
   verification,
   withOrg,
 } from '@agile/db';
-import { and, eq, exists, gt, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm';
+import { and, eq, exists, gt, inArray, isNull, lt, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { getWorkspaceSettings } from './settings';
 
@@ -34,6 +35,12 @@ export const EXPIRED_AUTH_GRACE_DAYS = 1;
 export const MCP_RATE_WINDOWS_RETENTION_DAYS = 1;
 /** MCP tokens are deleted this long after they were revoked or expired (lists show them meanwhile). */
 export const MCP_TOKENS_RETENTION_DAYS = 90;
+/**
+ * Invitations (they hold the invitee's e-mail address, P5-R45) are deleted this long after they
+ * were answered or withdrawn (any status but pending; counted from when they were sent), and
+ * pending ones this long after they expired.
+ */
+export const INVITATIONS_RETENTION_DAYS = 30;
 /** Rows deleted per statement, each in its own short transaction. */
 export const RETENTION_BATCH_SIZE = 5000;
 
@@ -70,6 +77,8 @@ export interface RetentionRunResult {
   /** Expired sessions and verifications deleted. */
   sessions: number;
   verifications: number;
+  /** Invitations past `INVITATIONS_RETENTION_DAYS` (answered, withdrawn or long expired). */
+  invitations: number;
   /** The worker stopped during the run (the next run picks up the rest). */
   interrupted: boolean;
 }
@@ -300,8 +309,9 @@ export async function applyRetention(
 }
 
 /**
- * Sessions and verifications more than a day past their expiry (not tenant data). `expires_at` is
- * a timestamp without time zone holding UTC (better-auth through drizzle), compared the same way.
+ * Sessions and verifications more than a day past their expiry, and old invitations (not tenant
+ * data). `expires_at`/`created_at` are timestamps without time zone holding UTC (better-auth
+ * through drizzle), compared the same way.
  */
 async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
   const cutoff = new Date(now.getTime() - EXPIRED_AUTH_GRACE_DAYS * DAY);
@@ -341,7 +351,34 @@ async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
       ).count,
     opts,
   );
-  return { sessions, verifications };
+  const invitationCutoff = new Date(now.getTime() - INVITATIONS_RETENTION_DAYS * DAY);
+  const invitations = await drain(
+    async (size) =>
+      (
+        await db
+          .delete(invitation)
+          .where(
+            inArray(
+              invitation.id,
+              db
+                .select({ id: invitation.id })
+                .from(invitation)
+                .where(
+                  or(
+                    and(ne(invitation.status, 'pending'), lt(invitation.createdAt, invitationCutoff)),
+                    and(
+                      eq(invitation.status, 'pending'),
+                      lt(invitation.expiresAt, invitationCutoff),
+                    ),
+                  ),
+                )
+                .limit(size),
+            ),
+          )
+      ).count,
+    opts,
+  );
+  return { sessions, verifications, invitations };
 }
 
 /**
@@ -367,6 +404,7 @@ export async function runRetention(
     deletedUsage: 0,
     sessions: 0,
     verifications: 0,
+    invitations: 0,
     interrupted: false,
   };
   const stopped = () => {
