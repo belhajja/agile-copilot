@@ -14,6 +14,8 @@ const env = {
 export default defineConfig({
   testDir: './tests',
   globalSetup: './global-setup.ts',
+  // `next dev` compiles each route on first hit; on shared CI runners that alone can exceed 5s.
+  expect: { timeout: process.env.CI ? 30_000 : 5_000 },
   use: { baseURL: 'http://localhost:3200', trace: 'retain-on-failure' },
   webServer: [
     { command: 'pnpm mocks', port: 4010, reuseExistingServer: !process.env.CI },
