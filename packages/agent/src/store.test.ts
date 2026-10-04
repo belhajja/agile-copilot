@@ -707,6 +707,10 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
       await expect(usageSummary(app.db, alice, { since, allUsers: true })).rejects.toBeInstanceOf(
         ForbiddenError,
       );
+      // Everyone's usage is `usage.view_all` (owners, admins): live Jira does not widen it.
+      await expect(
+        usageSummary(app.db, { ...alice, roles: ['manager'] }, { since, allUsers: true }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
       expect(
         await usageSummary(app.db, bob, {
           since: new Date(Date.now() + 3_600_000),

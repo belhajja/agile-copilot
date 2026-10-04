@@ -1,5 +1,5 @@
 import { usageSummary } from '@agile/agent';
-import { canManageConnections } from '@agile/auth';
+import { can } from '@agile/auth';
 import { getFormatter, getTranslations } from 'next-intl/server';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -111,7 +111,7 @@ export default async function UsagePage() {
   const format = await getFormatter();
   const now = new Date();
   const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const allUsers = canManageConnections(actor.roles);
+  const allUsers = can(actor.roles, 'usage.view_all');
   const { db } = services();
   // Skill runs and drafts are shown apart from chat answers: they are not conversations.
   const [chat, skills] = await Promise.all([

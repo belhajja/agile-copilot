@@ -36,7 +36,7 @@ import type { AgentActor, AgentDeps } from './deps';
 import { languageModelFor } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import { AgentToolError } from './tool-errors';
-import { buildAgentTools, canUseLiveJira } from './tools';
+import { buildAgentTools, canProposeJiraChanges } from './tools';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**
@@ -146,7 +146,7 @@ export async function handleAgentRequest(
       messages = await settleApprovedParts(tx, actor, conversationId, messages);
       if (req.approvals) {
         // A user no longer allowed to change Jira (demoted since the proposal) can only deny it.
-        const decisions = canUseLiveJira(actor)
+        const decisions = canProposeJiraChanges(actor)
           ? req.approvals
           : req.approvals.map((d) => ({
               ...d,

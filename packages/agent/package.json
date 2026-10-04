@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@agile/analytics-mcp": "workspace:*",
+    "@agile/auth": "workspace:*",
     "@agile/connections": "workspace:*",
     "@agile/dashboards": "workspace:*",
     "@agile/db": "workspace:*",

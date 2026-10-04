@@ -16,7 +16,14 @@ export const owner = (orgId = 'org_a'): Actor => ({
   userId: `user_${orgId}`,
   roles: ['owner'],
 });
-export const member = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_m', roles: ['member'] });
+/** A workspace member without privileges (Phase 5: the viewer role). */
+export const member = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_m', roles: ['viewer'] });
+export const viewer = member;
+export const manager = (orgId = 'org_a'): Actor => ({
+  orgId,
+  userId: 'user_mgr',
+  roles: ['manager'],
+});
 
 export const ANCHOR = new Date('2026-10-04T00:00:00Z');
 export const NOW = new Date('2026-10-04T08:00:00Z');

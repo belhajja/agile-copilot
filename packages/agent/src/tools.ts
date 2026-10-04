@@ -1,5 +1,5 @@
 import { createAnalyticsMcpServer } from '@agile/analytics-mcp';
-import { assertCanManage, ForbiddenError } from '@agile/connections';
+import { can } from '@agile/auth';
 import { jiraConnections, withOrg } from '@agile/db';
 import {
   createJiraToolBackend,
@@ -154,18 +154,17 @@ export async function jiraSites(
 }
 
 /**
- * Live Jira tools, reads and writes, are for workspace owners and admins (P3-R5, P3-R25): they run
- * with the connection owner's Jira credentials, which reach beyond the boards an admin shared.
- * Members get the analytics tools (synced, selected boards) until Phase 5 roles.
+ * Live Jira reads (`jira.read`: owners, admins, managers). They run with the connection's Jira
+ * credentials, which can reach beyond the boards an admin selected, so the role is granted
+ * explicitly; viewers get the analytics tools (synced, selected boards) only.
  */
 export function canUseLiveJira(actor: AgentActor): boolean {
-  try {
-    assertCanManage(actor);
-    return true;
-  } catch (e) {
-    if (e instanceof ForbiddenError) return false;
-    throw e;
-  }
+  return can(actor.roles, 'jira.read');
+}
+
+/** Proposing Jira changes (`jira.write`); each proposal still waits for the user's approval. */
+export function canProposeJiraChanges(actor: AgentActor): boolean {
+  return can(actor.roles, 'jira.write');
 }
 
 /** The stored outcome of a failed Jira call (one of `ExecutionResultCode`). */
@@ -193,7 +192,8 @@ export type JiraToolMode =
  * id); with one, the server adds it to the input before it is proposed, hashed and approved, and
  * the model never sees the field. A call runs against exactly that connection, or fails
  * (`not_found` when it is gone, `unavailable` when its tools cannot run here): never another one.
- * Owners and admins only (P3-R25); in read-only mode, write tools are never built.
+ * Roles with `jira.read` get the read tools, `jira.write` the writes (owners, admins, managers);
+ * in read-only mode, write tools are never built.
  */
 export function buildJiraToolSet(
   deps: AgentDeps,
@@ -205,10 +205,13 @@ export function buildJiraToolSet(
   const [first] = offered;
   if (!first || !canUseLiveJira(actor)) return {};
   const siteIds = offered.map((s) => s.id) as [string, ...string[]];
+  const allowed = (write: boolean) =>
+    write ? canProposeJiraChanges(actor) : canUseLiveJira(actor);
   const tools: ToolSet = {};
   for (const name of JIRA_TOOL_NAMES) {
     const write = isJiraWriteTool(name);
     if (write && mode.readOnly) continue;
+    if (!allowed(write)) continue;
     const def = JIRA_TOOLS[name];
     const inputSchema =
       offered.length > 1
@@ -233,8 +236,8 @@ export function buildJiraToolSet(
           }
           return new AgentToolError(code);
         };
-        // Defence in depth: the role is re-checked even though members never get these tools.
-        if (!canUseLiveJira(actor)) throw await refuse('forbidden_role');
+        // Defence in depth: the role is re-checked even though viewers never get these tools.
+        if (!allowed(write)) throw await refuse('forbidden_role');
         const target = sites.find((s) => s.id === site);
         if (!target) throw await refuse('not_found');
         if (!target.usable) throw await refuse('unavailable');
@@ -295,6 +298,13 @@ export function buildJiraToolSet(
   return tools;
 }
 
+/** What the system prompt says about live Jira for this user. */
+export function jiraAccessOf(actor: AgentActor, hasUsableSite: boolean): JiraAccess {
+  if (!hasUsableSite) return 'unavailable';
+  if (!canUseLiveJira(actor)) return 'forbidden_role';
+  return canProposeJiraChanges(actor) ? 'full' : 'read_only';
+}
+
 /** The chat's Jira tools: reads, and writes behind approval, through the read-write instance. */
 export function jiraTools(
   deps: AgentDeps,
@@ -336,11 +346,7 @@ export async function liveJira(deps: AgentDeps, actor: AgentActor, mode: JiraToo
       Object.keys(tools).length > 0
         ? offered.map(({ id, name, deployment }): PromptSite => ({ id, name, deployment }))
         : [],
-    access: (offered.length === 0
-      ? 'unavailable'
-      : canUseLiveJira(actor)
-        ? 'full'
-        : 'forbidden_role') as JiraAccess,
+    access: jiraAccessOf(actor, offered.length > 0),
   };
 }
 

@@ -1,4 +1,5 @@
-import { assertCanManage } from '@agile/connections';
+import { can } from '@agile/auth';
+import { ForbiddenError } from '@agile/connections';
 import { agentUsage, type Db, skillBuilderCalls, user, withOrg } from '@agile/db';
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
@@ -136,8 +137,8 @@ export interface UsageTotals {
 }
 
 /**
- * Usage since `since`, per user: only the actor's own row unless `allUsers`, which requires a
- * workspace owner or admin (`ForbiddenError` otherwise).
+ * Usage since `since`, per user: only the actor's own row unless `allUsers`, which requires
+ * `usage.view_all` (owners and admins; `ForbiddenError` otherwise).
  */
 export async function usageSummary(
   db: Db,
@@ -149,7 +150,9 @@ export async function usageSummary(
     source?: 'chat' | 'skills';
   },
 ): Promise<UsageTotals[]> {
-  if (opts.allUsers) assertCanManage(actor);
+  if (opts.allUsers && !can(actor.roles, 'usage.view_all')) {
+    throw new ForbiddenError('Only workspace owners and admins can see everyone’s usage');
+  }
   // Sums of bigint columns exceed 32 bits: cast to bigint (postgres-js returns a string) and
   // read with Number() (exact up to 2^53).
   const rows = await withOrg(db, actor.orgId, (tx) =>

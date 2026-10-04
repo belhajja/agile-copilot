@@ -56,10 +56,10 @@ const addUsage = (a: TokenUsage, b: TokenUsage): TokenUsage => ({
 /**
  * Runs a skill once, without a conversation: for "Run now", schedules and alerts (worker) and the
  * builder's preview (web). `actor` is the skill's owner with the role they have now. Read-only:
- * the analytics tools and, for owners/admins (P3-R25), the Jira read tools through the read-only
- * twin or the built-in REST backend; no write tool is built, so nothing can be proposed. The
- * owner's standing preferences apply; steps, output tokens and time are bounded. The usage is
- * metered against the owner and the run.
+ * the analytics tools and, for roles with `jira.read` (owners, admins, managers), the Jira read
+ * tools through the read-only twin or the built-in REST backend; no write tool is built, so
+ * nothing can be proposed. The owner's standing preferences apply; steps, output tokens and time
+ * are bounded. The usage is metered against the owner and the run.
  */
 export async function runSkill(
   deps: SkillRunDeps,

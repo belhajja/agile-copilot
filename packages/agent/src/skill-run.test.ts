@@ -9,7 +9,7 @@ import {
   type SkillDocument,
   serializeSkill,
 } from '@agile/skills';
-import { member, owner } from '@agile/sync/testing';
+import { manager, owner, viewer } from '@agile/sync/testing';
 import { desc } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { draftSkill, draftToDocument, runSkill, type SkillRunDeps } from './skill-run';
@@ -116,11 +116,31 @@ describe('skill runs (background, read-only) and the skill builder', () => {
     ).toEqual({ ok: true, text: 'No Jira tools.' });
   });
 
-  it("gives a member's runs the analytics tools only (live Jira reads are for owners/admins)", async () => {
-    expect(await runSkill(deps, member(), { skill: skill('jira-check') })).toEqual({
+  it("gives a viewer's runs the analytics tools only (live Jira reads need `jira.read`)", async () => {
+    expect(await runSkill(deps, viewer(), { skill: skill('jira-check') })).toEqual({
       ok: true,
       text: 'No Jira tools.',
     });
+  });
+
+  it("gives a manager's runs live Jira reads, read-only, through the read-only instance", async () => {
+    const readonlyBefore = readonly.calls.length;
+    const before = h.mcp.calls.length;
+    expect(await runSkill(deps, manager(), { skill: skill('jira-check') })).toEqual({
+      ok: true,
+      text: 'Jira checked.',
+    });
+    const jiraSent = (lastRequest()?.tools ?? []).filter((t) => t.startsWith('jira_'));
+    expect(jiraSent.sort()).toEqual([
+      'jira_get_agile_boards',
+      'jira_get_issue',
+      'jira_get_sprint_issues',
+      'jira_get_sprints_from_board',
+      'jira_get_transitions',
+      'jira_search',
+    ]);
+    expect(readonly.calls.slice(readonlyBefore).map((c) => c.name)).toEqual(['jira_search']);
+    expect(h.mcp.calls.length).toBe(before);
   });
 
   it("applies the owner's standing preferences and passes alert facts as data", async () => {

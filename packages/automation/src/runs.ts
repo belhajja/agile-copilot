@@ -300,9 +300,9 @@ export async function queuedRunsToResend(db: Db, orgId: string, now: Date): Prom
 
 /**
  * The latest runs of a skill the actor can read (their own, or one shared with the workspace).
- * Reports and delivery outcomes are the skill owner's only (P4-R1): an owner's or admin's run may
- * read live Jira beyond the selected boards, so anyone else (workspace owners and admins too)
- * sees the status and result code only.
+ * Reports and delivery outcomes are the skill owner's only (P4-R1): an owner's, admin's or
+ * manager's run may read live Jira beyond the selected boards, so anyone else (workspace owners
+ * and admins too) sees the status and result code only.
  */
 export async function listRuns(
   db: Db,

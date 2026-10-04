@@ -11,9 +11,10 @@ const safeId = (id: string) => id.replace(/[^a-z0-9_-]/gi, '');
 
 /**
  * What live Jira the user gets: none in this workspace (no usable connection), none for their role
- * (members, P3-R25), or the Jira tools with changes on approval (owners and admins).
+ * (viewers), reads only (a role with `jira.read` but not `jira.write`), or the Jira tools with
+ * changes on approval (owners, admins and managers).
  */
-export type JiraAccess = 'unavailable' | 'forbidden_role' | 'full';
+export type JiraAccess = 'unavailable' | 'forbidden_role' | 'read_only' | 'full';
 
 /** The site list (ids and deployment only), when the model must choose one of several. */
 function siteList(sites: PromptSite[]): string {
@@ -61,8 +62,11 @@ export function systemPrompt(opts: { now: Date; jiraSites: PromptSite[]; jira: J
       : opts.jira === 'forbidden_role'
         ? `Live Jira queries are not available for your role. Answer from the synced data (the
 analytics tools); if the user asks to read or change Jira directly, say so and suggest asking a
-workspace owner or admin.`
-        : `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
+workspace owner or admin for the Manager role.`
+        : opts.jira === 'read_only'
+          ? `Live Jira tools (names start with "jira_") read current Jira data. Changing Jira is not
+available for your role: if the user asks for a change, say so and describe what they could do.${siteList(opts.jiraSites)}`
+          : `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
 Every Jira change (comment, transition, assignment, creation, update) is only a proposal: the app
 shows it to the user, who approves or rejects it. Propose one change at a time, with the exact
 final text. If the user rejects a change, do not propose it again unless they ask.${siteList(opts.jiraSites)}`;
