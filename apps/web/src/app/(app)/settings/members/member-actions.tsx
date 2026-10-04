@@ -30,7 +30,7 @@ export function MemberActions({
   const [pending, setPending] = useState(false);
 
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <NativeSelect
         aria-label={t('roleOf', { name })}
         value={role ?? ''}
@@ -70,7 +70,7 @@ export function MemberActions({
           router.refresh();
         }}
       />
-      {error && <FieldError>{error}</FieldError>}
+      {error && <FieldError className="basis-full text-right">{error}</FieldError>}
     </div>
   );
 }

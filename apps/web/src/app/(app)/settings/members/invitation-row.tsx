@@ -46,7 +46,7 @@ export function InvitationRow({
               await navigator.clipboard.writeText(link);
               setCopied(true);
             } catch {
-              setError(errorMessage(null));
+              setError(t('copyFailed'));
             }
           }}
         >
