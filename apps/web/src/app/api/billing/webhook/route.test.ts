@@ -82,12 +82,33 @@ describe('POST /api/billing/webhook', () => {
     );
   });
 
-  it('answers 400 with a fixed code for a missing or bad signature', async () => {
+  it('answers 400 with a fixed code for a bad signature', async () => {
     handleStripeWebhook.mockRejectedValue(new WebhookSignatureError('invalid signature'));
-    const res = await post('{}', {});
+    const res = await post('{}', { 'stripe-signature': 't=1,v1=bad' });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'invalid_signature' });
-    expect(handleStripeWebhook).toHaveBeenCalledWith(expect.anything(), '{}', null);
+  });
+
+  it('refuses a request without a Stripe-Signature header before reading its body', async () => {
+    let pulled = false;
+    // No buffering ahead (highWaterMark 0): only a reader pulls.
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled = true;
+          controller.enqueue(new Uint8Array(16));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    for (const headers of [{}, { 'stripe-signature': '' }]) {
+      const res = await post(body, headers);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'invalid_signature' });
+    }
+    expect(pulled).toBe(false);
+    expect(handleStripeWebhook).not.toHaveBeenCalled();
   });
 
   it('answers 200 for duplicate and ignored events (Stripe must not retry them)', async () => {

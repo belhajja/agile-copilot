@@ -12,12 +12,15 @@ const MAX_BODY_BYTES = 512 * 1024;
 /**
  * Stripe → us. No session (public in proxy.ts): the Stripe signature over the exact raw body is
  * the authentication, checked before anything parses it. 404 when billing is off (self-host), 400
- * for a missing or bad signature, 200 for applied, duplicate and ignored events, 500 lets Stripe
+ * for a missing (before the body is read) or bad signature, 200 for applied, duplicate and ignored events, 500 lets Stripe
  * retry. Bodies are fixed codes; errors are logged by name only (Stripe's messages can carry ids).
  */
 export async function POST(request: Request) {
   const deps = billingDeps();
   if (!deps.billing) return Response.json({ error: 'not_found' }, { status: 404 });
+  // No signature, nothing to verify: refused before the body is buffered (B-5).
+  const signature = request.headers.get('stripe-signature');
+  if (!signature) return Response.json({ error: 'invalid_signature' }, { status: 400 });
   let payload: string;
   try {
     payload = await readBodyCapped(request, MAX_BODY_BYTES);
@@ -35,11 +38,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'bad_request' }, { status: 400 });
   }
   try {
-    const outcome = await handleStripeWebhook(
-      deps,
-      payload,
-      request.headers.get('stripe-signature'),
-    );
+    const outcome = await handleStripeWebhook(deps, payload, signature);
     return Response.json({ received: true, outcome });
   } catch (e) {
     if (e instanceof WebhookSignatureError) {
