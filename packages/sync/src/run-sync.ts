@@ -11,8 +11,8 @@ import {
   type NormalizedIssue,
   normalizeIssue,
 } from '@agile/jira';
-import { and, eq, isNull, lt, ne, or } from 'drizzle-orm';
-import { failureOf } from './boards';
+import { and, eq, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { codeOf, failureOf } from './boards';
 import { openDataSource } from './credentials';
 import { type SyncDeps, SyncError, type SyncFailure } from './deps';
 import {
@@ -56,22 +56,30 @@ export async function runSync(deps: SyncDeps, job: SyncJob): Promise<SyncOutcome
       .insert(jiraSyncStates)
       .values({ orgId: job.orgId, connectionId: job.connectionId })
       .onConflictDoNothing();
-    // Take the lease: only one sync per connection at a time.
+    // Take the lease: only one sync per connection at a time. The lease is judged with the
+    // DATABASE clock (workers' clocks may differ); deps.now only stamps the data we store.
     const [state] = await tx
       .update(jiraSyncStates)
-      .set({ status: 'running', lastStartedAt: now })
+      .set({ status: 'running', lastStartedAt: sql`now()` })
       .where(
         and(
           eq(jiraSyncStates.connectionId, job.connectionId),
           or(
             ne(jiraSyncStates.status, 'running'),
             isNull(jiraSyncStates.lastStartedAt),
-            lt(jiraSyncStates.lastStartedAt, new Date(now.getTime() - LEASE_MS)),
+            lt(jiraSyncStates.lastStartedAt, sql`now() - ${LEASE_MS} * interval '1 millisecond'`),
           ),
         ),
       )
       .returning();
     if (!state) return { state: null, runId: null, mode: 'full' as const };
+    // A takeover means the previous worker died: close its run rows.
+    await tx
+      .update(jiraSyncRuns)
+      .set({ status: 'error', error: 'abandoned', finishedAt: sql`now()` })
+      .where(
+        and(eq(jiraSyncRuns.connectionId, job.connectionId), eq(jiraSyncRuns.status, 'running')),
+      );
     const mode: 'full' | 'incremental' =
       !state.watermark ||
       !state.lastFullSyncAt ||
@@ -107,21 +115,37 @@ export async function runSync(deps: SyncDeps, job: SyncJob): Promise<SyncOutcome
     const source = await openDataSource(deps, job.orgId, job.connectionId);
     const sprintFieldId = findSprintField(await source.listFields());
     const statuses = new Map((await source.listStatuses()).map((s) => [s.id, s]));
+    const failures: unknown[] = [];
     for (const board of boards) {
-      const count = await syncBoard(deps, source, {
-        orgId: job.orgId,
-        connectionId: job.connectionId,
-        board,
-        since: mode === 'full' ? null : state.watermark,
-        now,
-        mode,
-        sprintFieldId,
-        statuses,
-      });
-      if (count === null) continue;
-      boardsSynced++;
-      issuesSynced += count;
+      // A board never read before (selected after the last sync) is read completely.
+      const complete = mode === 'full' || board.lastSyncedAt === null;
+      try {
+        const count = await syncBoard(deps, source, {
+          orgId: job.orgId,
+          connectionId: job.connectionId,
+          board,
+          since: complete ? null : state.watermark,
+          clock,
+          mode: complete ? 'full' : 'incremental',
+          now,
+          sprintFieldId,
+          statuses,
+        });
+        if (count !== null) {
+          boardsSynced++;
+          issuesSynced += count;
+        }
+      } catch (e) {
+        // One broken board (e.g. its filter was deleted) must not stop the others; credential and
+        // rate-limit problems would hit every board, so those end the run at once.
+        if (isConnectionWide(e)) throw e;
+        if (failures.length > 0) deps.onError?.(e, codeOf(e)); // the first is reported below
+        failures.push(e);
+      }
+      await heartbeat(deps, job);
     }
+    // The first failure is the run's code; the watermark does not move.
+    if (failures.length > 0) throw failures[0];
     await withOrg(deps.db, job.orgId, async (tx) => {
       const finished = clock();
       await tx
@@ -170,6 +194,7 @@ interface BoardJob {
   board: typeof jiraBoards.$inferSelect;
   since: Date | null;
   now: Date;
+  clock: () => Date;
   mode: 'full' | 'incremental';
   sprintFieldId: string | null;
   statuses: Map<string, JiraStatusInfo>;
@@ -210,7 +235,8 @@ async function syncBoard(
   const seen: string[] = [];
   const statusIds = new Set<string>();
   for await (const page of source.searchIssues(
-    buildIssueJql(config.filterId, j.since, j.now),
+    // Jira evaluates "-Nm" when it receives the request, so measure from the clock now.
+    buildIssueJql(config.filterId, j.since, j.clock()),
     issueFieldList(ctx),
   )) {
     const issues: NormalizedIssue[] = [];
@@ -224,9 +250,13 @@ async function syncBoard(
       }
     }
     seen.push(
-      ...(await withOrg(deps.db, j.orgId, (tx) =>
-        saveIssues(tx, j.orgId, j.connectionId, j.board.id, issues, j.now),
-      )),
+      ...(await withOrg(deps.db, j.orgId, async (tx) => {
+        await tx
+          .update(jiraSyncStates)
+          .set({ lastStartedAt: sql`now()` })
+          .where(eq(jiraSyncStates.connectionId, j.connectionId));
+        return saveIssues(tx, j.orgId, j.connectionId, j.board.id, issues, j.now);
+      })),
     );
   }
   await withOrg(deps.db, j.orgId, async (tx) => {
@@ -236,3 +266,16 @@ async function syncBoard(
   });
   return seen.length;
 }
+
+/** Keeps the lease alive: a long, healthy run must not be taken over after an hour. */
+async function heartbeat(deps: SyncDeps, job: SyncJob) {
+  await withOrg(deps.db, job.orgId, (tx) =>
+    tx
+      .update(jiraSyncStates)
+      .set({ lastStartedAt: sql`now()` })
+      .where(eq(jiraSyncStates.connectionId, job.connectionId)),
+  );
+}
+
+const CONNECTION_WIDE = new Set(['unauthorized', 'forbidden', 'rate_limited', 'unreachable']);
+const isConnectionWide = (e: unknown) => CONNECTION_WIDE.has(codeOf(e));

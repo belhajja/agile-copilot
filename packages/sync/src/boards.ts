@@ -9,12 +9,14 @@ import {
 import {
   type JiraBoardConfig,
   type JiraBoardInfo,
+  JiraPaginationError,
+  JiraPaginationLimitError,
   type JiraStatusInfo,
   mapJiraError,
 } from '@agile/jira';
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { openDataSource } from './credentials';
-import { type SyncDeps, SyncError, type SyncFailure } from './deps';
+import { type SyncDeps, SyncError, type SyncFailure, type SyncFailureCode } from './deps';
 import { ensureStatusMappings } from './persist';
 
 export interface BoardView {
@@ -63,8 +65,15 @@ export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID
 const CATEGORIES = new Set(['todo', 'in_progress', 'done']);
 
 /** Maps an error to a stable code (reported to deps.onError for logging). */
+export function codeOf(e: unknown): SyncFailureCode {
+  if (e instanceof SyncError) return e.code;
+  if (e instanceof JiraPaginationError || e instanceof JiraPaginationLimitError)
+    return 'jira_paging';
+  return mapJiraError(e).code;
+}
+
 export function failureOf(deps: SyncDeps, e: unknown): SyncFailure {
-  const code = e instanceof SyncError ? e.code : mapJiraError(e).code;
+  const code = codeOf(e);
   deps.onError?.(e, code);
   return { ok: false, code };
 }

@@ -24,6 +24,7 @@ export type SyncFailureCode =
   | 'not_found'
   | 'no_boards'
   | 'already_running'
+  | 'jira_paging'
   | 'oauth_expired'
   | 'oauth_unavailable';
 

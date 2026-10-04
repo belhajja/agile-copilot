@@ -74,8 +74,12 @@ describe('runSync resilience', () => {
     await h.rawDb
       .update(jiraSyncStates)
       .set({ lastFullSyncAt: new Date(NOW.getTime() - 25 * 3_600_000) });
-    expect(await runSync(h.deps, job())).toMatchObject({ ok: true, mode: 'full' });
-    expect(await snapshot()).toEqual(before);
+    // A LATER clock: added_at (part of the primary key) must not depend on when we sync.
+    const later = { ...h.deps, now: () => new Date(NOW.getTime() + 2 * 3_600_000) };
+    expect(await runSync(later, job())).toMatchObject({ ok: true, mode: 'full' });
+    const after = await snapshot();
+    expect(after.sprintRows.length).toBeGreaterThan(0);
+    expect(after).toEqual(before);
     // An issue whose history shrank in Jira loses the stale rows.
     const first = h.dataset.issues[0];
     if (!first) throw new Error('fixture');
