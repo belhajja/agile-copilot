@@ -1,5 +1,6 @@
-import { createDb } from '@agile/db';
+import { auditLog, createDb, orgDataKeys, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { canManageConnections, getMemberRoles } from './roles';
 import { type Auth, createAuth } from './server';
@@ -77,6 +78,44 @@ describe('auth', () => {
     const session = await auth.api.getSession({ headers: cookieHeader(signIn.headers) });
 
     expect(session?.session.activeOrganizationId ?? null).toBeNull();
+  });
+
+  it('deleting a workspace purges its tenant rows but keeps the audit trail', async () => {
+    const { headers } = await auth.api.signUpEmail({
+      body: { email: 'leaver@example.com', password: 'correct-horse-1', name: 'Lea' },
+      returnHeaders: true,
+    });
+    const h = cookieHeader(headers);
+    const doomed = await auth.api.createOrganization({
+      headers: h,
+      body: { name: 'Doomed', slug: 'doomed' },
+    });
+    const kept = await auth.api.createOrganization({
+      headers: h,
+      body: { name: 'Kept', slug: 'kept' },
+    });
+    const orgIds = [doomed?.id ?? '', kept?.id ?? ''];
+    for (const orgId of orgIds) {
+      await withOrg(conn.db, orgId, (tx) =>
+        tx.insert(orgDataKeys).values({ orgId, kekVersion: 1, wrappedDek: 'wrapped' }),
+      );
+    }
+
+    await auth.api.deleteOrganization({ headers: h, body: { organizationId: orgIds[0] ?? '' } });
+
+    const owner = createDb(tdb.ownerUrl, { max: 1 });
+    try {
+      const keys = await owner.db.select({ orgId: orgDataKeys.orgId }).from(orgDataKeys);
+      expect(keys.map((k) => k.orgId)).not.toContain(orgIds[0]);
+      expect(keys.map((k) => k.orgId)).toContain(orgIds[1]);
+      const audit = await owner.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.orgId, orgIds[0] ?? ''));
+      expect(audit).toMatchObject([{ action: 'organization.deleted', targetId: orgIds[0] }]);
+    } finally {
+      await owner.close();
+    }
   });
 
   it('returns no roles for a non-member', async () => {

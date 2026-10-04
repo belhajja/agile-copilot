@@ -1,5 +1,5 @@
-import type { Db } from '@agile/db';
 import * as schema from '@agile/db';
+import { auditLog, type Db, purgeOrgTenantRows, withOrg } from '@agile/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
@@ -29,7 +29,30 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
         },
       },
     },
-    plugins: [organization({ allowUserToCreateOrganization: true }), nextCookies()], // nextCookies last
+    plugins: [
+      organization({
+        allowUserToCreateOrganization: true,
+        organizationHooks: {
+          // Before, not after: if the purge fails the workspace is kept, so its encrypted secrets
+          // are never left behind without an owner.
+          beforeDeleteOrganization: async ({ organization: org, user }) => {
+            await withOrg(db, org.id, async (tx) => {
+              // audit_log is append-only (app_user cannot delete from it) and holds no secrets; it is
+              // kept as the record of the deletion. Retention purges arrive with Phase 5.
+              await tx.insert(auditLog).values({
+                orgId: org.id,
+                actorUserId: user.id,
+                action: 'organization.deleted',
+                targetType: 'organization',
+                targetId: org.id,
+              });
+              await purgeOrgTenantRows(tx, org.id);
+            });
+          },
+        },
+      }),
+      nextCookies(), // must stay last
+    ],
   });
 }
 

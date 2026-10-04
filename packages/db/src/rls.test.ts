@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, withOrg } from './client';
-import { auditLog, jiraConnections } from './schema';
+import { purgeOrgTenantRows } from './purge';
+import { auditLog, jiraConnections, orgDataKeys } from './schema';
 import { startTestDatabase, type TestDatabase } from './testing';
 
 const pgMessage = (e: unknown): string =>
@@ -22,13 +23,16 @@ const connectionRow = (orgId: string) => ({
 describe('row-level security (as app_user)', () => {
   let tdb: TestDatabase;
   let app: ReturnType<typeof createDb>;
+  let owner: ReturnType<typeof createDb>; // bypasses RLS, to inspect raw rows
 
   beforeAll(async () => {
     tdb = await startTestDatabase();
     app = createDb(tdb.appUrl, { max: 1 }); // one connection: proves org context doesn't leak
+    owner = createDb(tdb.ownerUrl, { max: 1 });
   });
   afterAll(async () => {
     await app?.close();
+    await owner?.close();
     await tdb?.stop();
   });
 
@@ -82,6 +86,45 @@ describe('row-level security (as app_user)', () => {
     expect(rows.length).toBeGreaterThan(0);
     const unguarded = rows.filter((r) => !r.rls || !r.forced || r.policies < 1);
     expect(unguarded).toEqual([]);
+  });
+
+  it('guards the schema: foreign keys from tenant tables cascade on delete', async () => {
+    // purgeOrgTenantRows deletes table by table in any order, which only works with cascades.
+    const rows = (await app.db.execute(sql`
+      select con.conname as name, con.confdeltype as on_delete
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace n on n.oid = rel.relnamespace
+      where con.contype = 'f' and n.nspname = 'public'
+        and exists (select 1 from information_schema.columns col
+          where col.table_schema = 'public' and col.table_name = rel.relname
+            and col.column_name = 'org_id')
+    `)) as unknown as { name: string; on_delete: string }[];
+    expect(rows.filter((r) => r.on_delete !== 'c')).toEqual([]);
+  });
+
+  it('purges one org from every tenant table except the audit log', async () => {
+    for (const org of ['org_p', 'org_q']) {
+      await withOrg(app.db, org, async (tx) => {
+        await tx.insert(jiraConnections).values(connectionRow(org));
+        await tx.insert(orgDataKeys).values({ orgId: org, kekVersion: 1, wrappedDek: 'w' });
+        await tx.insert(auditLog).values({ orgId: org, action: 'test' });
+      });
+    }
+    const purged = await withOrg(app.db, 'org_p', (tx) => purgeOrgTenantRows(tx, 'org_p'));
+    expect(purged).toEqual(
+      expect.arrayContaining(['jira_connections', 'llm_connections', 'org_data_keys']),
+    );
+    expect(purged).not.toContain('audit_log');
+
+    const count = async (org: string) =>
+      (await owner.db.execute(sql`
+        select (select count(*)::int from jira_connections where org_id = ${org}) as jira,
+               (select count(*)::int from org_data_keys where org_id = ${org}) as keys,
+               (select count(*)::int from audit_log where org_id = ${org}) as audit
+      `)) as unknown as { jira: number; keys: number; audit: number }[];
+    expect(await count('org_p')).toEqual([{ jira: 0, keys: 0, audit: 1 }]);
+    expect(await count('org_q')).toEqual([{ jira: 1, keys: 1, audit: 1 }]);
   });
 
   it('refuses an empty org id', () => {
