@@ -19,6 +19,8 @@ jobs:
       - run: pnpm test
       - name: Production build (no env needed)
         run: pnpm --filter @agile/web build
+      - name: Worker production deploy (what the worker image ships)
+        run: pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
   e2e:
     runs-on: ubuntu-latest
     services:

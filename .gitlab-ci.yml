@@ -32,6 +32,8 @@ check:
     - pnpm typecheck
     - pnpm test
     - pnpm --filter @agile/web build
+    # The worker image is built from this production deploy (see apps/web/Dockerfile, target worker).
+    - pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
 
 e2e:
   stage: e2e
