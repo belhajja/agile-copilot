@@ -1,0 +1,17 @@
+{
+  "name": "@agile/skills",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/dashboards": "workspace:*",
+    "cron-parser": "5.10.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  }
+}
