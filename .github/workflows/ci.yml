@@ -5,9 +5,13 @@ on:
   pull_request:
   # Run by hand to measure the agent on real providers (evals-live).
   workflow_dispatch:
+# Read-only token for every job: nothing here writes to the repository, issues or packages.
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -25,6 +29,7 @@ jobs:
         run: pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
   helm:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -46,6 +51,7 @@ jobs:
           HELM_REQUIRED: "1"
   evals:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -60,6 +66,7 @@ jobs:
   evals-live:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Keys are secrets of the `evals-live` environment (protected by required reviewers).
     environment: evals-live
     steps:
@@ -78,6 +85,7 @@ jobs:
           EVAL_OPENAI_MODEL: ${{ vars.EVAL_OPENAI_MODEL }}
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
