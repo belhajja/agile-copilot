@@ -1,8 +1,9 @@
 #!/bin/sh
 # Lints the chart and validates what it renders against the Kubernetes schemas (kubeconform), for
-# the default values and for the variants a deployment may use. Needs helm (v4) and kubeconform:
-# when one is not on PATH, the pinned release is downloaded and checked against its sha256 into
-# $HELM_TOOLS_DIR (default: a temporary directory), which is then put first on PATH.
+# the default values and for the variants a deployment may use. Uses helm v4.3.0 and kubeconform
+# v0.8.0: when the one on PATH is missing or another version, the pinned release is downloaded,
+# checked against its sha256 and installed into $HELM_TOOLS_DIR (default: a temporary directory),
+# which is put first on PATH.
 set -eu
 CHART="$(dirname "$0")/agile-copilot"
 K8S="${KUBERNETES_VERSION:-1.31.0}"
@@ -65,8 +66,13 @@ install_tool() {
   rm -f "$archive"
 }
 
+# The tool on PATH counts only when it is the pinned version; otherwise the pinned release is
+# installed into $HELM_TOOLS_DIR (or a temporary directory), which goes first on PATH.
+helm_pinned() { helm version --short 2>/dev/null | grep -q "^$HELM_VERSION+"; }
+kubeconform_pinned() { [ "$(kubeconform -v 2>/dev/null)" = "$KUBECONFORM_VERSION" ]; }
+
 if [ -n "${HELM_TOOLS_DIR:-}" ]; then PATH="$HELM_TOOLS_DIR:$PATH"; fi
-if ! command -v helm >/dev/null 2>&1 || ! command -v kubeconform >/dev/null 2>&1; then
+if ! helm_pinned || ! kubeconform_pinned; then
   if [ -n "${HELM_TOOLS_DIR:-}" ]; then
     TOOLS="$HELM_TOOLS_DIR"
   else
@@ -74,20 +80,22 @@ if ! command -v helm >/dev/null 2>&1 || ! command -v kubeconform >/dev/null 2>&1
     trap 'rm -rf "$TOOLS"' EXIT
   fi
   mkdir -p "$TOOLS"
+  PATH="$TOOLS:$PATH"
+  export PATH
   PLATFORM=$(platform)
-  if ! command -v helm >/dev/null 2>&1; then
+  if ! helm_pinned; then
     sum=$(helm_sha256 "$PLATFORM") || { echo "no pinned helm for $PLATFORM" >&2; exit 1; }
     install_tool helm "https://get.helm.sh/helm-$HELM_VERSION-$PLATFORM.tar.gz" "$sum" "$PLATFORM/helm"
   fi
-  if ! command -v kubeconform >/dev/null 2>&1; then
+  if ! kubeconform_pinned; then
     sum=$(kubeconform_sha256 "$PLATFORM") || { echo "no pinned kubeconform for $PLATFORM" >&2; exit 1; }
     install_tool kubeconform \
       "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-$PLATFORM.tar.gz" \
       "$sum" kubeconform
   fi
-  PATH="$TOOLS:$PATH"
-  export PATH
+  helm_pinned && kubeconform_pinned || { echo "helm or kubeconform is not the pinned version" >&2; exit 1; }
 fi
+echo "using $(helm version --short) and kubeconform $(kubeconform -v)"
 
 render() { helm template agile "$CHART" --set secrets.existingSecret=agile-secrets "$@"; }
 validate() { kubeconform -strict -summary -kubernetes-version "$K8S" -; }
@@ -96,6 +104,8 @@ helm lint "$CHART" --strict --set secrets.existingSecret=agile-secrets
 render | validate
 render --set ingress.enabled=true --set ingress.tlsSecretName=agile-tls \
   --set 'networkPolicy.jiraPrivateCidrs[0]=10.20.0.0/16' \
+  --set 'networkPolicy.dns.cidrs[0]=169.254.20.10/32' \
+  --set image.web.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
   --set 'networkPolicy.webIngressFrom[0].namespaceSelector.matchLabels.name=ingress' | validate
 render --set mcpAtlassian.enabled=false --set networkPolicy.enabled=false | validate
 # Without a Secret name the chart refuses to render.

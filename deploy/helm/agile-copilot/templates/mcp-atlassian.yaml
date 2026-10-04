@@ -32,6 +32,8 @@ spec:
             - { name: TRANSPORT, value: streamable-http }
             - { name: PORT, value: "8000" }
             - { name: TOOLSETS, value: all }
+            # Read-only root filesystem: no bytecode cache next to the sources.
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
             - name: ENABLED_TOOLS
               value: {{ ternary $.Values.mcpAtlassian.readonlyEnabledTools $.Values.mcpAtlassian.enabledTools $readonly | quote }}
             {{- if $readonly }}
@@ -47,6 +49,13 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 30
           resources: {{- toYaml $.Values.mcpAtlassian.resources | nindent 12 }}
+          # fastmcp keeps a version cache under HOME (~/.local/share).
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/app }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }
 ---
 apiVersion: v1
 kind: Service

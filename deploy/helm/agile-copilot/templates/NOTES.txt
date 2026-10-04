@@ -1,0 +1,16 @@
+Agile Copilot {{ .Chart.AppVersion }} is installed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+Migrations ran in the pre-install/pre-upgrade Job; the app reads its secrets from "{{ .Values.secrets.existingSecret }}".
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: networkPolicy.enabled=false. Nothing stops the worker or other pods from reaching the
+read-write mcp-atlassian, or mcp-atlassian from reaching Postgres and the cluster.
+{{- else if not .Values.networkPolicy.webIngressFrom }}
+
+WARNING: networkPolicy.webIngressFrom is empty: every pod in the cluster can open the web app on
+port 3000. Restrict it to your ingress controller, for example with ingress-nginx:
+
+  networkPolicy:
+    webIngressFrom:
+      - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+        podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
+{{- end }}

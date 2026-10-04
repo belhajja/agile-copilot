@@ -10,8 +10,8 @@ metadata:
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
-  backoffLimit: 2
-  activeDeadlineSeconds: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
   template:
     metadata:
       labels: {{- include "agile.selector" (dict "root" . "component" "migrate") | nindent 8 }}
@@ -26,7 +26,7 @@ spec:
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: migrate
-          image: "{{ .Values.image.migrate.repository }}:{{ .Values.image.migrate.tag }}"
+          image: {{ include "agile.image" .Values.image.migrate | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
@@ -34,3 +34,10 @@ spec:
           resources:
             requests: { cpu: 50m, memory: 256Mi }
             limits: { memory: 512Mi }
+          # pnpm and tsx write to HOME and /tmp.
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/app }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }

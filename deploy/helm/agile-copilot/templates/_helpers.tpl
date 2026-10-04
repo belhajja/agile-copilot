@@ -17,6 +17,11 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
+{{/* An image reference: repository:tag, plus @digest when one is set. */}}
+{{- define "agile.image" -}}
+{{- .repository }}{{ with .tag }}:{{ . }}{{ end }}{{ with .digest }}@{{ . }}{{ end -}}
+{{- end -}}
+
 {{- define "agile.secret" -}}
 {{- required "secrets.existingSecret is required (a Secret you create; see values.yaml)" .Values.secrets.existingSecret -}}
 {{- end -}}

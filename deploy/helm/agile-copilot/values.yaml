@@ -2,11 +2,11 @@
 # External Secrets, Sealed Secrets, …) and name it in `secrets.existingSecret`.
 
 # Images built from apps/web/Dockerfile (targets: runner, worker, migrate). Pin by digest in
-# production (`tag: 0.5.0@sha256:…`).
+# production (`digest: sha256:…`; the image is then `repository:tag@digest`, and the digest decides).
 image:
-  web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0" }
-  worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0" }
-  migrate: { repository: ghcr.io/example/agile-copilot-migrate, tag: "0.5.0" }
+  web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0", digest: "" }
+  worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0", digest: "" }
+  migrate: { repository: ghcr.io/example/agile-copilot-migrate, tag: "0.5.0", digest: "" }
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -55,6 +55,11 @@ worker:
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }
+# The migration Job (a pre-install/pre-upgrade hook). Helm waits for hooks up to its --timeout
+# (default 5m): keep the deadline below it, or install/upgrade with a longer --timeout (e.g.
+# `--timeout 10m` with a deadline of 540). A failed migration is not retried (backoffLimit 0).
+migrate:
+  activeDeadlineSeconds: 240
 
 # The shared mcp-atlassian (assistant's live Jira tools) and its read-only twin (skill runs).
 # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
@@ -81,17 +86,43 @@ ingress:
   tlsSecretName: ""
   annotations: {}
 
-# NetworkPolicies mirror the compose networks: only web reaches mcp-atlassian; web and worker
-# reach the read-only twin; nothing connects to the worker; the mcp-atlassian pods reach no
-# private address (not Postgres, not the cluster), except the CIDRs of self-hosted Jira listed in
-# `jiraPrivateCidrs`. Web and worker egress is open: Postgres, DNS, the identity provider, Jira,
-# LLM providers, Stripe, Langfuse, and user-supplied SMTP and webhook hosts (any port); the app
-# checks those destinations itself (DNS-pinned, private addresses only via ALLOWED_PRIVATE_HOSTS).
+# NetworkPolicies mirror the compose networks: ingress to every pod of the release is denied by
+# default (migration Job included); only web reaches mcp-atlassian; web and worker reach the
+# read-only twin; nothing connects to the worker; the mcp-atlassian pods reach cluster DNS and
+# public IPv4 addresses only (not Postgres, not the cluster), plus the CIDRs of self-hosted Jira
+# listed in `jiraPrivateCidrs`. Web and worker egress is open: Postgres, DNS, the identity
+# provider, Jira, LLM providers, Stripe, Langfuse, and user-supplied SMTP and webhook hosts (any
+# port); the app checks those destinations itself (DNS-pinned, private addresses only via
+# ALLOWED_PRIVATE_HOSTS).
 networkPolicy:
   enabled: true
-  # Who may open the web app (namespace selector of your ingress controller). Empty = anyone.
+  # Who may open the web app. Empty = every pod in the cluster (NOTES.txt warns). ingress-nginx:
+  #   webIngressFrom:
+  #     - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+  #       podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
   webIngressFrom: []
-  privateCidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]
+  # Where mcp-atlassian may resolve names (port 53): the cluster DNS pods, plus `cidrs` for a
+  # node-local cache (NodeLocal DNSCache usually listens on 169.254.20.10/32).
+  dns:
+    peers:
+      - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+        podSelector: { matchLabels: { k8s-app: kube-dns } }
+    cidrs: []
+  # Never reachable from mcp-atlassian: private, CGNAT, link-local, "this network", IETF protocol
+  # assignments, benchmarking, multicast and reserved ranges. Your pod and service CIDRs must be
+  # inside these (add them here if the cluster uses other ranges), or mcp-atlassian reaches them.
+  # Only IPv4 is allowed out: IPv6 destinations are denied.
+  privateCidrs:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 224.0.0.0/4
+    - 240.0.0.0/4
   jiraPrivateCidrs: []
 
 # The app images (apps/web/Dockerfile) run as uid/gid 10001; numeric, so runAsNonRoot can check it.
@@ -101,6 +132,9 @@ podSecurityContext:
   runAsGroup: 10001
   fsGroup: 10001
   seccompProfile: { type: RuntimeDefault }
+# Read-only root filesystems: each pod mounts emptyDirs where its image writes (/tmp; the Next.js
+# cache; HOME for migrate and mcp-atlassian).
 containerSecurityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities: { drop: [ALL] }

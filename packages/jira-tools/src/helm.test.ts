@@ -83,6 +83,8 @@ describe('apps/web/Dockerfile', () => {
 
 type Container = {
   name: string;
+  image?: string;
+  volumeMounts?: { name: string; mountPath: string }[];
   env?: { name: string; value?: string; valueFrom?: { secretKeyRef?: { key: string } } }[];
   securityContext?: Record<string, unknown>;
   readinessProbe?: Probe;
@@ -94,14 +96,21 @@ type PodSpec = {
   automountServiceAccountToken?: boolean;
   terminationGracePeriodSeconds?: number;
   securityContext?: Record<string, unknown>;
+  volumes?: { name: string; emptyDir?: Record<string, unknown> }[];
   containers: Container[];
 };
-type Peer = { podSelector?: { matchLabels: Record<string, string> }; ipBlock?: unknown };
+type Peer = {
+  podSelector?: { matchLabels: Record<string, string> };
+  namespaceSelector?: { matchLabels: Record<string, string> };
+  ipBlock?: { cidr: string; except?: string[] };
+};
 type Manifest = {
   kind: string;
   metadata: { name: string; annotations?: Record<string, string> };
   spec: {
-    template?: { spec: PodSpec };
+    backoffLimit?: number;
+    activeDeadlineSeconds?: number;
+    template?: { metadata?: { labels?: Record<string, string> }; spec: PodSpec };
     podSelector?: { matchLabels: Record<string, string> };
     policyTypes?: string[];
     ingress?: { from?: Peer[]; ports?: unknown[] }[];
@@ -168,7 +177,15 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
 
   it('gives the owner credentials to the pre-install/pre-upgrade migration Job only', () => {
     const job = find(ms, 'Job', 'migrate');
-    expect(job.metadata.annotations?.['helm.sh/hook']).toBe('pre-install,pre-upgrade');
+    expect(job.metadata.annotations).toMatchObject({
+      'helm.sh/hook': 'pre-install,pre-upgrade',
+      'helm.sh/hook-weight': '0',
+      'helm.sh/hook-delete-policy': 'before-hook-creation,hook-succeeded',
+    });
+    // A failed migration is not retried blindly, and it fails before Helm's default 5-minute
+    // --timeout gives up on the hook.
+    expect(job.spec.backoffLimit).toBe(0);
+    expect(job.spec.activeDeadlineSeconds).toBeLessThan(300);
     expect(envNames(pod(ms, 'Job', 'migrate').containers[0])).toEqual(['DATABASE_OWNER_URL']);
     // A pre-install hook runs before the chart's ServiceAccount exists: it must not need it.
     expect(pod(ms, 'Job', 'migrate').serviceAccountName).toBeUndefined();
@@ -197,10 +214,74 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
       for (const c of spec.containers) {
         expect(c.securityContext, name).toMatchObject({
           allowPrivilegeEscalation: false,
+          readOnlyRootFilesystem: true,
           capabilities: { drop: ['ALL'] },
         });
       }
     }
+  });
+
+  it('gives each read-only pod only the scratch directories it writes, as emptyDirs', () => {
+    // Checked with `docker run --read-only --tmpfs …` on each image (see the Task 18 report).
+    const writable: Record<string, string[]> = {
+      web: ['/tmp', '/app/apps/web/.next/cache'],
+      worker: ['/tmp'],
+      migrate: ['/tmp', '/home/app'],
+      'mcp-atlassian': ['/tmp', '/home/app'],
+      'mcp-atlassian-readonly': ['/tmp', '/home/app'],
+    };
+    for (const [name, paths] of Object.entries(writable)) {
+      const spec = pod(ms, name === 'migrate' ? 'Job' : 'Deployment', name);
+      const [c] = spec.containers;
+      const mounts = c?.volumeMounts ?? [];
+      expect(mounts.map((m) => m.mountPath).sort(), name).toEqual([...paths].sort());
+      for (const m of mounts) {
+        const volume = spec.volumes?.find((v) => v.name === m.name);
+        expect(volume?.emptyDir, `${name} ${m.mountPath}`).toBeDefined();
+      }
+    }
+  });
+
+  it('reads every secret from the existing Secret, by key, and never as a value', () => {
+    const allowed = [
+      'DATABASE_URL',
+      'DATABASE_OWNER_URL',
+      'BETTER_AUTH_SECRET',
+      'ENCRYPTION_KEYS',
+      'OIDC_CLIENT_SECRET',
+      'ATLASSIAN_OAUTH_CLIENT_SECRET',
+      'STRIPE_SECRET_KEY',
+      'STRIPE_WEBHOOK_SECRET',
+      'LANGFUSE_PUBLIC_KEY',
+      'LANGFUSE_SECRET_KEY',
+    ];
+    const pods: [string, string][] = [
+      ...deployments.map((d): [string, string] => ['Deployment', d]),
+      ['Job', 'migrate'],
+    ];
+    for (const [kind, name] of pods) {
+      for (const e of pod(ms, kind, name).containers.flatMap((c) => c.env ?? [])) {
+        if (allowed.includes(e.name)) {
+          expect(e.value, `${name} ${e.name}`).toBeUndefined();
+          expect(e.valueFrom?.secretKeyRef, `${name} ${e.name}`).toMatchObject({
+            name: 'agile-secrets',
+            key: e.name,
+          });
+        } else {
+          expect(e.valueFrom, `${name} ${e.name}`).toBeUndefined();
+        }
+      }
+    }
+  });
+
+  it('pins images by digest when one is given', () => {
+    const pinned = render(`image.web.digest=sha256:${'a'.repeat(64)}`);
+    expect(pod(pinned, 'Deployment', 'web').containers[0]?.image).toBe(
+      `ghcr.io/example/agile-copilot-web:0.5.0@sha256:${'a'.repeat(64)}`,
+    );
+    expect(pod(ms, 'Deployment', 'web').containers[0]?.image).toBe(
+      'ghcr.io/example/agile-copilot-web:0.5.0',
+    );
   });
 
   it('lets the worker finish its stop backstop before Kubernetes kills it', () => {
@@ -278,36 +359,71 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     expect(workerEnv.map((e) => e.value ?? '').join(' ')).not.toMatch(/mcp-atlassian:8000/);
   });
 
-  it('lets mcp-atlassian reach DNS and public addresses only, plus jiraPrivateCidrs', () => {
-    const egress = (m: Manifest[]) => find(m, 'NetworkPolicy', 'mcp-atlassian-readonly').spec;
-    const spec = egress(ms);
-    expect(spec.policyTypes).toEqual(['Ingress', 'Egress']);
-    expect(spec.egress).toEqual([
-      {
-        ports: [
-          { port: 53, protocol: 'UDP' },
-          { port: 53, protocol: 'TCP' },
-        ],
-      },
-      {
-        to: [
-          {
-            ipBlock: {
-              cidr: '0.0.0.0/0',
-              except: [
-                '10.0.0.0/8',
-                '172.16.0.0/12',
-                '192.168.0.0/16',
-                '100.64.0.0/10',
-                '169.254.0.0/16',
-              ],
-            },
-          },
-        ],
-      },
-    ]);
-    const withJira = egress(render('networkPolicy.jiraPrivateCidrs[0]=10.20.0.0/16')).egress;
-    expect(withJira?.at(-1)).toEqual({ to: [{ ipBlock: { cidr: '10.20.0.0/16' } }] });
+  it('denies ingress to every pod of the release unless a policy allows it, migrate included', () => {
+    const deny = find(ms, 'NetworkPolicy', 'default-deny').spec;
+    expect(deny.policyTypes).toEqual(['Ingress']);
+    expect(deny.ingress ?? []).toEqual([]);
+    const selector = deny.podSelector?.matchLabels ?? {};
+    expect(Object.keys(selector).length).toBeGreaterThan(0);
+    const pods: [string, string][] = [
+      ...deployments.map((d): [string, string] => ['Deployment', d]),
+      ['Job', 'migrate'],
+    ];
+    for (const [kind, name] of pods) {
+      const labels = find(ms, kind, name).spec.template?.metadata?.labels ?? {};
+      expect(labels, name).toMatchObject(selector);
+    }
+  });
+
+  const kubeDns = {
+    namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+    podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+  };
+  const dnsPorts = [
+    { port: 53, protocol: 'UDP' },
+    { port: 53, protocol: 'TCP' },
+  ];
+  const nonPublic = [
+    '0.0.0.0/8',
+    '10.0.0.0/8',
+    '100.64.0.0/10',
+    '169.254.0.0/16',
+    '172.16.0.0/12',
+    '192.0.0.0/24',
+    '192.168.0.0/16',
+    '198.18.0.0/15',
+    '224.0.0.0/4',
+    '240.0.0.0/4',
+  ];
+
+  it.each(['mcp-atlassian', 'mcp-atlassian-readonly'])(
+    'lets %s reach cluster DNS and public IPv4 only, plus jiraPrivateCidrs',
+    (name) => {
+      const egress = (m: Manifest[]) => find(m, 'NetworkPolicy', name).spec;
+      const spec = egress(ms);
+      expect(spec.policyTypes).toEqual(['Ingress', 'Egress']);
+      expect(spec.egress).toHaveLength(2);
+      expect(spec.egress?.[0]).toEqual({ to: [kubeDns], ports: dnsPorts });
+      const [publicRule] = spec.egress?.[1]?.to ?? [];
+      expect(publicRule?.ipBlock?.cidr).toBe('0.0.0.0/0');
+      expect([...(publicRule?.ipBlock?.except ?? [])].sort()).toEqual([...nonPublic].sort());
+      // No IPv6 rule: IPv6 destinations are denied.
+      expect(JSON.stringify(spec.egress)).not.toMatch(/::/);
+      const withJira = egress(render('networkPolicy.jiraPrivateCidrs[0]=10.20.0.0/16')).egress;
+      expect(withJira?.at(-1)).toEqual({ to: [{ ipBlock: { cidr: '10.20.0.0/16' } }] });
+      // NodeLocal DNSCache: its link-local address is added to the DNS rule only.
+      const nodeLocal = egress(render('networkPolicy.dns.cidrs[0]=169.254.20.10/32')).egress;
+      expect(nodeLocal?.[0]).toEqual({
+        to: [kubeDns, { ipBlock: { cidr: '169.254.20.10/32' } }],
+        ports: dnsPorts,
+      });
+    },
+  );
+
+  it('warns in NOTES.txt when the web app is open to the whole cluster', () => {
+    const notes = template('NOTES.txt');
+    expect(notes).toMatch(/webIngressFrom/);
+    expect(notes).toMatch(/ingress-nginx/);
   });
 
   it('drops the mcp-atlassian pods, their URLs and policies when disabled', () => {
