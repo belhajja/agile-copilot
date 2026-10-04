@@ -1,5 +1,5 @@
 import * as schema from '@agile/db';
-import { auditLog, type Db, purgeOrgTenantRows, withOrg } from '@agile/db';
+import { type Db, purgeOrgTenantRows, recordAudit, withOrg } from '@agile/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
@@ -8,7 +8,13 @@ import { organization } from 'better-auth/plugins/organization';
 import { asc, eq } from 'drizzle-orm';
 import { ac, orgRoles } from './access';
 import { assertAssignableRole } from './assign';
-import { auditMembership, guardInvitationList, redactFullOrganization } from './hooks';
+import {
+  auditMembership,
+  checkInvitationListScope,
+  guardInvitationList,
+  redactFullOrganization,
+  rememberBeforeState,
+} from './hooks';
 
 /** Endpoints whose body carries a role to give. */
 const ROLE_PATHS = new Set(['/organization/invite-member', '/organization/update-member-role']);
@@ -31,8 +37,10 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
       before: createAuthMiddleware(async (ctx) => {
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);
+        await rememberBeforeState(db, ctx);
       }),
       after: createAuthMiddleware(async (ctx) => {
+        await checkInvitationListScope(db, ctx);
         await auditMembership(db, ctx);
         const redacted = await redactFullOrganization(db, ctx);
         if (redacted) return ctx.json(redacted);
@@ -72,7 +80,7 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
             await withOrg(db, org.id, async (tx) => {
               // audit_log is append-only (app_user cannot delete from it) and holds no secrets; it is
               // kept as the record of the deletion. Retention purges arrive with Phase 5.
-              await tx.insert(auditLog).values({
+              await recordAudit(tx, {
                 orgId: org.id,
                 actorUserId: user.id,
                 action: 'organization.deleted',

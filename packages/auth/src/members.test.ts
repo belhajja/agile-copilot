@@ -205,4 +205,75 @@ describe('workspace membership: audit and invitation privacy', () => {
       targetId: viewerId,
     });
   });
+
+  it('lets admins see invitations, in the endpoint and the full-organisation view', async () => {
+    const a = await signUp('admin@example.com');
+    const inv = await auth.api.createInvitation({
+      headers: ownerH,
+      body: { email: 'admin@example.com', role: 'admin', organizationId: orgId },
+    });
+    await auth.api.acceptInvitation({ headers: a.h, body: { invitationId: inv?.id ?? '' } });
+    await auth.api.createInvitation({
+      headers: ownerH,
+      body: {
+        email: 'seen-by-admin@example.com',
+        role: 'viewer' as 'admin',
+        organizationId: orgId,
+      },
+    });
+    const listed = await auth.api.listInvitations({
+      headers: a.h,
+      query: { organizationId: orgId },
+    });
+    expect(listed.map((i) => i.email)).toContain('seen-by-admin@example.com');
+    const full = await auth.api.getFullOrganization({
+      headers: a.h,
+      query: { organizationId: orgId },
+    });
+    expect(full?.invitations.map((i) => i.email)).toContain('seen-by-admin@example.com');
+  });
+
+  it('audits a resend as member.invite_resent and a same-role update not at all', async () => {
+    const before = (await auditRows()).length;
+    await auth.api.createInvitation({
+      headers: ownerH,
+      body: {
+        email: 'seen-by-admin@example.com',
+        role: 'viewer' as 'admin',
+        organizationId: orgId,
+        resend: true,
+      },
+    });
+    const adminMember = (await listWorkspaceMembers(conn.db, orgId)).find(
+      (m) => m.email === 'admin@example.com',
+    );
+    await auth.api.updateMemberRole({
+      headers: ownerH,
+      body: { memberId: adminMember?.memberId ?? '', role: 'admin', organizationId: orgId },
+    });
+    const added = (await auditRows()).slice(before);
+    expect(added.map((r) => r.action)).toEqual(['member.invite_resent']);
+    expect(added[0]?.actorUserId).toBe(ownerId);
+  });
+
+  it('audits leaving a workspace as member.left', async () => {
+    const [mgr] = (await listWorkspaceMembers(conn.db, orgId)).filter(
+      (m) => m.email === 'manager@example.com',
+    );
+    const managerH = (
+      await auth.api.signInEmail({
+        body: { email: 'manager@example.com', password: 'correct-horse-1' },
+        returnHeaders: true,
+      })
+    ).headers;
+    await auth.api.leaveOrganization({
+      headers: cookieHeader(managerH),
+      body: { organizationId: orgId },
+    });
+    expect(await auditRows().then((r) => r.at(-1))).toMatchObject({
+      action: 'member.left',
+      actorUserId: mgr?.userId,
+      targetId: mgr?.userId,
+    });
+  });
 });
