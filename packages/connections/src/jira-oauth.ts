@@ -13,6 +13,7 @@ import { assertCanManage } from './actor';
 import { recordAudit } from './audit';
 import {
   type ConnectionDeps,
+  clearSyncError,
   createJiraConnection,
   readSecret,
   type ServiceFailure,
@@ -143,6 +144,7 @@ async function reconnect(
         updatedAt: new Date(),
       })
       .where(eq(jiraConnections.id, row.id));
+    await clearSyncError(tx, row.id);
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,

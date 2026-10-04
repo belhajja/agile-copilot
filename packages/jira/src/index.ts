@@ -6,6 +6,7 @@ export {
   type JiraDataSource,
 } from './data-source';
 export { mapJiraError } from './errors';
+export { usesPointEstimates } from './estimation';
 export {
   buildIssueJql,
   findSprintField,

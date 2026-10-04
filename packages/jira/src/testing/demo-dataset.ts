@@ -30,7 +30,8 @@ export interface MockIssue {
 export interface MockBoard {
   id: number;
   name: string;
-  type: 'scrum' | 'kanban';
+  /** `simple` = team-managed: sprints only when the project enabled them (else Jira answers 400). */
+  type: 'scrum' | 'kanban' | 'simple';
   projectKey: string;
   filterId: number;
   estimation: { fieldId: string; displayName: string } | null;

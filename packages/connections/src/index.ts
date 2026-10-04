@@ -3,6 +3,7 @@ export { type AuditAction, recordAudit } from './audit';
 export { ForbiddenError } from './errors';
 export {
   type ConnectionDeps,
+  clearSyncError,
   createJiraConnection,
   deleteJiraConnection,
   type JiraConnectionView,

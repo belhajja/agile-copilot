@@ -10,7 +10,7 @@ import {
 import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
 import { z } from 'zod';
-import type { SyncDeps, SyncFailureCode } from './deps';
+import { PERMANENT_CODES, RETRYABLE_CODES, type SyncDeps, type SyncFailureCode } from './deps';
 import { runSync, type SyncJob, type SyncOutcome } from './run-sync';
 
 export const SYNC_QUEUE = 'jira-sync';
@@ -22,17 +22,6 @@ export const syncJobSchema = z.object({
   connectionId: z.string().min(1),
   trigger: z.enum(['manual', 'schedule']),
 });
-
-/** Failures worth retrying with backoff; everything else is stored on the sync state and final. */
-const RETRYABLE_CODES: ReadonlySet<SyncFailureCode> = new Set(['rate_limited', 'unreachable']);
-/** Failures that need a user action: the scheduled tick skips them until a manual "Sync now". */
-const PERMANENT_CODES: readonly SyncFailureCode[] = [
-  'unauthorized',
-  'forbidden',
-  'oauth_expired',
-  'oauth_unavailable',
-  'blocked_url',
-];
 
 /** Thrown by the job handler so that pg-boss applies retryLimit/backoff. Carries the code only. */
 export class RetryableSyncError extends Error {
@@ -202,6 +191,8 @@ export async function handleSyncJob(
   opts: {
     onOutcome?: (job: SyncJob, outcome: SyncOutcome) => void;
     onError?: (error: unknown) => void;
+    /** The job's own signal (pg-boss aborts it on expiry or stop); combined with deps.signal. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<SyncOutcome | undefined> {
   const parsed = syncJobSchema.safeParse(data);
@@ -209,7 +200,9 @@ export async function handleSyncJob(
     (opts.onError ?? logErrorName)(new InvalidSyncJobError());
     return undefined;
   }
-  const outcome = await runSync(deps, parsed.data);
+  const signals = [deps.signal, opts.signal].filter((s): s is AbortSignal => s !== undefined);
+  const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+  const outcome = await runSync({ ...deps, signal }, parsed.data);
   opts.onOutcome?.(parsed.data, outcome);
   if (!outcome.ok && RETRYABLE_CODES.has(outcome.code)) throw new RetryableSyncError(outcome.code);
   return outcome;
@@ -231,7 +224,7 @@ export async function startSyncWorker(
     { batchSize: 1, localConcurrency: opts.concurrency ?? 2 },
     async ([job]) => {
       if (!job) return;
-      return handleSyncJob(deps, job.data, opts);
+      return handleSyncJob(deps, job.data, { ...opts, signal: job.signal });
     },
   );
   await boss.work(SYNC_TICK_QUEUE, async () => {

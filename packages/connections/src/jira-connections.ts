@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret, type Keyring } from '@agile/crypto';
-import { type Db, isUniqueViolation, jiraConnections, type Tx, withOrg } from '@agile/db';
+import {
+  type Db,
+  isUniqueViolation,
+  jiraConnections,
+  jiraSyncStates,
+  type Tx,
+  withOrg,
+} from '@agile/db';
 import {
   type AtlassianOAuthClient,
   type JiraCredentials,
@@ -11,7 +18,7 @@ import {
   testJiraConnection,
 } from '@agile/jira';
 import type { Resolver } from '@agile/net';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
 import { getFreshJiraCredentials, OAuthRefreshError, OAuthTimeoutError } from './jira-oauth';
@@ -192,6 +199,20 @@ export async function loadJiraSecret(
   });
 }
 
+/**
+ * A connection that was just fixed (successful re-test, OAuth reconnect) forgets its last sync
+ * failure, so the scheduled sync stops skipping it. A running sync keeps its status.
+ */
+export async function clearSyncError(tx: Tx, connectionId: string): Promise<void> {
+  await tx
+    .update(jiraSyncStates)
+    .set({
+      lastError: null,
+      status: sql`case when ${jiraSyncStates.status} = 'error' then 'idle' else ${jiraSyncStates.status} end`,
+    })
+    .where(eq(jiraSyncStates.connectionId, connectionId));
+}
+
 export async function retestJiraConnection(
   deps: ConnectionDeps & { oauth?: AtlassianOAuthClient; oauthTimeoutMs?: number },
   actor: Actor,
@@ -227,6 +248,7 @@ export async function retestJiraConnection(
       })
       .where(eq(jiraConnections.id, id))
       .returning();
+    if (updated && test.ok) await clearSyncError(tx, id);
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,

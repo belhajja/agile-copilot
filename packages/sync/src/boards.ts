@@ -7,17 +7,19 @@ import {
   withOrg,
 } from '@agile/db';
 import {
-  type JiraBoardConfig,
+  errorStatus,
   type JiraBoardInfo,
+  type JiraDataSource,
   JiraPaginationError,
   JiraPaginationLimitError,
   type JiraStatusInfo,
   mapJiraError,
+  usesPointEstimates,
 } from '@agile/jira';
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { openDataSource } from './credentials';
 import { type SyncDeps, SyncError, type SyncFailure, type SyncFailureCode } from './deps';
-import { ensureStatusMappings } from './persist';
+import { ensureStatusMappings, saveBoardConfig } from './persist';
 
 export interface BoardView {
   id: string;
@@ -28,7 +30,11 @@ export interface BoardView {
   projectKey: string | null;
   selected: boolean;
   usesEstimates: boolean;
+  /** False until the board's configuration (columns, estimation) was read from Jira. */
+  configured: boolean;
   lastSyncedAt: Date | null;
+  /** Code of the board's last failure (filter rejected, board deleted…), null when healthy. */
+  lastError: string | null;
 }
 
 export interface StatusMappingView {
@@ -56,8 +62,10 @@ const toBoardView = (b: typeof jiraBoards.$inferSelect): BoardView => ({
   type: b.type,
   projectKey: b.projectKey,
   selected: b.selected,
-  usesEstimates: b.estimationFieldId !== null,
+  usesEstimates: usesPointEstimates(b.estimationFieldId),
+  configured: b.columns.length > 0,
   lastSyncedAt: b.lastSyncedAt,
+  lastError: b.lastError,
 });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -111,9 +119,10 @@ export async function getBoard(deps: SyncDeps, orgId: string, boardId: string) {
 }
 
 /**
- * Reads the connection's boards from Jira and stores them with their configuration (selection is
- * kept). Boards Jira no longer returns are removed with everything synced for them. Statuses of
- * each board's columns get a suggested mapping unless one exists.
+ * Lists the connection's boards from Jira and stores them (selection is kept). One listing call:
+ * a board's configuration is only read once it is selected, so one broken board (deleted filter,
+ * no permission) cannot fail the discovery. Boards Jira no longer returns are removed with
+ * everything synced for them.
  */
 export async function discoverBoards(
   deps: SyncDeps,
@@ -122,19 +131,13 @@ export async function discoverBoards(
 ): Promise<{ ok: true; boards: BoardView[] } | SyncFailure> {
   assertCanManage(actor);
   if (!isUuid(connectionId)) return { ok: false, code: 'not_found' };
-  const found: { info: JiraBoardInfo; config: JiraBoardConfig }[] = [];
-  let statuses: JiraStatusInfo[];
+  let found: JiraBoardInfo[];
   try {
     const source = await openDataSource(deps, actor.orgId, connectionId);
-    statuses = await source.listStatuses();
-    // One board at a time: Jira rate-limits bursts.
-    for (const info of await source.listBoards()) {
-      found.push({ info, config: await source.getBoardConfig(info.jiraBoardId) });
-    }
+    found = await source.listBoards();
   } catch (e) {
     return failureOf(deps, e);
   }
-  const statusById = new Map(statuses.map((s) => [s.id, s]));
   return withOrg(deps.db, actor.orgId, async (tx) => {
     // Parent ids are only ever taken from a read in this tenant (FK checks bypass RLS).
     const [conn] = await tx
@@ -152,8 +155,8 @@ export async function discoverBoards(
         .limit(1);
       if (known) return { ok: false, code: 'no_boards' } as const;
     }
-    for (const { info, config } of found) {
-      const [board] = await tx
+    for (const info of found) {
+      await tx
         .insert(jiraBoards)
         .values({
           orgId: actor.orgId,
@@ -162,34 +165,13 @@ export async function discoverBoards(
           name: info.name,
           type: info.type,
           projectKey: info.projectKey,
-          filterId: config.filterId,
-          estimationFieldId: config.estimationFieldId,
-          estimationFieldName: config.estimationFieldName,
-          columns: config.columns,
         })
         .onConflictDoUpdate({
           target: [jiraBoards.connectionId, jiraBoards.jiraBoardId],
-          set: {
-            name: info.name,
-            type: info.type,
-            projectKey: info.projectKey,
-            filterId: config.filterId,
-            estimationFieldId: config.estimationFieldId,
-            estimationFieldName: config.estimationFieldName,
-            columns: config.columns,
-          },
-        })
-        .returning({ id: jiraBoards.id });
-      if (!board) continue;
-      await ensureStatusMappings(
-        tx,
-        actor.orgId,
-        board.id,
-        config.columns.flatMap((c) => c.statusIds),
-        statusById,
-      );
+          set: { name: info.name, type: info.type, projectKey: info.projectKey },
+        });
     }
-    const keep = found.map((f) => f.info.jiraBoardId);
+    const keep = found.map((f) => f.jiraBoardId);
     await tx
       .delete(jiraBoards)
       .where(
@@ -214,7 +196,68 @@ export async function discoverBoards(
   );
 }
 
-/** Selects exactly `boardIds` (ids of this connection's boards; others are ignored). */
+/**
+ * Reads the configuration of newly selected boards (columns, estimation field) and suggests a
+ * mapping for their column statuses, so the mapping can be reviewed before the first sync. A
+ * board whose configuration cannot be read stays selected with its error code (the sync retries).
+ */
+async function configureBoards(
+  deps: SyncDeps,
+  orgId: string,
+  connectionId: string,
+  boards: { id: string; jiraBoardId: number }[],
+): Promise<void> {
+  if (boards.length === 0) return;
+  const markAll = (code: SyncFailureCode) =>
+    withOrg(deps.db, orgId, (tx) =>
+      tx
+        .update(jiraBoards)
+        .set({ lastError: code })
+        .where(
+          inArray(
+            jiraBoards.id,
+            boards.map((b) => b.id),
+          ),
+        ),
+    );
+  let source: JiraDataSource;
+  let statuses: Map<string, JiraStatusInfo>;
+  try {
+    source = await openDataSource(deps, orgId, connectionId);
+    statuses = new Map((await source.listStatuses()).map((s) => [s.id, s]));
+  } catch (e) {
+    await markAll(failureOf(deps, e).code);
+    return;
+  }
+  // One board at a time: Jira rate-limits bursts.
+  for (const board of boards) {
+    try {
+      const config = await source.getBoardConfig(board.jiraBoardId);
+      await withOrg(deps.db, orgId, async (tx) => {
+        await saveBoardConfig(tx, board.id, config);
+        await tx.update(jiraBoards).set({ lastError: null }).where(eq(jiraBoards.id, board.id));
+        await ensureStatusMappings(
+          tx,
+          orgId,
+          board.id,
+          config.columns.flatMap((c) => c.statusIds),
+          statuses,
+        );
+      });
+    } catch (e) {
+      const code: SyncFailureCode = errorStatus(e) === 404 ? 'board_not_found' : codeOf(e);
+      deps.onError?.(e, code);
+      await withOrg(deps.db, orgId, (tx) =>
+        tx.update(jiraBoards).set({ lastError: code }).where(eq(jiraBoards.id, board.id)),
+      );
+    }
+  }
+}
+
+/**
+ * Selects exactly `boardIds` (ids of this connection's boards; others are ignored), then reads the
+ * configuration of selected boards that never had one.
+ */
 export async function setBoardSelection(
   deps: SyncDeps,
   actor: Actor,
@@ -224,7 +267,7 @@ export async function setBoardSelection(
   assertCanManage(actor);
   if (!isUuid(connectionId)) return { ok: false, code: 'not_found' };
   const ids = boardIds.filter(isUuid);
-  return withOrg(deps.db, actor.orgId, async (tx) => {
+  const result = await withOrg(deps.db, actor.orgId, async (tx) => {
     const [conn] = await tx
       .select({ id: jiraConnections.id })
       .from(jiraConnections)
@@ -241,7 +284,11 @@ export async function setBoardSelection(
             .update(jiraBoards)
             .set({ selected: true })
             .where(and(eq(jiraBoards.connectionId, connectionId), inArray(jiraBoards.id, ids)))
-            .returning({ id: jiraBoards.id });
+            .returning({
+              id: jiraBoards.id,
+              jiraBoardId: jiraBoards.jiraBoardId,
+              columns: jiraBoards.columns,
+            });
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,
@@ -250,8 +297,16 @@ export async function setBoardSelection(
       targetId: connectionId,
       metadata: { selected: selected.length },
     });
-    return { ok: true, selected: selected.length } as const;
+    return {
+      ok: true,
+      selected: selected.length,
+      unconfigured: selected.filter((b) => b.columns.length === 0),
+    } as const;
   });
+  if (!result.ok) return result;
+  // Outside the transaction: Jira calls must not hold database locks.
+  await configureBoards(deps, actor.orgId, connectionId, result.unconfigured);
+  return { ok: true, selected: result.selected };
 }
 
 export async function listStatusMappings(

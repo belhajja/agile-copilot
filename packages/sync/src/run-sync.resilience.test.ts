@@ -1,4 +1,5 @@
 import {
+  jiraBoards,
   jiraIssueChanges,
   jiraIssues,
   jiraIssueTransitions,
@@ -72,7 +73,7 @@ describe('runSync resilience', () => {
   it('a repeated sync replaces history wholesale and keeps sprint membership stable', async () => {
     const before = await snapshot();
     await h.rawDb
-      .update(jiraSyncStates)
+      .update(jiraBoards)
       .set({ lastFullSyncAt: new Date(NOW.getTime() - 25 * 3_600_000) });
     // A LATER clock: added_at (part of the primary key) must not depend on when we sync.
     const later = { ...h.deps, now: () => new Date(NOW.getTime() + 2 * 3_600_000) };
@@ -85,7 +86,7 @@ describe('runSync resilience', () => {
     if (!first) throw new Error('fixture');
     first.histories = first.histories.slice(0, 40);
     await h.rawDb
-      .update(jiraSyncStates)
+      .update(jiraBoards)
       .set({ lastFullSyncAt: new Date(NOW.getTime() - 25 * 3_600_000) });
     await runSync(h.deps, job());
     const [row] = await h.rawDb.select().from(jiraIssues).where(eq(jiraIssues.key, first.key));

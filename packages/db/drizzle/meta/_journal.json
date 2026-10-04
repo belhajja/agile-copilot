@@ -50,6 +50,13 @@
       "when": 1791079035317,
       "tag": "0006_daily_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791085999043,
+      "tag": "0007_far_grandmaster",
+      "breakpoints": true
     }
   ]
 }

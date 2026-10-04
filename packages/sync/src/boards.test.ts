@@ -18,11 +18,24 @@ describe('boards and status mapping', () => {
   });
   afterAll(async () => h?.stop());
 
-  it('discovers boards with their configuration', async () => {
+  it('discovers boards, then reads the configuration of the boards selected', async () => {
     const r = await discoverBoards(h.deps, owner(), connectionId);
-    expect(r.ok && r.boards.map((b) => [b.name, b.type, b.usesEstimates, b.selected])).toEqual([
-      ['DEMO Scrum', 'scrum', true, false],
+    expect(r.ok && r.boards.map((b) => [b.name, b.type, b.configured, b.selected])).toEqual([
+      ['DEMO Scrum', 'scrum', false, false],
       ['OPS Kanban', 'kanban', false, false],
+    ]);
+    const ids = (await listBoards(h.deps, 'org_a', connectionId)).map((b) => b.id);
+    await setBoardSelection(h.deps, owner(), connectionId, ids);
+    expect(
+      (await listBoards(h.deps, 'org_a', connectionId)).map((b) => [
+        b.name,
+        b.usesEstimates,
+        b.configured,
+        b.selected,
+      ]),
+    ).toEqual([
+      ['DEMO Scrum', true, true, true],
+      ['OPS Kanban', false, true, true],
     ]);
   });
 

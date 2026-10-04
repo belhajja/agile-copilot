@@ -16,6 +16,7 @@ import {
   setBoardSelection,
 } from './boards';
 import type { SyncDeps } from './deps';
+import { runSync } from './run-sync';
 import { member, owner, startSyncHarness } from './test-harness';
 
 describe('boards hardening', () => {
@@ -164,7 +165,7 @@ describe('boards hardening', () => {
     const original = first.columns;
     first.columns = [...original, { name: 'Ghost', statusIds: ['99999'] }];
     try {
-      await discoverBoards(h.deps, owner(), connectionId);
+      await runSync(h.deps, { orgId: 'org_a', connectionId, trigger: 'manual' });
     } finally {
       first.columns = original;
     }

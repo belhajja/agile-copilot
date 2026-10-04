@@ -117,12 +117,16 @@ describe('runSync', () => {
     const leaving = h.dataset.issues.find((i) => i.key === 'OPS-1');
     if (!leaving) throw new Error('fixture');
     leaving.filterIds = [];
+    // Each board re-reads itself completely once a day.
     await h.rawDb
-      .update(jiraSyncStates)
+      .update(jiraBoards)
       .set({ lastFullSyncAt: new Date(NOW.getTime() - 25 * 3_600_000) });
-    expect(await runSync(h.deps, job())).toMatchObject({ ok: true, mode: 'full' });
-    expect(await boardIssueCount('OPS Kanban')).toBe(30);
-    leaving.filterIds = [102];
+    try {
+      expect(await runSync(h.deps, job())).toMatchObject({ ok: true, mode: 'full' });
+      expect(await boardIssueCount('OPS Kanban')).toBe(30);
+    } finally {
+      leaving.filterIds = [102];
+    }
   });
 
   it('records Jira failures on the sync state without throwing', async () => {

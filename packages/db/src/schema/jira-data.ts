@@ -56,6 +56,12 @@ export const jiraBoards = pgTable(
     /** Only selected boards are synced and get dashboards. */
     selected: boolean('selected').notNull().default(false),
     lastSyncedAt: ts('last_synced_at'),
+    /** Per-board sync progress: one broken board must not hold back the others. */
+    lastFullSyncAt: ts('last_full_sync_at'),
+    /** Start of this board's last successful read (incremental reads start from it). */
+    watermark: ts('watermark'),
+    /** Code of this board's last failure (never a message); null once it syncs again. */
+    lastError: text('last_error'),
     createdAt,
     updatedAt,
   },

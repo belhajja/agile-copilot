@@ -15,6 +15,8 @@ export interface SyncDeps extends ConnectionDeps {
   createSource?: (creds: JiraCredentialsInput, opts: DataSourceOptions) => JiraDataSource;
   retry?: RetryOptions;
   now?: () => Date;
+  /** Aborts a running sync between pages and boards (pg-boss job signal, worker shutdown). */
+  signal?: AbortSignal;
   /** Called with every failure the sync turns into a stored code (log `e.name`, never `e.message`). */
   onError?: (error: unknown, code: SyncFailureCode) => void;
 }
@@ -26,7 +28,60 @@ export type SyncFailureCode =
   | 'already_running'
   | 'jira_paging'
   | 'oauth_expired'
-  | 'oauth_unavailable';
+  | 'oauth_unavailable'
+  | 'interrupted'
+  | 'board_query_rejected'
+  | 'board_not_found';
+
+interface CodeBehaviour {
+  /** Only a user can fix it: the scheduled tick skips the connection until a manual "Sync now". */
+  permanent: boolean;
+  /** It would hit every board (credentials, network, rate limit): the whole run stops at once. */
+  connectionWide: boolean;
+  /** Worth retrying with backoff (pg-boss retryLimit). */
+  retryable: boolean;
+}
+
+const code = (permanent: boolean, connectionWide: boolean, retryable = false): CodeBehaviour => ({
+  permanent,
+  connectionWide,
+  retryable,
+});
+
+/** How the sync reacts to each failure code. Single source of truth for the run and the queue. */
+export const SYNC_FAILURE_CODES: Readonly<Record<SyncFailureCode, CodeBehaviour>> = {
+  unauthorized: code(true, true),
+  forbidden: code(true, true),
+  oauth_expired: code(true, true),
+  oauth_unavailable: code(true, true),
+  blocked_url: code(true, true),
+  not_found: code(false, true),
+  rate_limited: code(false, true, true),
+  unreachable: code(false, true, true),
+  // The worker stopped mid-run (deploy, crash handler): the lease is released, a retry takes over.
+  interrupted: code(false, true, true),
+  board_query_rejected: code(false, false),
+  board_not_found: code(false, false),
+  jira_paging: code(false, false),
+  not_jira: code(false, false),
+  wrong_deployment: code(false, false),
+  invalid_input: code(false, false),
+  unknown: code(false, false),
+  no_boards: code(false, false),
+  already_running: code(false, false),
+};
+
+const codesWhere = (key: keyof CodeBehaviour) =>
+  (Object.keys(SYNC_FAILURE_CODES) as SyncFailureCode[]).filter((c) => SYNC_FAILURE_CODES[c][key]);
+
+/** Codes that end the whole run (the remaining boards are not tried). */
+export const CONNECTION_WIDE_CODES: ReadonlySet<SyncFailureCode> = new Set(
+  codesWhere('connectionWide'),
+);
+/** Codes the scheduled tick skips until a user acts. */
+export const PERMANENT_CODES: readonly SyncFailureCode[] = codesWhere('permanent');
+/** Codes pg-boss retries with backoff. */
+export const RETRYABLE_CODES: ReadonlySet<SyncFailureCode> = new Set(codesWhere('retryable'));
 
 export type SyncFailure = { ok: false; code: SyncFailureCode };
 

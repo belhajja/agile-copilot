@@ -165,9 +165,9 @@ describe('runSync fix round: windows, new boards, recovery, failures', () => {
     const filters = leaving.filterIds;
     leaving.filterIds = [];
     await h.rawDb
-      .update(jiraSyncStates)
+      .update(jiraBoards)
       .set({ lastFullSyncAt: new Date(NOW.getTime() - 25 * 3_600_000) })
-      .where(eq(jiraSyncStates.connectionId, connectionId));
+      .where(eq(jiraBoards.connectionId, connectionId));
     const before2 = await stateOf(connectionId);
     const source = wrap((real) => ({
       searchIssues: async function* (jql, fields) {
@@ -191,7 +191,7 @@ describe('runSync fix round: windows, new boards, recovery, failures', () => {
     expect(await membership(connectionId)).toBe(members);
   });
 
-  it('one failing board does not stop the others, but the run fails without a new watermark', async () => {
+  it('one failing board does not stop the others, and the run reports its code', async () => {
     const { job, connectionId } = await setup('all');
     const source = wrap((real) => ({
       searchIssues: (jql, fields) => {
@@ -202,15 +202,15 @@ describe('runSync fix round: windows, new boards, recovery, failures', () => {
       },
     }));
     const r = await runSync({ ...h.deps, createSource: source }, job);
-    expect(r).toEqual({ ok: false, code: 'unknown' });
+    expect(r).toEqual({ ok: false, code: 'board_query_rejected' });
     expect(await membership(connectionId, 'OPS Kanban')).toBe(31);
     const s = await stateOf(connectionId);
-    expect(s).toMatchObject({ status: 'error', lastError: 'unknown' });
+    expect(s).toMatchObject({ status: 'error', lastError: 'board_query_rejected' });
     expect(s?.watermark).toBeNull();
     const [run] = await h.rawDb
       .select()
       .from(jiraSyncRuns)
       .where(eq(jiraSyncRuns.connectionId, connectionId));
-    expect(run).toMatchObject({ status: 'error', error: 'unknown', boardsSynced: 1 });
+    expect(run).toMatchObject({ status: 'error', error: 'board_query_rejected', boardsSynced: 1 });
   });
 });

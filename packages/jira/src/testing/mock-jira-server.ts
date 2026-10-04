@@ -172,17 +172,15 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
           ...(board.estimation ? { estimation: { type: 'field', field: board.estimation } } : {}),
         });
       }
-      if (board.type !== 'scrum') {
+      const sprints = ds.sprints.filter((s) => s.boardId === board.id);
+      // Kanban boards, and team-managed boards whose project has sprints turned off, have none.
+      if (board.type === 'kanban' || (board.type === 'simple' && sprints.length === 0)) {
         return json(res, 400, { errorMessages: ['The board does not support sprints'] });
       }
       return json(
         res,
         200,
-        page(
-          ds.sprints
-            .filter((s) => s.boardId === board.id)
-            .map(({ boardId, ...s }) => ({ ...s, originBoardId: boardId })),
-        ),
+        page(sprints.map(({ boardId, ...s }) => ({ ...s, originBoardId: boardId }))),
       );
     }
     if (path === `${prefix}/rest/api/${api}/status`) {
