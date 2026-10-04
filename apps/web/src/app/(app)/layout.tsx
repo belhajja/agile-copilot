@@ -3,10 +3,22 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { PageBreadcrumb } from '@/components/page-breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { requireActor } from '@/server/context';
+import { signedInActor } from '@/server/context';
 
+/**
+ * Every page here calls `requireActor()` itself (to onboarding without a workspace), except the
+ * Account page, which anyone signed in may open (M3: their data, with or without a workspace).
+ * So the layout only needs a session; without a workspace it renders the page alone.
+ */
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const actor = await requireActor();
+  const actor = await signedInActor();
+  if (!actor) {
+    return (
+      <div className="flex min-h-svh flex-col bg-muted p-6 md:p-10">
+        <div className="mx-auto w-full max-w-4xl">{children}</div>
+      </div>
+    );
+  }
   return (
     <SidebarProvider>
       <AppSidebar user={actor.user} />

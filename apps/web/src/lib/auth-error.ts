@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { allowedCode } from './error-code';
+import { INVITATION_PAGE_ERRORS, SSO_ERROR_CODES } from './sso-error-codes';
 
 /** better-auth error codes with a sentence under `auth.errors` (a test ties it to the messages). */
 export const AUTH_ERROR_CODES = [
@@ -20,6 +21,31 @@ export const AUTH_ERROR_CODES = [
   'YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS',
   'ORGANIZATION_NOT_FOUND',
   'USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION',
+  // Sign-in policy (Task 5): admin-only passwords, server-side break-glass, redirect-only SSO.
+  'PASSWORD_LOGIN_DISABLED',
+  'SIGN_UP_NOT_ALLOWED',
+  'ID_TOKEN_SIGN_IN_DISABLED',
+  'SCOPES_NOT_ALLOWED',
+  'INVALID_CALLBACK_URL',
+  'INVALID_ORIGIN',
+  // SSO start or link while the identity provider is not (yet) discovered.
+  'PROVIDER_NOT_FOUND',
+  'SOCIAL_ACCOUNT_ALREADY_LINKED',
+  // Workspace roles and invitations.
+  'ROLE_NOT_ALLOWED',
+  'FORBIDDEN_ROLE',
+  'INVITATION_NOT_FOUND',
+  'EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION',
+  'ORGANIZATION_MEMBERSHIP_LIMIT_REACHED',
+  'USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION',
+  'USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION',
+  'YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE',
+  'YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_MEMBER',
+  'YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER',
+  'YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER',
+  'invalid_input',
+  ...INVITATION_PAGE_ERRORS,
+  ...SSO_ERROR_CODES,
 ] as const;
 
 /**

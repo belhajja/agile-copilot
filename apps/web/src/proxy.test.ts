@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
 import { proxy } from './proxy';
 
-const req = (path: string, cookie?: string) =>
+const req = (path: string, cookie?: string, method = 'POST') =>
   new NextRequest(`http://localhost:3200${path}`, {
-    method: 'POST',
+    method,
     headers: cookie ? { cookie } : {},
   });
 
@@ -21,6 +21,30 @@ describe('proxy', () => {
     expect(res.headers.get('location')).toBe('http://localhost:3200/login');
   });
 
+  it('remembers the page a signed-out visitor opened (an invitation link)', () => {
+    const res = proxy(req('/invitations/inv_123', undefined, 'GET'));
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3200/login?next=%2Finvitations%2Finv_123',
+    );
+  });
+
+  it('keeps the query string of the page, and nothing for the home page', () => {
+    expect(proxy(req('/boards/1?tab=flow', undefined, 'GET')).headers.get('location')).toBe(
+      'http://localhost:3200/login?next=%2Fboards%2F1%3Ftab%3Dflow',
+    );
+    expect(proxy(req('/', undefined, 'GET')).headers.get('location')).toBe(
+      'http://localhost:3200/login',
+    );
+  });
+
+  it('never remembers an API navigation or an unsafe path', () => {
+    for (const path of ['/api/jira/oauth/start', '/a//evil.example']) {
+      expect(proxy(req(path, undefined, 'GET')).headers.get('location')).toBe(
+        'http://localhost:3200/login',
+      );
+    }
+  });
+
   it('keeps the redirect for the Jira OAuth browser navigations', () => {
     const res = proxy(req('/api/jira/oauth/start'));
     expect(res.status).toBe(307);
@@ -28,9 +52,11 @@ describe('proxy', () => {
   });
 
   it('lets public auth paths through', () => {
-    const res = proxy(req('/api/auth/sign-in/email'));
-    expect(res.status).toBe(200);
-    expect(res.headers.get('x-middleware-next')).toBe('1');
+    for (const path of ['/api/auth/sign-in/email', '/api/auth/callback/keycloak']) {
+      const res = proxy(req(path));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-middleware-next')).toBe('1');
+    }
   });
 
   it('lets a request with a session cookie through', () => {

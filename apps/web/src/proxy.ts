@@ -1,5 +1,6 @@
 import { getSessionCookie } from 'better-auth/cookies';
 import { type NextRequest, NextResponse } from 'next/server';
+import { loginPath } from './lib/next-path';
 
 const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
 // Browser navigations (Jira OAuth start/callback): keep the redirect to /login, not JSON.
@@ -16,7 +17,13 @@ export function proxy(request: NextRequest) {
     // Fetch clients (the chat) need a status code, not an HTML login page.
     if (under(pathname, '/api') && !NAVIGATION_API_PREFIXES.some((p) => under(pathname, p)))
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    return NextResponse.redirect(new URL('/login', request.url));
+    // Back to the page after signing in (an invitation link, for instance); /login checks it
+    // again. Only page navigations: an API path is not a page to come back to.
+    const next =
+      request.method === 'GET' && !under(pathname, '/api')
+        ? `${pathname}${request.nextUrl.search}`
+        : '/';
+    return NextResponse.redirect(new URL(loginPath(next), request.url));
   }
   return NextResponse.next();
 }

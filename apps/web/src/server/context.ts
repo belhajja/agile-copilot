@@ -14,6 +14,7 @@ import { createDb, type Db } from '@agile/db';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
+import { loginPath } from '@/lib/next-path';
 
 interface Services {
   env: ServerEnv;
@@ -76,9 +77,13 @@ export type SessionActor = Actor & { user: { id: string; name: string; email: st
 
 const loadSession = cache(async () => services().auth.api.getSession({ headers: await headers() }));
 
-export async function requireSignedIn() {
+/**
+ * The signed-in session, else the login page. `next` is the page to come back to after signing in
+ * (kept only when it is a safe in-app path), for sessions the proxy could not see were gone.
+ */
+export async function requireSignedIn(next?: string) {
   const session = await loadSession();
-  if (!session) redirect('/login');
+  if (!session) redirect(loginPath(next));
   return session;
 }
 
@@ -108,6 +113,11 @@ export async function currentActor(requestHeaders: Headers): Promise<SessionActo
  */
 export async function currentSession(requestHeaders: Headers) {
   return services().auth.api.getSession({ headers: requestHeaders });
+}
+
+/** For pages open to anyone signed in (Account): the workspace member, or null without one. */
+export async function signedInActor(next?: string): Promise<SessionActor | null> {
+  return actorOf(await requireSignedIn(next));
 }
 
 export async function requireActor(): Promise<SessionActor> {

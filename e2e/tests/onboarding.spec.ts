@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { signUpWithWorkspace } from '../helpers';
 
-test('signed-out visitors are sent to login', async ({ page }) => {
+test('signed-out visitors are sent to login, which remembers the page', async ({ page }) => {
   await page.goto('/settings/jira');
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login\?next=%2Fsettings%2Fjira$/);
 });
 
 test('mismatched passwords are caught before sign-up', async ({ page }) => {

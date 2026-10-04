@@ -1,6 +1,7 @@
 'use client';
 
-import { ChevronsUpDown, Languages, LogOut } from 'lucide-react';
+import { ChevronsUpDown, Languages, LogOut, UserRound } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { setLocale } from '@/app/actions/locale';
@@ -72,6 +73,12 @@ export function NavUser({ user }: { user: { name: string; email: string } }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/settings/account">
+                <UserRound />
+                {t('account')}
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={async () => {
                 await setLocale(locale === 'fr' ? 'en' : 'fr');

@@ -22,7 +22,8 @@ type Crumb =
   | 'agent'
   | 'skills'
   | 'skill'
-  | 'delivery';
+  | 'delivery'
+  | 'account';
 
 const TRAILS: Record<string, Crumb[]> = {
   '/': ['dashboard'],
@@ -30,6 +31,7 @@ const TRAILS: Record<string, Crumb[]> = {
   '/settings/llm': ['settings', 'llm'],
   '/settings/usage': ['settings', 'usage'],
   '/settings/delivery': ['settings', 'delivery'],
+  '/settings/account': ['account'],
   '/skills': ['skills'],
 };
 
