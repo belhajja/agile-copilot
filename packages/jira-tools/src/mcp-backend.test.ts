@@ -520,6 +520,128 @@ describe('cancellation, deadlines and refusals', () => {
     }
   });
 
+  it('reports an unknown outcome when a write is cut off after it was sent (REST)', async () => {
+    // Writes: the request reached the server, then the deadline or the caller's abort hit.
+    const timed = createRestJiraBackend(pat(hang.url), { outbound, timeoutMs: 200 });
+    await expect(
+      callWith(timed, 'jira_add_comment', { issueKey: 'DEMO-1', body: 'x' }),
+    ).rejects.toMatchObject({ code: 'unknown_outcome' });
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50);
+    await expect(
+      callWith(
+        createRestJiraBackend(pat(hang.url), { outbound }),
+        'jira_create_issue',
+        { projectKey: 'DEMO', summary: 's', issueType: 'Task' },
+        ac.signal,
+      ),
+    ).rejects.toMatchObject({ code: 'unknown_outcome' });
+    // A read cut off the same way is just unavailable; an assignment cut off during its lookup
+    // never sent the write.
+    await expect(callWith(timed, 'jira_get_issue', { issueKey: 'DEMO-1' })).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    await expect(
+      callWith(timed, 'jira_assign_issue', { issueKey: 'DEMO-1', assignee: 'alex' }),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    await vi.waitFor(() => expect(hang.open.size).toBe(0));
+  });
+
+  it('reports an unknown outcome when a write is cut off after it was sent (mcp-atlassian)', async () => {
+    // Forwards everything to the double except the write's tools/call, which never gets an answer.
+    const stall = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if (
+          /"method":"tools\/call"/.test(body.toString()) &&
+          /jira_add_comment/.test(body.toString())
+        ) {
+          return;
+        }
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        upstream.end(body);
+      });
+    });
+    try {
+      const backend = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${stall.url}/mcp`,
+        timeoutMs: 1_000,
+      });
+      await expect(
+        callWith(backend, 'jira_add_comment', { issueKey: 'DEMO-1', body: 'x' }),
+      ).rejects.toMatchObject({ code: 'unknown_outcome' });
+      const ac = new AbortController();
+      const call = callWith(
+        backend,
+        'jira_add_comment',
+        { issueKey: 'DEMO-1', body: 'y' },
+        ac.signal,
+      );
+      setTimeout(() => ac.abort(), 300);
+      await expect(call).rejects.toMatchObject({ code: 'unknown_outcome' });
+      // Reads through the same proxy still work: only the cut-off write is in doubt.
+      await expect(
+        callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
+      ).resolves.toMatchObject({});
+    } finally {
+      await stall.close();
+    }
+  });
+
+  it('never follows a redirect from the mcp-atlassian URL, not even within its origin', async () => {
+    const before = double.calls.length;
+    // /mcp redirects to /real, which would forward to the double; another origin is the double.
+    const bounce = await listen((req, res) => {
+      if (req.url?.startsWith('/real')) {
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: '/mcp',
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        req.pipe(upstream);
+        return;
+      }
+      res.writeHead(307, { location: req.url === '/other' ? double.url : '/real' }).end();
+    });
+    try {
+      for (const path of ['/mcp', '/other']) {
+        const backend = createMcpAtlassianBackend(pat(dc.url), { url: `${bounce.url}${path}` });
+        await expect(
+          callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
+        ).rejects.toMatchObject({ code: 'unavailable' });
+      }
+      expect(double.calls.length).toBe(before);
+    } finally {
+      await bounce.close();
+    }
+  });
+
   it('refuses names outside the catalog without calling anything', async () => {
     const before = double.calls.length;
     for (const backend of [

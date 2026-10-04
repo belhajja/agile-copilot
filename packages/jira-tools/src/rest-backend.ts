@@ -3,6 +3,7 @@ import { createOutboundFetch, isBlockedAddressError, type OutboundPolicy } from 
 import {
   callSignal,
   codeForStatus,
+  exactPerson,
   isoTime,
   type JiraToolBackend,
   JiraToolError,
@@ -77,6 +78,9 @@ export function createRestJiraBackend(
     path: string,
     body?: unknown,
   ): Promise<unknown> {
+    // A write cut off once its request may have left can have run in Jira: say so.
+    const cutOff = () =>
+      new JiraToolError(method !== 'GET' && signal.aborted ? 'unknown_outcome' : 'unavailable');
     let res: Response;
     try {
       res = await fetch(new URL(base + path), {
@@ -90,7 +94,7 @@ export function createRestJiraBackend(
         signal,
       });
     } catch (e) {
-      throw new JiraToolError(isBlockedAddressError(e) ? 'blocked_url' : 'unavailable');
+      throw isBlockedAddressError(e) ? new JiraToolError('blocked_url') : cutOff();
     }
     if (!res.ok) {
       await res.body?.cancel();
@@ -101,7 +105,7 @@ export function createRestJiraBackend(
       // Counts bytes while streaming and aborts above the cap: a hostile Jira cannot make us buffer it.
       text = await readCapped(res, MAX_BODY);
     } catch (e) {
-      throw new JiraToolError(e instanceof ResponseTooLargeError ? 'jira_error' : 'unavailable');
+      throw e instanceof ResponseTooLargeError ? new JiraToolError('jira_error') : cutOff();
     }
     try {
       return text ? JSON.parse(text) : null;
@@ -116,11 +120,7 @@ export function createRestJiraBackend(
   };
   const issuePath = (key: string) => `/rest/api/2/issue/${encodeURIComponent(key)}`;
 
-  /**
-   * The one active person whose account id, username, display name or email equals `identifier`
-   * (case-insensitive). Never a fuzzy hit: the user approved this exact text. Anything else fails
-   * with `ambiguous_user` (and up to 5 candidates, no emails) or `not_found`.
-   */
+  /** The one active person `identifier` names exactly (see `exactPerson`). */
   async function findUser(signal: AbortSignal, identifier: string): Promise<JiraUserCandidate> {
     const found = (await request(
       signal,
@@ -128,24 +128,20 @@ export function createRestJiraBackend(
       `/rest/api/2/user/search${q(cloud ? { query: identifier } : { username: identifier })}`,
     )) as unknown;
     const people = (Array.isArray(found) ? (found as RawUser[]) : []).flatMap((u) => {
-      if (!u || typeof u !== 'object' || u.active === false) return [];
-      // Cloud: app and customer (service desk) accounts are not assignable people.
-      if (cloud && u.accountType !== undefined && u.accountType !== 'atlassian') return [];
+      if (!u || typeof u !== 'object') return [];
       const id = s(cloud ? u.accountId : u.name);
-      return id ? [{ user: u, person: { id, displayName: s(u.displayName) ?? id } }] : [];
+      return id
+        ? [
+            {
+              person: { id, displayName: s(u.displayName) ?? id },
+              keys: [u.accountId, u.name, u.displayName, u.emailAddress],
+              active: u.active,
+              accountType: u.accountType,
+            },
+          ]
+        : [];
     });
-    const wanted = identifier.toLowerCase();
-    const exact = people.filter(({ user }) =>
-      [user.accountId, user.name, user.displayName, user.emailAddress].some(
-        (v) => typeof v === 'string' && v.toLowerCase() === wanted,
-      ),
-    );
-    const [only] = exact;
-    if (only && exact.length === 1) return only.person;
-    const candidates = (exact.length ? exact : people).slice(0, 5).map((p) => p.person);
-    throw candidates.length
-      ? new JiraToolError('ambiguous_user', { candidates })
-      : new JiraToolError('not_found');
+    return exactPerson(people, identifier, { cloud });
   }
 
   const handlers: {

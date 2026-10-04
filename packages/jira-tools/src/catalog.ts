@@ -5,10 +5,13 @@ import { z } from 'zod';
 // `toMcp` maps an input to mcp-atlassian 0.23.1 arguments (pinned by the contract test);
 // `fromMcp` is its inverse (used by the e2e double).
 
+/** A Jira issue key (PROJ-123). The audit trail records only keys that match it. */
+export const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,19}-\d{1,9}$/;
+
 const issueKey = z
   .string()
   .trim()
-  .regex(/^[A-Z][A-Z0-9_]{0,19}-\d{1,9}$/, 'An issue key such as PROJ-123')
+  .regex(ISSUE_KEY_PATTERN, 'An issue key such as PROJ-123')
   .describe('Issue key, e.g. PROJ-123');
 const numericId = (what: string) =>
   z

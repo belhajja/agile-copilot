@@ -6,12 +6,14 @@ import { createRestJiraBackend } from './rest-backend';
 
 export {
   codeForStatus,
+  exactPerson,
   type JiraToolBackend,
   JiraToolError,
   type JiraToolErrorCode,
   type JiraUserCandidate,
 } from './backend';
 export {
+  ISSUE_KEY_PATTERN,
   isJiraToolName,
   isJiraWriteTool,
   JIRA_TOOL_NAMES,

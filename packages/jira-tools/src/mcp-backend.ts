@@ -1,8 +1,11 @@
 import type { JiraCredentials } from '@agile/jira';
+import { fetchNoRedirect } from '@agile/net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import {
   callSignal,
+  exactPerson,
   isoTime,
   type JiraToolBackend,
   JiraToolError,
@@ -71,6 +74,10 @@ function codeFromError(e: unknown): JiraToolErrorCode {
   if (status === 403) return 'forbidden';
   return 'unavailable';
 }
+
+/** The MCP SDK's own per-request timeout (it fires with the same total as the call's deadline). */
+const isRequestTimeout = (e: unknown) =>
+  e instanceof McpError && e.code === ErrorCode.RequestTimeout;
 
 const parseText = (text: string): unknown => {
   try {
@@ -167,10 +174,10 @@ export function createMcpAtlassianBackend(
   }
 
   /**
-   * The one assignable person whose account id, username, display name or email equals
-   * `identifier` (case-insensitive), as the REST backend does (ruling P3-R17). Jira's assignable
-   * search only returns active users who can be assigned this issue. mcp-atlassian's own matching
-   * (first hit, then a permission search) is never used: we assign by id.
+   * The one assignable person `identifier` names exactly, as the REST backend does (see
+   * `exactPerson`). Jira's assignable search only returns active users who can be assigned this
+   * issue. mcp-atlassian's own matching (first hit, then a permission search) is never used: we
+   * assign by id.
    */
   async function findAssignee(
     client: Client,
@@ -191,20 +198,18 @@ export function createMcpAtlassianBackend(
     const people = (Array.isArray(found.users) ? found.users : []).flatMap((v) => {
       const u = obj(v);
       const id = s(cloud ? u.account_id : u.name);
-      return id ? [{ user: u, person: { id, displayName: s(u.display_name) ?? id } }] : [];
+      return id
+        ? [
+            {
+              person: { id, displayName: s(u.display_name) ?? id },
+              keys: [u.account_id, u.name, u.display_name, u.email],
+              active: u.active,
+              accountType: u.account_type,
+            },
+          ]
+        : [];
     });
-    const wanted = identifier.toLowerCase();
-    const exact = people.filter(({ user }) =>
-      [user.account_id, user.name, user.display_name, user.email].some(
-        (v) => typeof v === 'string' && v.toLowerCase() === wanted,
-      ),
-    );
-    const [only] = exact;
-    if (only && exact.length === 1) return only.person;
-    const candidates = (exact.length ? exact : people).slice(0, 5).map((p) => p.person);
-    throw candidates.length
-      ? new JiraToolError('ambiguous_user', { candidates })
-      : new JiraToolError('not_found');
+    return exactPerson(people, identifier, { cloud });
   }
 
   return {
@@ -218,19 +223,26 @@ export function createMcpAtlassianBackend(
       const client = new Client({ name: 'agile-copilot', version: '1.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(opts.url), {
         requestInit: { headers: mcpAtlassianHeaders(creds) },
+        // Never follow a redirect, not even within the origin: the headers carry Jira credentials.
+        fetch: fetchNoRedirect,
       });
+      // Set once the write's own request is on its way: a cut-off after that may have reached Jira.
+      let writeSent = false;
+      const write = JIRA_TOOLS[name].write;
       try {
         await client.connect(transport, { signal, timeout });
         if (name === 'jira_assign_issue') {
           const { issueKey, assignee } = input as JiraToolInput<'jira_assign_issue'>;
           const person = await findAssignee(client, signal, issueKey, assignee);
           // A JSON object makes mcp-atlassian assign this exact id, without its own lookup.
+          writeSent = true;
           await callText(client, signal, name, {
             issue_key: issueKey,
             assignee: JSON.stringify(cloud ? { accountId: person.id } : { name: person.id }),
           });
           return { ok: true, issueKey, assignee: person };
         }
+        writeSent = write;
         const out = await callText(
           client,
           signal,
@@ -244,6 +256,9 @@ export function createMcpAtlassianBackend(
         return out;
       } catch (e) {
         if (e instanceof JiraToolError) throw e;
+        if (writeSent && (signal.aborted || isRequestTimeout(e))) {
+          throw new JiraToolError('unknown_outcome');
+        }
         throw new JiraToolError(codeFromError(e));
       } finally {
         await client.close().catch(() => {});

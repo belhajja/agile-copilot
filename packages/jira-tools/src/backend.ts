@@ -34,7 +34,9 @@ export type JiraToolErrorCode =
   | 'rate_limited'
   | 'unavailable'
   | 'blocked_url'
-  | 'jira_error';
+  | 'jira_error'
+  /** A write was cut off (deadline or abort) after its request left: it may or may not have run. */
+  | 'unknown_outcome';
 
 /** A person the model may pick instead (id = accountId on Cloud, username on Data Center). */
 export interface JiraUserCandidate {
@@ -62,6 +64,46 @@ export class JiraToolError extends Error {
   toData(): { error: JiraToolErrorCode; candidates?: readonly JiraUserCandidate[] } {
     return { error: this.code, ...(this.candidates ? { candidates: this.candidates } : {}) };
   }
+}
+
+/** A person as a backend read them, with the texts an assignee may be given as. */
+export interface PersonMatch {
+  person: JiraUserCandidate;
+  /** Account id, username, display name, email: whatever Jira returned (non-strings ignored). */
+  keys: readonly unknown[];
+  /** `false` when Jira says the account is deactivated (absent: unknown, kept). */
+  active?: unknown;
+  /** Cloud only: anything but `atlassian` (app, customer) is not an assignable person. */
+  accountType?: unknown;
+}
+
+/**
+ * The one person whose id, username, display name or email equals `identifier` (case-insensitive),
+ * shared by both backends (ruling P3-R17). Never a fuzzy hit: the user approved this exact text.
+ * Otherwise `ambiguous_user` (up to 5 candidates, no emails) or `not_found`. People Jira reports
+ * as inactive, and Cloud app/customer accounts, are skipped when Jira says so (mcp-atlassian 0.23.1
+ * reports neither: its search for assignable users only returns active users who can be assigned).
+ */
+export function exactPerson(
+  people: readonly PersonMatch[],
+  identifier: string,
+  opts: { cloud: boolean },
+): JiraUserCandidate {
+  const usable = people.filter(
+    (p) =>
+      p.active !== false &&
+      !(opts.cloud && p.accountType !== undefined && p.accountType !== 'atlassian'),
+  );
+  const wanted = identifier.toLowerCase();
+  const exact = usable.filter((p) =>
+    p.keys.some((v) => typeof v === 'string' && v.toLowerCase() === wanted),
+  );
+  const [only] = exact;
+  if (only && exact.length === 1) return only.person;
+  const candidates = (exact.length ? exact : usable).slice(0, 5).map((p) => p.person);
+  throw candidates.length
+    ? new JiraToolError('ambiguous_user', { candidates })
+    : new JiraToolError('not_found');
 }
 
 /** HTTP status → stable code. */
