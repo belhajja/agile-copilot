@@ -7,6 +7,7 @@ import {
   auditLog,
   type Db,
   invitation,
+  jiraConnections,
   member,
   organization,
   personalDataExports,
@@ -363,6 +364,32 @@ async function* workspaceSection(
     ({ id: _id, ...a }) => json(a),
   );
 
+  // Jira connections they made: the Jira account the connection signed in as is theirs (its
+  // display name and id); the connection itself belongs to the workspace. Never the secret.
+  yield ',"jiraConnections":';
+  yield* jsonArray(
+    paged(
+      (after: string | undefined) =>
+        inOrg((tx) =>
+          tx
+            .select({
+              id: jiraConnections.id,
+              name: jiraConnections.name,
+              baseUrl: jiraConnections.baseUrl,
+              accountId: jiraConnections.accountId,
+              accountName: jiraConnections.accountName,
+              createdAt: jiraConnections.createdAt,
+            })
+            .from(jiraConnections)
+            .where(and(eq(jiraConnections.createdBy, userId), afterId(jiraConnections.id, after)))
+            .orderBy(asc(jiraConnections.id))
+            .limit(EXPORT_PAGE_SIZE),
+        ),
+      (c) => c.id,
+    ),
+    ({ id: _id, ...c }) => json(c),
+  );
+
   // Any other tenant table naming the person (later tables included), secret columns dropped.
   yield ',"other":{';
   let firstTable = true;
@@ -646,6 +673,12 @@ export async function deleteAccount(
           sql`delete from ${sql.identifier(t.table)} where ${personCol(t)} = ${userId}`,
         );
       }
+      // Connections they made stay (the workspace's), without the Jira account they signed in
+      // as; `created_by` keeps the opaque id, like the audit log.
+      await tx
+        .update(jiraConnections)
+        .set({ accountId: null, accountName: null })
+        .where(eq(jiraConnections.createdBy, userId));
       await recordAudit(tx, {
         orgId,
         actorUserId: userId,

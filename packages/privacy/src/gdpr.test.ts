@@ -7,6 +7,7 @@ import {
   auditLog,
   createDb,
   invitation,
+  jiraConnections,
   mcpRateBuckets,
   mcpTokens,
   member,
@@ -109,6 +110,7 @@ describe('personal data: export and account deletion', () => {
       skills: { name: string; document: string; runs: { output: string }[] }[];
       usage: unknown[];
       actionsInAuditLog: { action: string }[];
+      jiraConnections: Record<string, unknown>[];
       other: Record<string, Record<string, unknown>[]>;
     }[];
   }
@@ -174,6 +176,25 @@ describe('personal data: export and account deletion', () => {
         inviterId: 'u_bob',
       },
     ]);
+    // The Jira account a connection signed in as is the connecting person's (P5 final wave).
+    const connection = (id: string, createdBy: string, accountName: string) => ({
+      id,
+      orgId: 'org_1',
+      name: `${accountName} site`,
+      deployment: 'cloud' as const,
+      authType: 'basic' as const,
+      baseUrl: `https://${createdBy}.atlassian.net`,
+      accountId: `jira-${createdBy}`,
+      accountName,
+      secret: 'enc-jira-secret',
+      createdBy,
+    });
+    await raw.db
+      .insert(jiraConnections)
+      .values([
+        connection('00000000-0000-4000-8000-0000000000a1', 'u_ann', 'Ann Jira Name'),
+        connection('00000000-0000-4000-8000-0000000000b1', 'u_bob', 'Bob Jira Name'),
+      ]);
     await seedPerson('org_1', 'u_ann', 'Ann asks about velocity');
     await seedPerson('org_2', 'u_ann', 'Ann in the second workspace');
     await seedPerson('org_1', 'u_bob', 'Bob private question');
@@ -206,7 +227,18 @@ describe('personal data: export and account deletion', () => {
     expect(one?.actionsInAuditLog.map((a) => a.action)).toEqual(['agent_action.proposed']);
     // Later tables with a personal column come through the generic section.
     expect(one?.other.agent_approvals?.map((a) => a.approval_id)).toEqual(['a-u_ann']);
+    // The Jira connections they made, with the Jira account they signed in as (never the secret).
+    expect(one?.jiraConnections).toEqual([
+      expect.objectContaining({
+        name: 'Ann Jira Name site',
+        accountId: 'jira-u_ann',
+        accountName: 'Ann Jira Name',
+      }),
+    ]);
+    expect(data.workspaces[1]?.jiraConnections).toEqual([]);
     expect(JSON.stringify(data)).not.toContain('Bob private question');
+    expect(JSON.stringify(data)).not.toContain('Bob Jira Name');
+    expect(JSON.stringify(data)).not.toContain('enc-jira-secret');
   });
 
   it('includes sign-in methods, sessions and invitations, never a token, hash or password', async () => {
@@ -311,6 +343,19 @@ describe('personal data: export and account deletion', () => {
       ['org_1', 'user.deleted'],
       ['org_2', 'agent_action.proposed'],
       ['org_2', 'user.deleted'],
+    ]);
+    // The workspace keeps the connection Ann made, without her Jira identity.
+    const conns = await raw.db
+      .select({
+        createdBy: jiraConnections.createdBy,
+        accountId: jiraConnections.accountId,
+        accountName: jiraConnections.accountName,
+      })
+      .from(jiraConnections)
+      .orderBy(jiraConnections.createdBy);
+    expect(conns).toEqual([
+      { createdBy: 'u_ann', accountId: null, accountName: null },
+      { createdBy: 'u_bob', accountId: 'jira-u_bob', accountName: 'Bob Jira Name' },
     ]);
     // Bob's data is untouched.
     expect(await raw.db.$count(agentConversations, eq(agentConversations.userId, 'u_bob'))).toBe(1);
