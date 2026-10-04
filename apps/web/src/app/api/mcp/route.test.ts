@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The gateway's own tests (Testcontainers) cover tokens, audit and the MCP protocol: these pin
 // what the route adds in front of it — the pre-auth per-address limit, before any database work.
@@ -36,6 +36,9 @@ const corsHeaders = (res: Response) =>
 
 describe('POST /api/mcp', () => {
   beforeEach(async () => {
+    // The clock stands still: buckets refill with time, and a slow machine (a full parallel
+    // test run) would otherwise refill a token in the middle of a burst.
+    vi.useFakeTimers({ toFake: ['Date'] });
     // A fresh module: the in-memory buckets start full in every test.
     vi.resetModules();
     env.TRUSTED_PROXY_HOPS = 0;
@@ -43,6 +46,7 @@ describe('POST /api/mcp', () => {
     handleMcpHttpRequest.mockClear();
     route = await import('./route');
   });
+  afterEach(() => vi.useRealTimers());
 
   it('runs on the Node runtime, never cached, and answers POST only', () => {
     expect(route.runtime).toBe('nodejs');
