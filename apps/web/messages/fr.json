@@ -116,7 +116,10 @@
       },
       "unknown": "Une erreur est survenue."
     },
-    "oauthConnected": "{count, plural, one {# site Jira connecté.} other {# sites Jira connectés.}}"
+    "oauthConnected": "{count, plural, one {# site Jira connecté.} other {# sites Jira connectés.}}",
+    "deleteTitle": "Supprimer cette connexion Jira ?",
+    "deleteDescription": "{name} sera déconnecté et tout ce qui en a été synchronisé sera supprimé. Cette action est irréversible.",
+    "cancel": "Annuler"
   },
   "llm": {
     "title": "Modèle d'IA",
@@ -172,6 +175,9 @@
         "unresolvable": "Impossible de trouver {host}. Vérifiez l’adresse."
       },
       "unknown": "Une erreur est survenue."
-    }
+    },
+    "deleteTitle": "Supprimer ce modèle d'IA ?",
+    "deleteDescription": "La clé de {label} sera supprimée. S'il s'agissait du modèle par défaut, le modèle ajouté le plus récemment le remplace.",
+    "cancel": "Annuler"
   }
 }

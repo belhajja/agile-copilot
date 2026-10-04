@@ -1,6 +1,7 @@
 import type { LlmConnectionView } from '@agile/connections';
 import { Bot } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
+import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,11 +68,16 @@ export async function LlmConnectionItem({
               {t('retest')}
             </Button>
           </form>
-          <form action={deleteLlmConnectionAction.bind(null, c.id)}>
-            <Button variant="ghost" size="sm">
-              {t('delete')}
-            </Button>
-          </form>
+          <ConfirmDeleteButton
+            onConfirm={deleteLlmConnectionAction.bind(null, c.id)}
+            labels={{
+              trigger: t('delete'),
+              title: t('deleteTitle'),
+              description: t('deleteDescription', { label: c.label }),
+              confirm: t('delete'),
+              cancel: t('cancel'),
+            }}
+          />
         </ItemActions>
       )}
     </Item>

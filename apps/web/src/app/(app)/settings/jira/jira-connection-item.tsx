@@ -1,6 +1,7 @@
 import type { JiraConnectionView } from '@agile/connections';
 import { Cloud, Server } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
+import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,11 +57,16 @@ export async function JiraConnectionItem({
               {t('retest')}
             </Button>
           </form>
-          <form action={deleteJiraConnectionAction.bind(null, c.id)}>
-            <Button variant="ghost" size="sm">
-              {t('delete')}
-            </Button>
-          </form>
+          <ConfirmDeleteButton
+            onConfirm={deleteJiraConnectionAction.bind(null, c.id)}
+            labels={{
+              trigger: t('delete'),
+              title: t('deleteTitle'),
+              description: t('deleteDescription', { name: c.name }),
+              confirm: t('delete'),
+              cancel: t('cancel'),
+            }}
+          />
         </ItemActions>
       )}
     </Item>

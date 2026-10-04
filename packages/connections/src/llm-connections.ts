@@ -271,11 +271,12 @@ export async function deleteLlmConnection(
 ): Promise<{ ok: true } | LlmServiceFailure> {
   assertCanManage(actor);
   return withOrg(deps.db, actor.orgId, async (tx) => {
-    const deleted = await tx
+    await lockOrgDefaults(tx, actor.orgId);
+    const [deleted] = await tx
       .delete(llmConnections)
       .where(eq(llmConnections.id, id))
-      .returning({ id: llmConnections.id });
-    if (deleted.length === 0) return notFound;
+      .returning({ id: llmConnections.id, isDefault: llmConnections.isDefault });
+    if (!deleted) return notFound;
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,
@@ -283,6 +284,28 @@ export async function deleteLlmConnection(
       targetType: 'llm_connection',
       targetId: id,
     });
+    if (deleted.isDefault) {
+      // Keep the workspace usable: the most recently added remaining connection becomes the default.
+      const [next] = await tx
+        .select({ id: llmConnections.id })
+        .from(llmConnections)
+        .orderBy(desc(llmConnections.createdAt), desc(llmConnections.id))
+        .limit(1);
+      if (next) {
+        await tx
+          .update(llmConnections)
+          .set({ isDefault: true })
+          .where(eq(llmConnections.id, next.id));
+        await recordAudit(tx, {
+          orgId: actor.orgId,
+          actorUserId: actor.userId,
+          action: 'llm_connection.default_changed',
+          targetType: 'llm_connection',
+          targetId: next.id,
+          metadata: { reason: 'previous_default_deleted' },
+        });
+      }
+    }
     return { ok: true } as const;
   });
 }

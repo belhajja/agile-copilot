@@ -55,3 +55,25 @@ test('a private Jira address is explained in French', async ({ page }) => {
     ),
   ).toBeVisible();
 });
+
+test('removing a Jira connection asks for confirmation first', async ({ page }) => {
+  await signUpWithWorkspace(page);
+  await page.goto('/settings/jira');
+  await page.getByLabel('Connection name').fill('Corp Jira');
+  await page.getByLabel('Jira URL').fill('http://127.0.0.1:4010');
+  await page.getByLabel('Data Center / Server').check();
+  await page.getByLabel('Personal access token').fill('good-pat');
+  await page.getByRole('button', { name: 'Test and save' }).click();
+  const card = connectionItem(page, 'Corp Jira');
+  await expect(card.getByText('Connected')).toBeVisible();
+
+  await card.getByRole('button', { name: 'Remove' }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog.getByText('Remove this Jira connection?')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(card.getByText('Connected')).toBeVisible();
+
+  await card.getByRole('button', { name: 'Remove' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByText('No Jira connected yet.')).toBeVisible();
+});

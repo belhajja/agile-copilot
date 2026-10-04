@@ -116,7 +116,10 @@
       },
       "unknown": "Something went wrong."
     },
-    "oauthConnected": "{count, plural, one {# Jira site connected.} other {# Jira sites connected.}}"
+    "oauthConnected": "{count, plural, one {# Jira site connected.} other {# Jira sites connected.}}",
+    "deleteTitle": "Remove this Jira connection?",
+    "deleteDescription": "{name} will be disconnected and everything synced from it deleted. This cannot be undone.",
+    "cancel": "Cancel"
   },
   "llm": {
     "title": "AI model",
@@ -172,6 +175,9 @@
         "unresolvable": "Could not find {host}. Check the address."
       },
       "unknown": "Something went wrong."
-    }
+    },
+    "deleteTitle": "Remove this AI model?",
+    "deleteDescription": "The key for {label} will be deleted. If it was the default, the most recently added model becomes the default.",
+    "cancel": "Cancel"
   }
 }
