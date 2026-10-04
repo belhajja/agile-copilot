@@ -1,5 +1,5 @@
 import { createServer, request } from 'node:http';
-import { startMockJira } from '@agile/jira/testing';
+import { demoDataset, startMockJira } from '@agile/jira/testing';
 import { startMockOpenAI } from '@agile/llm/testing';
 
 // The mocks listen on random ports; expose them on fixed ports via a tiny reverse proxy.
@@ -18,7 +18,12 @@ async function expose(port: number, target: string) {
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
 }
 
-const jira = await startMockJira({ flavor: 'datacenter', validAuthorization: 'Bearer good-pat' });
+// Data Center flavour with the demo boards (dates relative to today) for the sync and dashboard tests.
+const jira = await startMockJira({
+  flavor: 'datacenter',
+  validAuthorization: 'Bearer good-pat',
+  dataset: demoDataset(new Date()),
+});
 const llm = await startMockOpenAI({ validKey: 'good-key' });
 await expose(4010, jira.url);
 await expose(4020, new URL(llm.baseUrl).origin);
