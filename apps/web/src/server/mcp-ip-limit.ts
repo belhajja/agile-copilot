@@ -11,30 +11,43 @@ import { serverEnv } from '@agile/config';
  * proxies append to it (the entry that many places from the end, written by our own proxy, never
  * one the client wrote). Next.js does not give route handlers the connection's address, so
  * without a trusted proxy every request shares one deployment-wide bucket (a larger budget). The
- * buckets live in each server process: with several replicas, each has its own.
+ * buckets live in each server process: with several replicas, each has its own. On top of the
+ * per-address buckets, one ceiling bounds all pre-auth traffic of the process (P5-R42).
  */
 
 /** Requests per client address per minute, before authentication. */
 export const MCP_IP_REQUESTS_PER_MINUTE = 120;
 /** Requests per minute for the shared bucket (no trusted proxy, or no usable address). */
 export const MCP_GLOBAL_REQUESTS_PER_MINUTE = 1200;
-/** Addresses kept in memory at most; idle (full) buckets are dropped first. */
+/**
+ * Ceiling on ALL pre-auth traffic of the process (P5-R42), addressed or not: rotating addresses
+ * gives each a fresh budget, never more than this in total.
+ */
+export const MCP_TOTAL_REQUESTS_PER_MINUTE = 10 * MCP_IP_REQUESTS_PER_MINUTE;
+/** Addresses kept in memory at most (least recently used dropped first, idle before busy). */
 export const MAX_TRACKED_CLIENTS = 10_000;
 /** The shared bucket's key (never an address: `isIP` refuses it). */
 export const GLOBAL_KEY = 'global';
 
 const MINUTE_MS = 60_000;
+/** Busy (not yet refilled) entries skipped at most per eviction, so eviction stays O(1). */
+const EVICTION_SCAN = 16;
 
-/** The /64 prefix of an IPv6 address (one host usually owns the whole prefix). */
-function ipv6Prefix(address: string): string {
-  const [head = '', tail = ''] = address.toLowerCase().split('::');
+/** The eight 16-bit groups of a valid IPv6 address (a dotted IPv4 tail becomes two groups). */
+function ipv6Groups(address: string): number[] {
+  let text = address.toLowerCase();
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(text)?.[1];
+  if (dotted) {
+    const [a = 0, b = 0, c = 0, d = 0] = dotted.split('.').map(Number);
+    text = `${text.slice(0, -dotted.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head = '', tail = ''] = text.split('::');
   const left = head ? head.split(':') : [];
   const right = tail ? tail.split(':') : [];
-  const groups = address.includes('::')
+  const groups = text.includes('::')
     ? [...left, ...Array<string>(8 - left.length - right.length).fill('0'), ...right]
     : left;
-  const prefix = groups.slice(0, 4).map((g) => Number.parseInt(g, 16).toString(16));
-  return `${prefix.join(':')}::/64`;
+  return groups.map((g) => Number.parseInt(g, 16));
 }
 
 /** The bucket a request counts against: its client address (IPv6 by /64), else `GLOBAL_KEY`. */
@@ -46,11 +59,18 @@ export function clientKey(headers: Headers, trustedProxyHops: number): string {
     .filter(Boolean);
   const address = entries[entries.length - trustedProxyHops];
   if (!address) return GLOBAL_KEY;
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
-  if (mapped && isIPv4(mapped)) return mapped;
   if (isIPv4(address)) return address;
-  if (isIPv6(address)) return ipv6Prefix(address);
-  return GLOBAL_KEY;
+  if (!isIPv6(address)) return GLOBAL_KEY;
+  const g = ipv6Groups(address);
+  // IPv4-mapped (::ffff:a.b.c.d, in any spelling): the IPv4 client's own bucket.
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+    const [hi = 0, lo = 0] = g.slice(6);
+    return [hi >> 8, hi & 255, lo >> 8, lo & 255].join('.');
+  }
+  return `${g
+    .slice(0, 4)
+    .map((x) => x.toString(16))
+    .join(':')}::/64`;
 }
 
 export type LimitResult = { allowed: true } | { allowed: false; retryAfterSeconds: number };
@@ -63,56 +83,71 @@ interface Bucket {
 export function createPreAuthLimiter({
   perMinute = MCP_IP_REQUESTS_PER_MINUTE,
   globalPerMinute = MCP_GLOBAL_REQUESTS_PER_MINUTE,
+  totalPerMinute = MCP_TOTAL_REQUESTS_PER_MINUTE,
   maxClients = MAX_TRACKED_CLIENTS,
   now = Date.now,
 }: {
   perMinute?: number;
   globalPerMinute?: number;
+  totalPerMinute?: number;
   maxClients?: number;
   now?: () => number;
 } = {}) {
+  /** In use order: the first entry is the least recently used (Map keeps insertion order). */
   const buckets = new Map<string, Bucket>();
+  const total: Bucket = { tokens: totalPerMinute, at: now() };
   const capacityOf = (key: string) => (key === GLOBAL_KEY ? globalPerMinute : perMinute);
-  const refill = (key: string, bucket: Bucket, t: number) => {
-    const capacity = capacityOf(key);
+  const refill = (bucket: Bucket, capacity: number, t: number) => {
     bucket.tokens = Math.min(capacity, bucket.tokens + ((t - bucket.at) * capacity) / MINUTE_MS);
     bucket.at = t;
   };
+  const retryAfter = (bucket: Bucket, capacity: number) => ({
+    allowed: false as const,
+    retryAfterSeconds: Math.max(1, Math.ceil(((1 - bucket.tokens) * MINUTE_MS) / capacity / 1000)),
+  });
 
-  /** Makes room for one more address: idle buckets first, then the oldest ones. */
+  /**
+   * Makes room for one address: the least recently used idle (refilled) bucket. Busy ones met on
+   * the way move to the back, so a client over its limit keeps its debt while idle entries exist
+   * (at most EVICTION_SCAN skips; beyond that the least recently used goes).
+   */
   const evict = (t: number) => {
-    for (const [key, bucket] of buckets) {
-      refill(key, bucket, t);
-      if (bucket.tokens >= capacityOf(key)) buckets.delete(key);
-    }
-    for (const key of buckets.keys()) {
-      if (buckets.size < maxClients) break;
+    for (let i = 0; i < EVICTION_SCAN; i++) {
+      const first = buckets.entries().next();
+      if (first.done) return;
+      const [key, bucket] = first.value;
       buckets.delete(key);
+      refill(bucket, capacityOf(key), t);
+      if (bucket.tokens >= capacityOf(key)) return;
+      buckets.set(key, bucket);
     }
+    const oldest = buckets.keys().next();
+    if (!oldest.done) buckets.delete(oldest.value);
   };
 
   return {
     take(key: string): LimitResult {
       const t = now();
+      const capacity = capacityOf(key);
       let bucket = buckets.get(key);
-      if (!bucket) {
-        if (buckets.size >= maxClients) evict(t);
-        bucket = { tokens: capacityOf(key), at: t };
-        buckets.set(key, bucket);
+      if (bucket) {
+        buckets.delete(key); // re-inserted below: most recently used
+        refill(bucket, capacity, t);
       } else {
-        refill(key, bucket, t);
+        if (buckets.size >= maxClients) evict(t);
+        bucket = { tokens: capacity, at: t };
       }
-      if (bucket.tokens >= 1) {
-        bucket.tokens -= 1;
-        return { allowed: true };
-      }
-      const rate = capacityOf(key) / MINUTE_MS;
-      return {
-        allowed: false,
-        retryAfterSeconds: Math.max(1, Math.ceil((1 - bucket.tokens) / rate / 1000)),
-      };
+      buckets.set(key, bucket);
+      refill(total, totalPerMinute, t);
+      if (bucket.tokens < 1) return retryAfter(bucket, capacity);
+      if (total.tokens < 1) return retryAfter(total, totalPerMinute);
+      bucket.tokens -= 1;
+      total.tokens -= 1;
+      return { allowed: true };
     },
     size: () => buckets.size,
+    /** Tracked keys, least recently used first (tests). */
+    keys: () => [...buckets.keys()],
   };
 }
 

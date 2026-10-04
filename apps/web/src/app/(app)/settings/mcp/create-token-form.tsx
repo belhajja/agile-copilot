@@ -25,12 +25,12 @@ export function CreateTokenForm({ endpoint }: { endpoint: string | null }) {
   const [state, action, pending] = useActionState(createTokenAction, idle);
   const [copied, setCopied] = useState(false);
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>{t('createTitle')}</CardTitle>
         <CardDescription>{t('createHint')}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid min-w-0 gap-4">
         <form action={action} onSubmit={() => setCopied(false)}>
           <FieldGroup className="@xl/main:flex-row @xl/main:items-end">
             <Field>
@@ -64,11 +64,14 @@ export function CreateTokenForm({ endpoint }: { endpoint: string | null }) {
           <FieldError>{t(`errors.${pickCode(state.code, MCP_ERROR_CODES)}`)}</FieldError>
         )}
         {state.status === 'created' && (
-          <Alert>
+          <Alert className="min-w-0">
             <AlertTitle>{t('createdTitle')}</AlertTitle>
-            <AlertDescription className="grid gap-3">
+            <AlertDescription className="grid min-w-0 gap-3">
               <p>{t('createdHint')}</p>
-              <code className="break-all rounded bg-muted p-2 text-xs" data-new-token>
+              <code
+                className="min-w-0 max-w-full break-all rounded bg-muted p-2 text-xs"
+                data-new-token
+              >
                 {state.token}
               </code>
               <div>
@@ -88,7 +91,10 @@ export function CreateTokenForm({ endpoint }: { endpoint: string | null }) {
               {endpoint ? (
                 <>
                   <p>{t('desktopHint')}</p>
-                  <pre className="overflow-x-auto rounded bg-muted p-2 text-xs" data-desktop-config>
+                  <pre
+                    className="min-w-0 max-w-full overflow-x-auto rounded bg-muted p-2 text-xs"
+                    data-desktop-config
+                  >
                     {desktopConfig(endpoint, state.token)}
                   </pre>
                 </>

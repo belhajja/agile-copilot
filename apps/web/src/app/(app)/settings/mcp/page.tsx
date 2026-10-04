@@ -39,7 +39,7 @@ export default async function McpPage() {
     <div className="mx-auto grid w-full max-w-4xl gap-6">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">
+        <p className="text-muted-foreground wrap-anywhere">
           {t('intro', {
             endpoint: endpoint ?? new URL('/api/mcp', env.BETTER_AUTH_URL).toString(),
           })}
