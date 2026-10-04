@@ -9,6 +9,7 @@ import {
   codeFromToolText,
   createMcpAtlassianBackend,
   MCP_ATLASSIAN_ENABLED_TOOLS,
+  MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   type McpCredentials,
   mcpAtlassianHeaders,
 } from './mcp-backend';
@@ -139,8 +140,11 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       start({ ENABLED_TOOLS: MCP_ATLASSIAN_ENABLED_TOOLS.join(',') }).then((c) => {
         shared = c;
       }),
-      // The read-only twin: the catalog, with READ_ONLY_MODE removing every write.
-      start({ ENABLED_TOOLS: JIRA_TOOL_NAMES.join(','), READ_ONLY_MODE: 'true' }).then((c) => {
+      // The read-only twin, as the self-host compose runs it: the read tools, plus READ_ONLY_MODE.
+      start({
+        ENABLED_TOOLS: MCP_ATLASSIAN_READONLY_ENABLED_TOOLS.join(','),
+        READ_ONLY_MODE: 'true',
+      }).then((c) => {
         readOnly = c;
       }),
     ]);

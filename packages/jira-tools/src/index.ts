@@ -25,6 +25,7 @@ export {
   createMcpAtlassianBackend,
   MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
   MCP_ATLASSIAN_ENABLED_TOOLS,
+  MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   type McpCredentials,
   mcpAtlassianHeaders,
 } from './mcp-backend';

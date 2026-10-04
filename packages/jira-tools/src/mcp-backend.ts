@@ -25,6 +25,13 @@ export const MCP_ATLASSIAN_ENABLED_TOOLS: readonly string[] = Object.freeze([
   ...JIRA_TOOL_NAMES,
   ...MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
 ]);
+/**
+ * The deployment's `ENABLED_TOOLS` for the read-only twin (scheduled/background runs): the
+ * catalog's read tools only, with `READ_ONLY_MODE=true` on the instance as a second guard.
+ */
+export const MCP_ATLASSIAN_READONLY_ENABLED_TOOLS: readonly string[] = Object.freeze(
+  JIRA_TOOL_NAMES.filter((n) => !JIRA_TOOLS[n].write),
+);
 
 /**
  * Per-request credentials for the shared mcp-atlassian instance (spec: "Jira auth & MCP topology").

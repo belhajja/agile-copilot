@@ -9,13 +9,20 @@ import type { AddressInfo } from 'node:net';
 import { demoDataset, type MockJira, startMockJira } from '@agile/jira/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { codeForStatus, type JiraToolBackend, JiraToolError } from './backend';
-import { isJiraToolName, JIRA_TOOL_NAMES, type JiraToolName, parseJiraToolInput } from './catalog';
+import {
+  isJiraToolName,
+  isJiraWriteTool,
+  JIRA_TOOL_NAMES,
+  type JiraToolName,
+  parseJiraToolInput,
+} from './catalog';
 import { createJiraToolBackend } from './index';
 import {
   codeFromToolText,
   createMcpAtlassianBackend,
   MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
   MCP_ATLASSIAN_ENABLED_TOOLS,
+  MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   mcpAtlassianHeaders,
   searchFromMcp,
   transitionsFromMcp,
@@ -260,6 +267,22 @@ describe('mcp-atlassian backend: pure parts', () => {
     );
     for (const name of MCP_ATLASSIAN_BACKEND_ONLY_TOOLS) expect(isJiraToolName(name)).toBe(false);
     expect(Object.isFrozen(MCP_ATLASSIAN_ENABLED_TOOLS)).toBe(true);
+  });
+
+  it('enables only the six read tools on the read-only twin', () => {
+    expect([...MCP_ATLASSIAN_READONLY_ENABLED_TOOLS].sort()).toEqual(
+      [
+        'jira_get_agile_boards',
+        'jira_get_issue',
+        'jira_get_sprint_issues',
+        'jira_get_sprints_from_board',
+        'jira_get_transitions',
+        'jira_search',
+      ].sort(),
+    );
+    for (const name of MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)
+      expect(isJiraWriteTool(name)).toBe(false);
+    expect(Object.isFrozen(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)).toBe(true);
   });
 
   it('reads mcp-atlassian search results like the REST backend (Cloud has no total)', () => {

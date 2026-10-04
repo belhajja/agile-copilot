@@ -1,5 +1,7 @@
 # Usage: cp .env.example .env (fill secrets), then: docker compose -f docker-compose.selfhost.yml up -d --build
-# Services: postgres, migrate (one-shot), web (the app) and worker (Jira sync jobs).
+# Services: postgres, migrate (one-shot), web (the app), worker (Jira sync jobs) and mcp-atlassian
+# (the assistant's live Jira tools; a read-only twin, mcp-atlassian-readonly, is ready for scheduled
+# runs).
 # Set WEB_PORT in .env to publish the app on a port other than 3000 (and match BETTER_AUTH_URL).
 services:
   postgres:
@@ -35,6 +37,8 @@ services:
       ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-}
       ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
       ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
+      # The internal service only: the app sends users' Jira credentials to this URL.
+      MCP_ATLASSIAN_URL: http://mcp-atlassian:8000/mcp
     ports: ["${WEB_PORT:-3000}:3000"]
     healthcheck:
       # busybox wget ships with node:24-alpine
@@ -43,7 +47,9 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
-    depends_on: { migrate: { condition: service_completed_successfully } }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      mcp-atlassian: { condition: service_healthy }
   worker:
     build: { context: ., dockerfile: apps/web/Dockerfile, target: worker }
     restart: unless-stopped
@@ -72,5 +78,46 @@ services:
       start_period: 20s
       retries: 3
     depends_on: { migrate: { condition: service_completed_successfully } }
+  # One shared instance for every workspace: each request carries its own Jira URL and token (Data
+  # Center) or OAuth token and cloud id (Cloud). Never set JIRA_URL, Jira tokens or
+  # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, inside the compose
+  # network.
+  mcp-atlassian:
+    # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
+    image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+    restart: unless-stopped
+    environment:
+      TRANSPORT: streamable-http
+      PORT: "8000"
+      TOOLSETS: all
+      # MCP_ATLASSIAN_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested): the catalog
+      # plus jira_search_assignable_users, which the backend uses to resolve assignees.
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+      ATLASSIAN_OAUTH_ENABLE: "true"
+      # Set when a Data Center host resolves to a private address. Empty = unset. Once set, it is an
+      # allowlist: list every Jira host the assistant may reach, public ones included.
+      MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    healthcheck: &mcp-atlassian-health
+      # busybox wget ships with the image
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+  # Same, with the read tools only and READ_ONLY_MODE, for scheduled/background runs (Phase 4
+  # skills). Nothing calls it yet. Not published.
+  mcp-atlassian-readonly:
+    image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+    restart: unless-stopped
+    environment:
+      TRANSPORT: streamable-http
+      PORT: "8000"
+      TOOLSETS: all
+      # MCP_ATLASSIAN_READONLY_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested).
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+      READ_ONLY_MODE: "true"
+      ATLASSIAN_OAUTH_ENABLE: "true"
+      MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    healthcheck: *mcp-atlassian-health
 volumes:
   pgdata:
