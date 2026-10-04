@@ -9,7 +9,7 @@ import {
   loadJiraSecret,
   retestJiraConnection,
 } from './jira-connections';
-import { keyring, member, okJira, owner, startHarness } from './test-helpers';
+import { keyring, manager, okJira, owner, startHarness, viewer } from './test-helpers';
 
 const dc = (n: number, token = 'pat-secret-value') => ({
   name: `Corp Jira ${n}`,
@@ -83,9 +83,9 @@ describe('jira connections', () => {
   });
 
   it('only lets owners/admins manage connections', async () => {
-    await expect(createJiraConnection(deps, member(), dc(3))).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    for (const actor of [viewer(), manager()]) {
+      await expect(createJiraConnection(deps, actor, dc(3))).rejects.toBeInstanceOf(ForbiddenError);
+    }
   });
 
   it("cannot see, retest, or delete another org's connection", async () => {

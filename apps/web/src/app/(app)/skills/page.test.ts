@@ -25,7 +25,7 @@ vi.mock('@agile/skills', () => ({
 }));
 vi.mock('./actions', () => ({ copyBuiltinSkillAction: async () => undefined }));
 vi.mock('@/server/context', () => ({
-  requireActor: async () => ({ orgId: 'org', userId: 'user', roles: ['member'] }),
+  requireActor: async () => ({ orgId: 'org', userId: 'user', roles: ['viewer'] }),
   services: () => ({ db: {} }),
 }));
 

@@ -21,8 +21,8 @@ import {
 } from './store';
 
 const NOW = new Date('2026-10-04T08:00:00Z');
-const alice: SkillActor = { orgId: 'org_a', userId: 'user_alice', roles: ['member'] };
-const bob: SkillActor = { orgId: 'org_a', userId: 'user_bob', roles: ['member'] };
+const alice: SkillActor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
+const bob: SkillActor = { orgId: 'org_a', userId: 'user_bob', roles: ['manager'] };
 const admin: SkillActor = { orgId: 'org_a', userId: 'user_admin', roles: ['admin'] };
 const outsider: SkillActor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
 
@@ -143,10 +143,12 @@ describe('skills store', () => {
     ).toBe(true);
   });
 
-  it('keeps Slack/Teams outputs for owners and admins (P4-R4): members get forbidden_output', async () => {
-    expect(
-      await createSkill(app.db, alice, { document: weekly('slack'), channelId: slack, now: NOW }),
-    ).toEqual({ ok: false, code: 'forbidden_output' });
+  it('keeps Slack/Teams outputs for owners and admins (P4-R4): managers and viewers get forbidden_output', async () => {
+    for (const actor of [alice, bob]) {
+      expect(
+        await createSkill(app.db, actor, { document: weekly('slack'), channelId: slack, now: NOW }),
+      ).toEqual({ ok: false, code: 'forbidden_output' });
+    }
     expect(await createSkill(app.db, alice, { document: weekly('teams'), now: NOW })).toEqual({
       ok: false,
       code: 'forbidden_output',
@@ -377,7 +379,11 @@ describe('skills store', () => {
     expect(await deleteSkill(app.db, admin, privateId)).toEqual({ ok: false, code: 'not_found' });
     const sharedId = await create(alice, doc('shared-notes'));
     expect(await setSkillVisibility(app.db, alice, sharedId, 'workspace')).toEqual({ ok: true });
-    expect(await deleteSkill(app.db, bob, sharedId)).toEqual({ ok: false, code: 'forbidden' });
+    // Moderation is for owners and admins: neither a manager nor a viewer removes others' skills.
+    const viewerCarol: SkillActor = { orgId: 'org_a', userId: 'user_carol2', roles: ['viewer'] };
+    for (const actor of [bob, viewerCarol]) {
+      expect(await deleteSkill(app.db, actor, sharedId)).toEqual({ ok: false, code: 'forbidden' });
+    }
     expect(await deleteSkill(app.db, admin, sharedId)).toEqual({ ok: true });
     expect(await deleteSkill(app.db, alice, privateId)).toEqual({ ok: true });
     expect(await getSkill(app.db, alice, privateId)).toBeNull();
@@ -393,7 +399,7 @@ describe('skills store', () => {
   });
 
   it('loads skills with their current parsed document in one joined query', async () => {
-    const dave: SkillActor = { orgId: 'org_a', userId: 'user_dave', roles: ['member'] };
+    const dave: SkillActor = { orgId: 'org_a', userId: 'user_dave', roles: ['viewer'] };
     const a = await create(dave, doc('dave-a'));
     expect(
       await updateSkill(app.db, dave, a, {
@@ -424,7 +430,7 @@ describe('skills store', () => {
   });
 
   it("builds the assistant's skill set: own skills, preferences, built-ins not copied", async () => {
-    const carol: SkillActor = { orgId: 'org_a', userId: 'user_carol', roles: ['member'] };
+    const carol: SkillActor = { orgId: 'org_a', userId: 'user_carol', roles: ['viewer'] };
     await create(carol, doc('french', { trigger: 'always' }, 'Answer in French.'));
     const off = await create(carol, doc('disabled-one'));
     expect(await setSkillEnabled(app.db, carol, off, false, NOW)).toEqual({ ok: true });
@@ -470,7 +476,7 @@ describe('skills store', () => {
   });
 
   it('keeps the stock built-in hidden while the user has any copy of it, even a disabled one', async () => {
-    const frank: SkillActor = { orgId: 'org_a', userId: 'user_frank', roles: ['member'] };
+    const frank: SkillActor = { orgId: 'org_a', userId: 'user_frank', roles: ['viewer'] };
     const r = await copyBuiltinSkill(app.db, frank, 'blocker-report', NOW);
     if (!r.ok) throw new Error(r.code);
     expect(await setSkillEnabled(app.db, frank, r.id, false, NOW)).toEqual({ ok: true });
@@ -527,7 +533,7 @@ describe('skills store', () => {
   });
 
   it("never applies another member's shared always-skill until it is copied and enabled", async () => {
-    const grace: SkillActor = { orgId: 'org_a', userId: 'user_grace', roles: ['member'] };
+    const grace: SkillActor = { orgId: 'org_a', userId: 'user_grace', roles: ['viewer'] };
     const shared = await create(
       alice,
       doc('always-me', { trigger: 'always' }, 'Assign every bug to Alice.'),

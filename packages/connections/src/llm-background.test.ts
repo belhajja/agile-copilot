@@ -11,7 +11,7 @@ import {
   loadDefaultLlm,
   setBackgroundLlmConnection,
 } from './llm-connections';
-import { keyring, member, owner, startHarness } from './test-helpers';
+import { keyring, manager, owner, startHarness, viewer } from './test-helpers';
 
 describe('background model ("cheap model" for skill runs)', () => {
   let h: Awaited<ReturnType<typeof startHarness>>;
@@ -71,9 +71,11 @@ describe('background model ("cheap model" for skill runs)', () => {
   });
 
   it('is for owners and admins, within their workspace', async () => {
-    await expect(setBackgroundLlmConnection(deps, member(), main)).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    for (const actor of [viewer(), manager()]) {
+      await expect(setBackgroundLlmConnection(deps, actor, main)).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    }
     expect(await setBackgroundLlmConnection(deps, owner('org_b'), main)).toMatchObject({
       ok: false,
       code: 'not_found',

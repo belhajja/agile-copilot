@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ID = '0f4c1b9e-5d3a-4a52-8d52-2f1c7a9a0b11';
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ revalidatePath: () => undefined }));
 vi.mock('next-intl/server', () => ({ getLocale: async () => 'en' }));
-// Never reached for a member: the services refuse before touching the database.
+// Never reached for a manager or viewer: the services refuse before touching the database.
+const actor = { orgId: 'org', userId: 'user', roles: ['viewer'] };
 vi.mock('@/server/automation', () => ({ notifyDeps: () => ({}) }));
 vi.mock('@/server/context', () => ({
-  requireActor: async () => ({ orgId: 'org', userId: 'user', roles: ['member'] }),
+  requireActor: async () => actor,
   connectionDeps: () => ({}),
 }));
 
@@ -17,7 +18,10 @@ const { createChannelAction, deleteChannelAction } = await import(
 );
 const { setBackgroundLlmConnectionAction } = await import('../app/(app)/settings/llm/actions');
 
-describe('settings actions called by a plain member', () => {
+describe.each(['viewer', 'manager'])('settings actions called by a %s', (role) => {
+  beforeEach(() => {
+    actor.roles = [role];
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it('createChannelAction answers forbidden_role', async () => {

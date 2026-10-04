@@ -2,7 +2,7 @@ import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ID = '0f4c1b9e-5d3a-4a52-8d52-2f1c7a9a0b11';
-const ACTOR = { orgId: 'org', userId: 'user', roles: ['member'] as string[] };
+const ACTOR = { orgId: 'org', userId: 'user', roles: ['viewer'] as string[] };
 
 const skillView = (over: Record<string, unknown> = {}) => ({
   id: ID,
@@ -111,7 +111,7 @@ const render = (searchParams: Record<string, unknown> = {}) =>
 describe('a skill page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    ACTOR.roles = ['member'];
+    ACTOR.roles = ['viewer'];
     automation.listRuns.mockResolvedValue([run]);
   });
 
@@ -198,8 +198,11 @@ describe('a skill page', () => {
 
   it('offers Slack/Teams channels in the editor to owners and admins only (M3, P4-R4)', async () => {
     store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
-    const [member] = find(await render(), has('initialDocument'));
-    expect(member?.props.canPostToChannels).toBe(false);
+    const [viewer] = find(await render(), has('initialDocument'));
+    expect(viewer?.props.canPostToChannels).toBe(false);
+    ACTOR.roles = ['manager'];
+    const [manager] = find(await render(), has('initialDocument'));
+    expect(manager?.props.canPostToChannels).toBe(false);
     ACTOR.roles = ['admin'];
     const [admin] = find(await render(), has('initialDocument'));
     expect(admin?.props.canPostToChannels).toBe(true);

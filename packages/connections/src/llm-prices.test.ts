@@ -9,7 +9,7 @@ import {
   loadDefaultLlm,
   setLlmConnectionPrices,
 } from './llm-connections';
-import { keyring, member, owner, startHarness } from './test-helpers';
+import { keyring, manager, owner, startHarness, viewer } from './test-helpers';
 
 describe('LLM prices (cost meter)', () => {
   let h: Awaited<ReturnType<typeof startHarness>>;
@@ -64,9 +64,11 @@ describe('LLM prices (cost meter)', () => {
         code: 'invalid_price',
       });
     }
-    await expect(
-      setLlmConnectionPrices(deps, member(), id, { inputMicros: 1, outputMicros: 1 }),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    for (const actor of [viewer(), manager()]) {
+      await expect(
+        setLlmConnectionPrices(deps, actor, id, { inputMicros: 1, outputMicros: 1 }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
     expect(
       await setLlmConnectionPrices(deps, owner('org_b'), id, { inputMicros: 1, outputMicros: 1 }),
     ).toMatchObject({

@@ -46,7 +46,7 @@ vi.mock('@/server/automation', () => ({
   skillRunDeps: () => ({ deps: true }),
 }));
 vi.mock('@/server/context', () => ({
-  requireActor: async () => ({ orgId: 'org', userId: 'user', roles: ['member'] }),
+  requireActor: async () => ({ orgId: 'org', userId: 'user', roles: ['viewer'] }),
   services: () => ({ db: {} }),
 }));
 

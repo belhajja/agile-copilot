@@ -18,7 +18,8 @@ import { DIGEST_LABELS } from './labels';
 import { type MockSmtp, type MockWebhook, startMockSmtp, startMockWebhook } from './testing';
 
 const owner: Actor = { orgId: 'org_a', userId: 'user_owner', roles: ['owner'] };
-const member: Actor = { orgId: 'org_a', userId: 'user_m', roles: ['member'] };
+const viewer: Actor = { orgId: 'org_a', userId: 'user_m', roles: ['viewer'] };
+const manager: Actor = { orgId: 'org_a', userId: 'user_mgr', roles: ['manager'] };
 const other: Actor = { orgId: 'org_b', userId: 'user_b', roles: ['owner'] };
 const testMessage = { title: DIGEST_LABELS.en.testTitle, text: DIGEST_LABELS.en.testText };
 
@@ -318,24 +319,30 @@ describe('delivery channels', () => {
       ],
     });
     expect(await listChannelUsage(app.db, other)).toEqual({});
-    await expect(listChannelUsage(app.db, member)).rejects.toBeInstanceOf(ForbiddenError);
+    for (const actor of [viewer, manager]) {
+      await expect(listChannelUsage(app.db, actor)).rejects.toBeInstanceOf(ForbiddenError);
+    }
     await withOrg(app.db, 'org_a', (tx) => tx.delete(skills));
   });
 
   it('is managed by workspace owners and admins only, within their workspace', async () => {
-    await expect(
-      createDeliveryChannel(
-        deps,
-        member,
-        { kind: 'slack', name: 'm', url: slackUrl() },
-        { testMessage },
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    for (const actor of [viewer, manager]) {
+      await expect(
+        createDeliveryChannel(
+          deps,
+          actor,
+          { kind: 'slack', name: 'm', url: slackUrl() },
+          { testMessage },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
     const [first] = await listDeliveryChannels(app.db, 'org_a');
     if (!first) throw new Error('no channel');
-    await expect(deleteDeliveryChannel(deps, member, first.id)).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    for (const actor of [viewer, manager]) {
+      await expect(deleteDeliveryChannel(deps, actor, first.id)).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    }
     expect(await deleteDeliveryChannel(deps, other, first.id)).toEqual({
       ok: false,
       code: 'not_found',

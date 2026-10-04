@@ -76,8 +76,8 @@ describe('GET /api/jira/oauth/start', () => {
     expect(location(res)).toBe(`https://auth.atlassian.com/authorize?state=${state}`);
   });
 
-  it('sends members back without starting a flow', async () => {
-    requireActor.mockResolvedValue({ ...owner, roles: ['member'] });
+  it.each(['viewer', 'manager'])('sends a %s back without starting a flow', async (role) => {
+    requireActor.mockResolvedValue({ ...owner, roles: [role] });
     const res = await start();
     expect(location(res)).toBe('http://localhost:3200/settings/jira?error=forbidden_role');
     expect(jar.size).toBe(0);
@@ -135,8 +135,8 @@ describe('GET /api/jira/oauth/callback', () => {
     expect(location(res)).toBe('http://localhost:3200/settings/jira?connected=3');
   });
 
-  it('sends members back before exchanging the code', async () => {
-    requireActor.mockResolvedValue({ ...owner, roles: ['member'] });
+  it.each(['viewer', 'manager'])('sends a %s back before exchanging the code', async (role) => {
+    requireActor.mockResolvedValue({ ...owner, roles: [role] });
     withState('st4te.org_a');
     const res = await callback(callbackRequest('code=c0de&state=st4te'));
     expect(location(res)).toBe('http://localhost:3200/settings/jira?error=forbidden_role');
