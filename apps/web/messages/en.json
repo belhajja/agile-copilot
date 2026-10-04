@@ -82,7 +82,8 @@
       "temporarily_unavailable": "Your identity provider is temporarily unavailable. Try again in a minute.",
       "server_error": "Your identity provider reported an error. Try again in a minute.",
       "invalid_request": "Your identity provider refused the sign-in request.",
-      "SSO_UNLINK_NOT_ALLOWED": "Sign-in methods cannot be removed while password sign-in is reserved for administrators."
+      "SSO_UNLINK_NOT_ALLOWED": "Sign-in methods cannot be removed while password sign-in is reserved for administrators.",
+      "SEAT_LIMIT_REACHED": "This workspace has no free seat on its plan. An owner can upgrade on the Billing page."
     },
     "ssoButton": "Continue with {name}",
     "ssoUnavailable": "Single sign-on is not reachable right now. Try again in a minute.",
@@ -114,7 +115,8 @@
     "skill": "Skill",
     "delivery": "Delivery",
     "account": "Account",
-    "members": "Members"
+    "members": "Members",
+    "billing": "Billing"
   },
   "dashboard": {
     "title": "Get started",
@@ -328,7 +330,8 @@
       "abandoned": "The previous sync was interrupted. Try again.",
       "board_query_rejected": "Jira rejected this board's filter. Check that the board's saved filter still exists and is shared.",
       "board_not_found": "This board no longer exists in Jira. Refresh the boards.",
-      "interrupted": "The sync was interrupted (the worker restarted). It will be retried."
+      "interrupted": "The sync was interrupted (the worker restarted). It will be retried.",
+      "board_limit": "Your plan syncs a limited number of boards. Unselect a board or upgrade on the Billing page."
     }
   },
   "dashboards": {
@@ -993,5 +996,45 @@
     "rolesHint": "Viewers see dashboards and ask the assistant about synced data. Managers also read Jira live and propose changes they approve. Admins manage connections, members and settings. Owners also manage billing and can delete the workspace.",
     "readOnlyNotice": "Only owners and admins manage members.",
     "noSsoHint": "Without single sign-on, anyone holding an invitation link who signs in with the invited address can accept it: send links only to the invited person."
+  },
+  "billing": {
+    "title": "Billing",
+    "intro": "Your plan and what it includes. Payments are handled by Stripe.",
+    "plans": {
+      "free": "Free plan",
+      "team": "Team plan"
+    },
+    "status": {
+      "active": "Active",
+      "trialing": "Trial",
+      "past_due": "Payment overdue",
+      "canceled": "Cancelled",
+      "unpaid": "Unpaid",
+      "incomplete": "Incomplete",
+      "incomplete_expired": "Expired",
+      "paused": "Paused"
+    },
+    "renewsOn": "Renews on {date}.",
+    "endsOn": "Ends on {date}.",
+    "seats": "Seats (members and invitations)",
+    "boards": "Synced boards",
+    "externalMcp": "External AI clients (MCP)",
+    "unlimited": "Unlimited",
+    "included": "Included",
+    "notIncluded": "Not included",
+    "teamPitch": "The Team plan gives up to {seats} seats, {boards} synced boards and access from external AI clients.",
+    "securityIncluded": "Single sign-on, audit export, data retention, data export and deletion are included in every plan.",
+    "upgrade": "Upgrade to Team",
+    "manage": "Manage billing",
+    "ownerOnly": "Only workspace owners manage billing.",
+    "checkoutDone": "Thank you. Your plan updates as soon as Stripe confirms the payment.",
+    "errors": {
+      "forbidden_role": "Only workspace owners manage billing.",
+      "billing_disabled": "Billing is not available here.",
+      "no_customer": "Start a subscription first.",
+      "subscription_exists": "This workspace already has a subscription. Use Manage billing to change it.",
+      "no_checkout_url": "Stripe did not open a payment page. Try again.",
+      "stripe_error": "Stripe could not be reached. Try again."
+    }
   }
 }

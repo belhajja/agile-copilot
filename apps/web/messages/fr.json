@@ -82,7 +82,8 @@
       "temporarily_unavailable": "Votre fournisseur d'identité est momentanément indisponible. Réessayez dans une minute.",
       "server_error": "Votre fournisseur d'identité a signalé une erreur. Réessayez dans une minute.",
       "invalid_request": "Votre fournisseur d'identité a refusé la demande de connexion.",
-      "SSO_UNLINK_NOT_ALLOWED": "Les méthodes de connexion ne peuvent pas être retirées tant que le mot de passe est réservé aux administrateurs."
+      "SSO_UNLINK_NOT_ALLOWED": "Les méthodes de connexion ne peuvent pas être retirées tant que le mot de passe est réservé aux administrateurs.",
+      "SEAT_LIMIT_REACHED": "Cet espace n'a plus de place disponible dans son offre. Un propriétaire peut changer d'offre dans Facturation."
     },
     "ssoButton": "Continuer avec {name}",
     "ssoUnavailable": "L'authentification unique est injoignable pour le moment. Réessayez dans une minute.",
@@ -114,7 +115,8 @@
     "skill": "Compétence",
     "delivery": "Diffusion",
     "account": "Compte",
-    "members": "Membres"
+    "members": "Membres",
+    "billing": "Facturation"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -328,7 +330,8 @@
       "abandoned": "La synchronisation précédente a été interrompue. Réessayez.",
       "board_query_rejected": "Jira a refusé le filtre de ce tableau. Vérifiez que le filtre enregistré du tableau existe toujours et qu'il est partagé.",
       "board_not_found": "Ce tableau n'existe plus dans Jira. Actualisez les tableaux.",
-      "interrupted": "La synchronisation a été interrompue (redémarrage du worker). Elle sera relancée."
+      "interrupted": "La synchronisation a été interrompue (redémarrage du worker). Elle sera relancée.",
+      "board_limit": "Votre offre synchronise un nombre limité de tableaux. Désélectionnez un tableau ou changez d'offre dans Facturation."
     }
   },
   "dashboards": {
@@ -993,5 +996,45 @@
     "rolesHint": "Les lecteurs consultent les tableaux de bord et interrogent l'assistant sur les données synchronisées. Les managers lisent aussi Jira en direct et proposent des modifications qu'ils approuvent. Les administrateurs gèrent les connexions, les membres et les réglages. Les propriétaires gèrent aussi la facturation et peuvent supprimer l'espace.",
     "readOnlyNotice": "Seuls les propriétaires et les administrateurs gèrent les membres.",
     "noSsoHint": "Sans authentification unique, toute personne qui détient un lien d'invitation et se connecte avec l'adresse invitée peut l'accepter : n'envoyez le lien qu'à la personne invitée."
+  },
+  "billing": {
+    "title": "Facturation",
+    "intro": "Votre offre et ce qu'elle comprend. Les paiements sont gérés par Stripe.",
+    "plans": {
+      "free": "Offre gratuite",
+      "team": "Offre Équipe"
+    },
+    "status": {
+      "active": "Active",
+      "trialing": "Essai",
+      "past_due": "Paiement en retard",
+      "canceled": "Résiliée",
+      "unpaid": "Impayée",
+      "incomplete": "Incomplète",
+      "incomplete_expired": "Expirée",
+      "paused": "En pause"
+    },
+    "renewsOn": "Renouvellement le {date}.",
+    "endsOn": "Se termine le {date}.",
+    "seats": "Places (membres et invitations)",
+    "boards": "Tableaux synchronisés",
+    "externalMcp": "Clients d'IA externes (MCP)",
+    "unlimited": "Illimité",
+    "included": "Inclus",
+    "notIncluded": "Non inclus",
+    "teamPitch": "L'offre Équipe donne jusqu'à {seats} places, {boards} tableaux synchronisés et l'accès depuis des clients d'IA externes.",
+    "securityIncluded": "L'authentification unique, l'export du journal d'audit, la durée de conservation, l'export et la suppression des données sont inclus dans toutes les offres.",
+    "upgrade": "Passer à l'offre Équipe",
+    "manage": "Gérer la facturation",
+    "ownerOnly": "Seuls les propriétaires de l'espace gèrent la facturation.",
+    "checkoutDone": "Merci. Votre offre sera mise à jour dès que Stripe confirmera le paiement.",
+    "errors": {
+      "forbidden_role": "Seuls les propriétaires de l'espace gèrent la facturation.",
+      "billing_disabled": "La facturation n'est pas disponible ici.",
+      "no_customer": "Souscrivez d'abord une offre.",
+      "subscription_exists": "Cet espace a déjà un abonnement. Utilisez « Gérer la facturation » pour le modifier.",
+      "no_checkout_url": "Stripe n'a pas ouvert de page de paiement. Réessayez.",
+      "stripe_error": "Stripe est injoignable. Réessayez."
+    }
   }
 }

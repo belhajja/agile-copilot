@@ -6,7 +6,7 @@ import {
   getMemberRoles,
   type SsoConfig,
 } from '@agile/auth';
-import { cancelSubscriptionForOrg } from '@agile/billing';
+import { cancelSubscriptionForOrg, getEntitlements } from '@agile/billing';
 import { billingConfigOf, type ServerEnv, serverEnv } from '@agile/config';
 import type { Actor, LlmDeps } from '@agile/connections';
 import { type Keyring, parseKeyring } from '@agile/crypto';
@@ -54,6 +54,9 @@ export function services(): Services {
       // failure keeps the workspace.
       beforeWorkspaceDeleted: (orgId) =>
         cancelSubscriptionForOrg({ db, billing: billingConfigOf(env) }, orgId),
+      // SaaS plans limit seats (invite, add, accept); self-host builds have no limit.
+      seatLimit: async (orgId) =>
+        (await getEntitlements({ db, billing: billingConfigOf(env) }, orgId)).maxSeats,
     });
     g.__agileServices = {
       env,

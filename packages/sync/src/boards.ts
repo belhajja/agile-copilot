@@ -253,25 +253,42 @@ async function configureBoards(
   }
 }
 
+/** The selection would exceed the plan's synced boards (SaaS plans, `@agile/billing`). */
+export type BoardLimitFailure = { ok: false; code: 'board_limit'; limit: number };
+
+class BoardLimitError extends Error {
+  override name = 'BoardLimitError';
+}
+
 /**
  * Selects exactly `boardIds` (ids of this connection's boards; others are ignored), then reads the
- * configuration of selected boards that never had one.
+ * configuration of selected boards that never had one. With `maxSelectedBoards`, a selection that
+ * would leave more boards selected across the workspace's connections than the plan allows is
+ * refused and the previous one stays (a quota, not a lock: L11), unless it only unselects boards.
+ * After a downgrade, boards already selected stay selected until someone changes the selection.
  */
 export async function setBoardSelection(
   deps: SyncDeps,
   actor: Actor,
   connectionId: string,
   boardIds: string[],
-): Promise<{ ok: true; selected: number } | SyncFailure> {
+  /** Selected boards allowed across the workspace's connections; null/absent = no limit. */
+  opts: { maxSelectedBoards?: number | null } = {},
+): Promise<{ ok: true; selected: number } | SyncFailure | BoardLimitFailure> {
   assertCanManage(actor);
   if (!isUuid(connectionId)) return { ok: false, code: 'not_found' };
   const ids = boardIds.filter(isUuid);
+  const max = opts.maxSelectedBoards ?? null;
   const result = await withOrg(deps.db, actor.orgId, async (tx) => {
     const [conn] = await tx
       .select({ id: jiraConnections.id })
       .from(jiraConnections)
       .where(eq(jiraConnections.id, connectionId));
     if (!conn) return { ok: false, code: 'not_found' } as const;
+    const before = await tx
+      .select({ id: jiraBoards.id })
+      .from(jiraBoards)
+      .where(and(eq(jiraBoards.connectionId, connectionId), eq(jiraBoards.selected, true)));
     await tx
       .update(jiraBoards)
       .set({ selected: false })
@@ -288,6 +305,18 @@ export async function setBoardSelection(
               jiraBoardId: jiraBoards.jiraBoardId,
               columns: jiraBoards.columns,
             });
+    // Counted inside the transaction, after the change: the rollback undoes it when over. Over
+    // the plan, only a change that unselects boards and selects no new one is allowed (a downgrade
+    // never forces anyone to unselect everything at once).
+    const kept = new Set(before.map((b) => b.id));
+    const onlyRemoves = selected.length < before.length && selected.every((b) => kept.has(b.id));
+    if (
+      max !== null &&
+      !onlyRemoves &&
+      (await tx.$count(jiraBoards, eq(jiraBoards.selected, true))) > max
+    ) {
+      throw new BoardLimitError();
+    }
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,
@@ -301,6 +330,11 @@ export async function setBoardSelection(
       selected: selected.length,
       unconfigured: selected.filter((b) => b.columns.length === 0),
     } as const;
+  }).catch((e) => {
+    if (e instanceof BoardLimitError) {
+      return { ok: false, code: 'board_limit', limit: max ?? 0 } as const;
+    }
+    throw e;
   });
   if (!result.ok) return result;
   // Outside the transaction: Jira calls must not hold database locks.

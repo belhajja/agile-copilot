@@ -4,6 +4,7 @@ import { ForbiddenError } from '@agile/connections';
 import { discoverBoards, requestSync, saveStatusMappings, setBoardSelection } from '@agile/sync';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { entitlements } from '@/server/billing';
 import { requireActor, services } from '@/server/context';
 import { syncDeps, syncQueue } from '@/server/sync';
 
@@ -46,7 +47,11 @@ export async function saveBoardSelectionAction(
     return { status: 'error', code: 'invalid_input' };
   }
   return guarded(async () => {
-    const result = await setBoardSelection(syncDeps(), actor, connectionId, ids.data);
+    // SaaS plans limit synced boards (a quota checked when boards are added; never removes).
+    const { maxBoards } = await entitlements(actor.orgId);
+    const result = await setBoardSelection(syncDeps(), actor, connectionId, ids.data, {
+      maxSelectedBoards: maxBoards,
+    });
     if (!result.ok) return { status: 'error', code: result.code };
     revalidatePath(path(connectionId));
     revalidatePath('/');

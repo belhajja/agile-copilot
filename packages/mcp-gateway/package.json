@@ -12,6 +12,7 @@
     "@agile/analytics-mcp": "workspace:*",
     "@agile/auth": "workspace:*",
     "@agile/db": "workspace:*",
+    "@agile/net": "workspace:*",
     "@agile/privacy": "workspace:*",
     "@modelcontextprotocol/sdk": "1.32.0",
     "drizzle-orm": "0.45.3",

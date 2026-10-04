@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  CreditCard,
   LayoutDashboard,
   MessagesSquare,
   PlugZap,
@@ -25,8 +26,13 @@ import { WorkspaceSwitcher } from '@/components/workspace-switcher';
 
 export function AppSidebar({
   user,
+  billing,
   ...props
-}: ComponentProps<typeof Sidebar> & { user: { name: string; email: string } }) {
+}: ComponentProps<typeof Sidebar> & {
+  user: { name: string; email: string };
+  /** SaaS with Stripe configured: show the Billing page. */
+  billing: boolean;
+}) {
   const t = useTranslations('nav');
   const items = [
     { title: t('dashboard'), url: '/', icon: LayoutDashboard },
@@ -37,6 +43,7 @@ export function AppSidebar({
     { title: t('delivery'), url: '/settings/delivery', icon: Send },
     { title: t('usage'), url: '/settings/usage', icon: ReceiptText },
     { title: t('members'), url: '/settings/members', icon: Users },
+    ...(billing ? [{ title: t('billing'), url: '/settings/billing', icon: CreditCard }] : []),
   ];
   return (
     <Sidebar collapsible="icon" {...props}>

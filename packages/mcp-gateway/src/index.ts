@@ -1,4 +1,4 @@
-export { BodyTooLargeError, readBodyCapped } from './body';
+export { BodyTooLargeError, readBodyCapped } from '@agile/net';
 export {
   handleMcpHttpRequest,
   MAX_MCP_BODY_BYTES,

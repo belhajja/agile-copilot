@@ -666,6 +666,9 @@ importers:
       '@agile/db':
         specifier: workspace:*
         version: link:../db
+      '@agile/net':
+        specifier: workspace:*
+        version: link:../net
       '@agile/privacy':
         specifier: workspace:*
         version: link:../privacy

@@ -1,8 +1,8 @@
 import { createAnalyticsMcpServer } from '@agile/analytics-mcp';
 import { recordAudit, withOrg } from '@agile/db';
+import { BodyTooLargeError, readBodyCapped } from '@agile/net';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { isJSONRPCRequest, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
-import { BodyTooLargeError, readBodyCapped } from './body';
 import { DEFAULT_RATE_LIMIT_PER_MINUTE, takeRequest } from './rate-limit';
 import { authenticateToken, type GatewayDeps, type TokenIdentity } from './tokens';
 

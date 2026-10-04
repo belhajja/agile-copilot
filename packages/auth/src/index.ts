@@ -1,5 +1,10 @@
 export { ac, orgRoles } from './access';
-export { assertAssignableRole, ROLE_NOT_ALLOWED } from './assign';
+export {
+  assertAssignableRole,
+  assertSeatAvailable,
+  ROLE_NOT_ALLOWED,
+  SEAT_LIMIT_REACHED,
+} from './assign';
 export { createBreakGlassAccount, NOT_BREAK_GLASS } from './break-glass';
 export {
   type AuthHolder,

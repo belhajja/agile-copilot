@@ -39,6 +39,34 @@ describe('boards and status mapping', () => {
     ]);
   });
 
+  it('refuses a selection beyond the plan, keeping the previous one (SaaS limits)', async () => {
+    const ids = (await listBoards(h.deps, 'org_a', connectionId)).map((b) => b.id);
+    expect(
+      await setBoardSelection(h.deps, owner(), connectionId, ids, { maxSelectedBoards: 1 }),
+    ).toEqual({ ok: false, code: 'board_limit', limit: 1 });
+    // Both boards stay selected (the earlier selection), nothing half-applied.
+    expect((await listBoards(h.deps, 'org_a', connectionId)).map((b) => b.selected)).toEqual([
+      true,
+      true,
+    ]);
+    expect(
+      await setBoardSelection(h.deps, owner(), connectionId, ids, { maxSelectedBoards: 2 }),
+    ).toEqual({ ok: true, selected: 2 });
+    // After a downgrade below what is selected, unselecting is still allowed (it adds nothing)...
+    expect(
+      await setBoardSelection(h.deps, owner(), connectionId, ids.slice(0, 1), {
+        maxSelectedBoards: 0,
+      }),
+    ).toEqual({ ok: true, selected: 1 });
+    // ...but swapping in another board is not.
+    expect(
+      await setBoardSelection(h.deps, owner(), connectionId, ids.slice(1), {
+        maxSelectedBoards: 0,
+      }),
+    ).toEqual({ ok: false, code: 'board_limit', limit: 0 });
+    await setBoardSelection(h.deps, owner(), connectionId, ids);
+  });
+
   it('suggests a mapping for every column status from Jira categories', async () => {
     const [scrum] = await listBoards(h.deps, 'org_a', connectionId);
     const mappings = await listStatusMappings(h.deps, 'org_a', scrum?.id ?? '');

@@ -18,3 +18,19 @@ export function assertAssignableRole(role: unknown): Role {
   }
   return role;
 }
+
+/** Error code when a workspace's plan has no free seat (SaaS plans). */
+export const SEAT_LIMIT_REACHED = 'SEAT_LIMIT_REACHED';
+
+/**
+ * Refuses one more seat when `used + 1` would exceed `limit` (null = no limit). A quota, not a
+ * lock: two requests at the same moment may both pass (L11, accepted).
+ */
+export function assertSeatAvailable(limit: number | null, used: number): void {
+  if (limit !== null && used + 1 > limit) {
+    throw new APIError('FORBIDDEN', {
+      code: SEAT_LIMIT_REACHED,
+      message: 'This workspace has no free seat on its plan.',
+    });
+  }
+}

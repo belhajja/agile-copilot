@@ -2,7 +2,9 @@ import { getSessionCookie } from 'better-auth/cookies';
 import { type NextRequest, NextResponse } from 'next/server';
 import { loginPath } from './lib/next-path';
 
-const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
+// /api/billing/webhook: Stripe, authenticated by its signature over the raw body, not a session.
+// Only that exact path (and below): the rest of /api/billing keeps the session check.
+const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth', '/api/billing/webhook'];
 // Browser navigations (Jira OAuth start/callback): keep the redirect to /login, not JSON.
 const NAVIGATION_API_PREFIXES = ['/api/jira/oauth'];
 

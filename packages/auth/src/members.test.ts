@@ -171,6 +171,47 @@ describe('workspace membership: audit and invitation privacy', () => {
     expect(await seatsInUse(conn.db, orgId, new Date(Date.now() + 30 * 86_400_000))).toBe(2);
   });
 
+  it('holds invitations and joins to the plan seats', async () => {
+    const limited = createAuth({
+      db: conn.db,
+      secret: 'x'.repeat(32),
+      baseURL: 'http://localhost:3000',
+      seatLimit: async () => 3,
+    });
+    // 2 members + 1 pending invitation = 3 seats: no fourth.
+    await expect(
+      limited.api.createInvitation({
+        headers: ownerH,
+        body: { email: 'fourth@example.com', role: 'viewer' as 'admin', organizationId: orgId },
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SEAT_LIMIT_REACHED' } });
+    // The pending invitation still converts to a member (3 seats, 3 allowed).
+    const pendingH = (await signUp('pending@example.com')).h;
+    const [inv] = await listPendingInvitations(conn.db, orgId);
+    const shrunk = createAuth({
+      db: conn.db,
+      secret: 'x'.repeat(32),
+      baseURL: 'http://localhost:3000',
+      seatLimit: async () => 2,
+    });
+    // ...unless the plan shrank meanwhile.
+    await expect(
+      shrunk.api.acceptInvitation({ headers: pendingH, body: { invitationId: inv?.id ?? '' } }),
+    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SEAT_LIMIT_REACHED' } });
+    await limited.api.acceptInvitation({
+      headers: pendingH,
+      body: { invitationId: inv?.id ?? '' },
+    });
+    expect((await listWorkspaceMembers(conn.db, orgId)).length).toBe(3);
+    // The server-side add (no invitation) is held to the plan too.
+    const extra = await signUp('extra@example.com');
+    await expect(
+      limited.api.addMember({
+        body: { userId: extra.id, role: 'viewer' as 'admin', organizationId: orgId },
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SEAT_LIMIT_REACHED' } });
+  });
+
   it('keeps invitations from managers too', async () => {
     const m = await signUp('manager@example.com');
     const inv = await auth.api.createInvitation({

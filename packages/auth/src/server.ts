@@ -15,7 +15,7 @@ import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 import { organization } from 'better-auth/plugins/organization';
 import { asc, eq } from 'drizzle-orm';
 import { ac, orgRoles } from './access';
-import { assertAssignableRole } from './assign';
+import { assertAssignableRole, assertSeatAvailable } from './assign';
 import {
   auditMembership,
   checkInvitationListScope,
@@ -23,6 +23,7 @@ import {
   redactFullOrganization,
   rememberBeforeState,
 } from './hooks';
+import { seatsInUse } from './members';
 import {
   guardBreakGlassSignUp,
   guardPasswordLogin,
@@ -54,6 +55,11 @@ export interface AuthOptions {
    * subscriptions and expire its open Checkout sessions). Throwing keeps the workspace.
    */
   beforeWorkspaceDeleted?: (orgId: string) => Promise<void>;
+  /**
+   * Seats a workspace's plan allows (members plus pending invitations); null = no limit (the
+   * default, and self-host). Checked when someone is invited, added or accepts; never removes.
+   */
+  seatLimit?: (orgId: string) => Promise<number | null>;
 }
 
 /**
@@ -71,10 +77,13 @@ export function createAuth(
     passwordLogin = 'all',
     breakGlassEmails = [],
     beforeWorkspaceDeleted = async () => {},
+    seatLimit = async () => null,
   }: AuthOptions,
   { ssoProvider = true }: { ssoProvider?: boolean } = {},
 ) {
   const policy = { passwordLogin, breakGlassEmails };
+  const memberCount = (orgId: string) =>
+    db.$count(schema.member, eq(schema.member.organizationId, orgId));
   const ownerOf = async (userId: string) =>
     (
       await db
@@ -184,12 +193,26 @@ export function createAuth(
         organizationHooks: {
           // The role set is closed: owner, admin, manager, viewer (never better-auth's `member`).
           // Second layer behind `hooks.before`; `addMember` (server-only, no path) relies on it.
-          beforeCreateInvitation: async ({ invitation }) => ({
-            data: { ...invitation, role: assertAssignableRole(invitation.role) },
-          }),
-          beforeAddMember: async ({ member }) => ({
-            data: { ...member, role: assertAssignableRole(member.role) },
-          }),
+          // Plan seats (SaaS) are checked after the role, so a bad role keeps its own error.
+          // A resend of a pending invitation skips this hook (it already holds a seat).
+          beforeCreateInvitation: async ({ invitation }) => {
+            const role = assertAssignableRole(invitation.role);
+            const orgId = invitation.organizationId;
+            // A pending invitation holds a seat.
+            assertSeatAvailable(await seatLimit(orgId), await seatsInUse(db, orgId));
+            return { data: { ...invitation, role } };
+          },
+          beforeAddMember: async ({ member }) => {
+            const role = assertAssignableRole(member.role);
+            const orgId = member.organizationId;
+            assertSeatAvailable(await seatLimit(orgId), await memberCount(orgId));
+            return { data: { ...member, role } };
+          },
+          // Checked again on acceptance (members only: the invitation's own seat is the one being
+          // taken), as the plan may have shrunk since the invitation was sent.
+          beforeAcceptInvitation: async ({ organization: org }) => {
+            assertSeatAvailable(await seatLimit(org.id), await memberCount(org.id));
+          },
           beforeUpdateMemberRole: async ({ newRole }) => ({
             data: { role: assertAssignableRole(newRole) },
           }),

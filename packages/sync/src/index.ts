@@ -1,4 +1,5 @@
 export {
+  type BoardLimitFailure,
   type BoardView,
   discoverBoards,
   getBoard,

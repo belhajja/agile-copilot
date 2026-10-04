@@ -51,11 +51,23 @@ describe('proxy', () => {
     expect(res.headers.get('location')).toBe('http://localhost:3200/login');
   });
 
-  it('lets public auth paths through', () => {
-    for (const path of ['/api/auth/sign-in/email', '/api/auth/callback/keycloak']) {
+  it('lets public auth paths and the Stripe webhook through', () => {
+    for (const path of [
+      '/api/auth/sign-in/email',
+      '/api/auth/callback/keycloak',
+      '/api/billing/webhook',
+    ]) {
       const res = proxy(req(path));
       expect(res.status).toBe(200);
       expect(res.headers.get('x-middleware-next')).toBe('1');
+    }
+  });
+
+  it('keeps the rest of /api/billing behind the session', async () => {
+    for (const path of ['/api/billing', '/api/billing/webhook-other', '/api/billing/portal']) {
+      const res = proxy(req(path));
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'unauthorized' });
     }
   });
 
