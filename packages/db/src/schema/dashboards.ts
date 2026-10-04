@@ -32,6 +32,7 @@ export const dashboards = pgTable(
     updatedAt,
   },
   (t) => [
+    index('dashboards_board_idx').on(t.boardId),
     index('dashboards_owner_idx').on(t.orgId, t.userId, t.boardId),
     // At most one default dashboard of each kind per user and board (makes seeding idempotent).
     uniqueIndex('dashboards_default_uq')

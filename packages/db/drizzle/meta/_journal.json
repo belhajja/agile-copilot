@@ -43,6 +43,13 @@
       "when": 1791078843100,
       "tag": "0005_phase2_force_rls_and_pgboss",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791079035317,
+      "tag": "0006_daily_franklin_storm",
+      "breakpoints": true
     }
   ]
 }

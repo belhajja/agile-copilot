@@ -171,6 +171,7 @@ export const jiraBoardIssues = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.boardId, t.issueId] }),
+    index('jira_board_issues_issue_idx').on(t.issueId),
     tenantPolicy('jira_board_issues', t.orgId),
   ],
 );
@@ -245,6 +246,7 @@ export const jiraBoardSprints = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.boardId, t.sprintId] }),
+    index('jira_board_sprints_sprint_idx').on(t.sprintId),
     tenantPolicy('jira_board_sprints', t.orgId),
   ],
 );

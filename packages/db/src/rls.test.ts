@@ -103,6 +103,26 @@ describe('row-level security (as app_user)', () => {
     expect(rows.filter((r) => r.on_delete !== 'c')).toEqual([]);
   });
 
+  it('guards the schema: every cascading foreign key is covered by an index', async () => {
+    // Without one, each parent delete scans the child table: deleting a connection turns quadratic.
+    // Partial indexes cannot serve the FK lookup, so they do not count.
+    const rows = (await app.db.execute(sql`
+      select con.conname as name
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace n on n.oid = rel.relnamespace
+      where con.contype = 'f' and con.confdeltype = 'c' and n.nspname = 'public'
+        and not exists (
+          select 1 from pg_index i
+          where i.indrelid = con.conrelid and i.indpred is null
+            and (i.indkey::int2[])[0:cardinality(con.conkey) - 1] @> con.conkey
+            and con.conkey @> (i.indkey::int2[])[0:cardinality(con.conkey) - 1]
+        )
+      order by con.conname
+    `)) as unknown as { name: string }[];
+    expect(rows.map((r) => r.name)).toEqual([]);
+  });
+
   it('purges one org from every tenant table except the audit log', async () => {
     for (const org of ['org_p', 'org_q']) {
       await withOrg(app.db, org, async (tx) => {
