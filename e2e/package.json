@@ -1,0 +1,16 @@
+{
+  "name": "@agile/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "mocks": "tsx mocks/serve.ts"
+  },
+  "devDependencies": {
+    "@agile/db": "workspace:*",
+    "@agile/jira": "workspace:*",
+    "@agile/llm": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "tsx": "^4.20.0"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.turbo/
+.vitest/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+next-env.d.ts
+.pnpm-store/

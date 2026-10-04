@@ -1,0 +1,21 @@
+{
+  "name": "@agile/auth",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "generate-schema": "auth generate --config src/cli-config.ts --output ../db/src/schema/auth.ts --adapter drizzle --dialect postgresql --yes"
+  },
+  "dependencies": {
+    "@agile/db": "workspace:*",
+    "better-auth": "1.7.7",
+    "drizzle-orm": "0.45.3"
+  },
+  "devDependencies": {
+    "auth": "1.7.7",
+    "next": "16.3.8"
+  }
+}
