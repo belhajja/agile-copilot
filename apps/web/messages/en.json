@@ -1053,7 +1053,12 @@
     "action": "Action",
     "who": "Who",
     "formerMember": "Former member",
-    "system": "System"
+    "system": "System",
+    "errors": {
+      "export_in_progress": "An export is already running. Wait for it to finish.",
+      "export_rate_limited": "Too many exports this hour. Try again later.",
+      "unknown": "Something went wrong."
+    }
   },
   "workspace": {
     "title": "Workspace settings",

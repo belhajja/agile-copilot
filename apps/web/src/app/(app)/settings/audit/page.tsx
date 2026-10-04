@@ -13,15 +13,25 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { pickCode } from '@/lib/error-code';
 import { requireActor, services } from '@/server/context';
 
+/** Codes with a sentence under `audit.errors` (the throttle refusals of the export). */
+const EXPORT_ERROR_CODES = ['export_in_progress', 'export_rate_limited'] as const;
+
 /** Owners and admins: the latest audit entries and the export (CSV or JSON Lines). */
-export default async function AuditPage() {
+export default async function AuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string | string[] }>;
+}) {
   const actor = await requireActor();
   const t = await getTranslations('audit');
   if (!can(actor.roles, 'audit.export')) {
     return <p className="text-muted-foreground">{t('forbidden')}</p>;
   }
+  const { error } = await searchParams;
+  const failure = error === undefined ? null : pickCode(error, EXPORT_ERROR_CODES);
   const format = await getFormatter();
   const entries = await recentAuditEntries(services().db, actor, 50);
   return (
@@ -30,6 +40,11 @@ export default async function AuditPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground">{t('intro')}</p>
       </div>
+      {failure && (
+        <p role="alert" className="text-sm text-destructive">
+          {t(`errors.${failure}`)}
+        </p>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>{t('exportTitle')}</CardTitle>

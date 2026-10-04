@@ -21,7 +21,7 @@ export function DeleteWorkspace({ orgId, name }: { orgId: string; name: string }
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const typed = String(new FormData(e.currentTarget).get('confirm') ?? '').trim();
-    if (typed !== name) return setError(t('deleteMismatch'));
+    if (typed !== name.trim()) return setError(t('deleteMismatch'));
     setPending(true);
     const { error } = await authClient.organization.delete({ organizationId: orgId });
     if (error) {

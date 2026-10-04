@@ -45,12 +45,12 @@ const COLUMNS = [
 ] as const;
 
 /**
- * One CSV cell (RFC 4180 quoting). Text a spreadsheet would run as a formula (=, +, -, @, tab,
- * carriage return) gets a leading apostrophe: audit metadata can hold text people typed.
+ * One CSV cell (RFC 4180 quoting). Text a spreadsheet would run as a formula (= + - @ after any
+ * leading whitespace or quotes, or a leading tab, carriage return or line feed) gets a leading apostrophe: audit metadata can hold text people typed.
  */
 export function csvCell(value: unknown): string {
   let text = value === null || value === undefined ? '' : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  if (/^[\s'"]*[=+\-@]|^[\t\r\n]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

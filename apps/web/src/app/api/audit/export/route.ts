@@ -34,6 +34,16 @@ export async function GET(request: Request) {
     to: to ? new Date(new Date(`${to}T00:00:00Z`).getTime() + 86_400_000) : undefined,
   });
   if (!opened.ok) {
+    // A browser form navigation lands back on the audit page with the reason; callers get JSON.
+    if (
+      (opened.code === 'export_in_progress' || opened.code === 'export_rate_limited') &&
+      request.headers.get('accept')?.includes('text/html')
+    ) {
+      return new Response(null, {
+        status: 303,
+        headers: { location: `/settings/audit?error=${opened.code}` },
+      });
+    }
     return Response.json(
       { error: opened.code },
       { status: opened.code === 'forbidden_role' ? 403 : opened.code === 'not_found' ? 404 : 429 },

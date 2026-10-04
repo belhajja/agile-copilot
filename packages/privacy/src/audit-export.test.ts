@@ -9,7 +9,7 @@ import {
   openAuditExport,
   recentAuditEntries,
 } from './audit-export';
-import { EXPORTS_PER_HOUR } from './gdpr';
+import { EXPORT_STALE_MS, EXPORTS_PER_HOUR, openThrottledExport, openUserExport } from './gdpr';
 
 const admin = { orgId: 'org_a', userId: 'u_admin', roles: ['admin'] };
 
@@ -154,5 +154,64 @@ describe('audit log export', () => {
       ok: false,
       code: 'export_rate_limited',
     });
+  });
+
+  it('neutralises every cell a spreadsheet could run as a formula', () => {
+    for (const bad of ['\t1', '\r1', '\n1', ' =1', '"=cmd', "'=x", ' \t@a', `'"-1`]) {
+      expect(csvCell(bad).replace(/^"|"$/g, '')).toMatch(/^'/);
+    }
+    for (const fine of ['hello', 'a=b', '2026-09-01T00:00:00.000Z', "it's", ' hello']) {
+      expect(csvCell(fine)).toBe(fine);
+    }
+  });
+
+  it('throttles personal and audit exports independently', async () => {
+    await raw.db.insert(user).values({ id: 'u_kind', name: 'Kind', email: 'kind@example.com' });
+    const actor = { orgId: 'org_a', userId: 'u_kind', roles: ['owner'] };
+    const small = { format: 'json' as const, from: new Date('2026-09-20T00:00:00Z') };
+    // A personal export in flight does not block an audit export, and the reverse.
+    const personal = await openUserExport(app.db, 'u_kind');
+    expect(personal.ok).toBe(true);
+    const audit = await openAuditExport(app.db, actor, small);
+    expect(audit.ok).toBe(true);
+    if (personal.ok) await personal.finish();
+    if (audit.ok) await audit.finish();
+    // Audit exports at their hourly limit do not block a personal export.
+    for (let i = 1; i < EXPORTS_PER_HOUR; i++) {
+      const next = await openAuditExport(app.db, actor, small);
+      if (next.ok) await next.finish();
+    }
+    expect(await openAuditExport(app.db, actor, small)).toMatchObject({
+      code: 'export_rate_limited',
+    });
+    const again = await openUserExport(app.db, 'u_kind');
+    expect(again.ok).toBe(true);
+    if (again.ok) await again.finish();
+  });
+
+  it('stops counting an abandoned audit export marker after the stale delay', async () => {
+    await raw.db.insert(user).values({ id: 'u_stale', name: 'Stale', email: 'stale@example.com' });
+    const t0 = new Date('2030-01-01T00:00:00Z');
+    const produce = () =>
+      exportAuditLog(app.db, { ...admin, userId: 'u_stale' }, { format: 'json' });
+    const first = await openThrottledExport(app.db, 'u_stale', 'audit', produce, t0);
+    expect(first.ok).toBe(true); // never finished: a crash
+    expect(
+      await openThrottledExport(
+        app.db,
+        'u_stale',
+        'audit',
+        produce,
+        new Date(t0.getTime() + 60_000),
+      ),
+    ).toMatchObject({ code: 'export_in_progress' });
+    const later = await openThrottledExport(
+      app.db,
+      'u_stale',
+      'audit',
+      produce,
+      new Date(t0.getTime() + EXPORT_STALE_MS + 1000),
+    );
+    expect(later.ok).toBe(true);
   });
 });

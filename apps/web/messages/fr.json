@@ -1053,7 +1053,12 @@
     "action": "Action",
     "who": "Qui",
     "formerMember": "Ancien membre",
-    "system": "Système"
+    "system": "Système",
+    "errors": {
+      "export_in_progress": "Un export est déjà en cours. Attendez qu'il se termine.",
+      "export_rate_limited": "Trop d'exports cette heure. Réessayez plus tard.",
+      "unknown": "Une erreur est survenue."
+    }
   },
   "workspace": {
     "title": "Réglages de l'espace",

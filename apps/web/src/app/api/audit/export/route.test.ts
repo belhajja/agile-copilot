@@ -26,7 +26,8 @@ vi.mock('@agile/privacy', () => ({
 
 const { GET } = await import('./route');
 
-const get = (query: string) => GET(new Request(`http://localhost:3200/api/audit/export${query}`));
+const get = (query: string, headers: Record<string, string> = {}) =>
+  GET(new Request(`http://localhost:3200/api/audit/export${query}`, { headers }));
 
 describe('GET /api/audit/export', () => {
   beforeEach(() => {
@@ -75,5 +76,17 @@ describe('GET /api/audit/export', () => {
       expect(res.status).toBe(429);
       expect(await res.json()).toEqual({ error: code });
     }
+  });
+
+  it('sends a browser form navigation back to the audit page when throttled', async () => {
+    for (const code of ['export_in_progress', 'export_rate_limited']) {
+      openAuditExport.mockResolvedValueOnce({ ok: false, code });
+      const res = await get('?format=csv', { accept: 'text/html,application/xhtml+xml' });
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe(`/settings/audit?error=${code}`);
+    }
+    // Programmatic callers keep the JSON answer.
+    openAuditExport.mockResolvedValueOnce({ ok: false, code: 'export_rate_limited' });
+    expect((await get('?format=csv', { accept: 'application/json' })).status).toBe(429);
   });
 });
