@@ -453,8 +453,12 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(r.status).toBe(200);
     expect(h.mock.writes).toEqual([]);
     expect(h.mcp.calls.length).toBe(mcpCalls);
-    expect((await approvalRows(id))[0]).toMatchObject({ status: 'failed' });
-    expect(['not_executed', 'not_found']).toContain((await approvalRows(id))[0]?.resultCode);
+    // The SDK re-validates the approved input against today's tools: the site no longer matches,
+    // so the call never reaches `execute`, and the change is closed as not sent.
+    expect((await approvalRows(id))[0]).toMatchObject({
+      status: 'failed',
+      resultCode: 'not_executed',
+    });
     await expectNextMessageWorks(id);
   });
 
