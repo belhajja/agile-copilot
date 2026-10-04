@@ -1,0 +1,60 @@
+default:
+  image: node:24-bookworm
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.14.0 --activate
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+    paths: [.pnpm-store]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages: [check, e2e]
+
+check:
+  stage: check
+  # Database tests start Postgres through Testcontainers, which needs a Docker daemon.
+  services:
+    - name: docker:28-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+  script:
+    - pnpm lint
+    - pnpm typecheck
+    - pnpm test
+    - pnpm --filter @agile/web build
+
+e2e:
+  stage: e2e
+  services:
+    - name: postgres:17-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: agile
+    POSTGRES_PASSWORD: agile_dev_password
+    POSTGRES_DB: agile
+    DATABASE_OWNER_URL: postgres://agile:agile_dev_password@postgres:5432/agile
+    E2E_DATABASE_URL: postgres://app_user:app_user_dev_password@postgres:5432/agile
+    CI: "true"
+  script:
+    - apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null
+    - until pg_isready -h postgres -U agile -d agile; do sleep 1; done
+    # Same non-owner role the compose init script creates, so RLS applies to the app.
+    - >-
+      PGPASSWORD=agile_dev_password psql -h postgres -U agile -d agile -v ON_ERROR_STOP=1 -c
+      "CREATE ROLE app_user LOGIN PASSWORD 'app_user_dev_password'; GRANT USAGE ON SCHEMA public TO app_user;"
+    - pnpm --filter @agile/e2e exec playwright install --with-deps chromium
+    - pnpm e2e
+  artifacts:
+    when: on_failure
+    paths: [e2e/playwright-report, e2e/test-results]
+    expire_in: 1 week

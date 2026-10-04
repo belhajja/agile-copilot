@@ -9,3 +9,4 @@ test-results/
 .env.*
 !.env.example
 next-env.d.ts
+.pnpm-store/
