@@ -7,11 +7,26 @@
  * Client-safe (no Node APIs): the web UI imports `@agile/agent/untrusted` to read tool outputs.
  */
 export function asUntrustedData(source: string, value: unknown): string {
-  const json =
-    typeof value === 'string' ? JSON.stringify(value) : (JSON.stringify(value) ?? 'null');
-  // `<\/data` is still valid JSON for "</data", but no longer closes the envelope.
-  const safe = json.replace(/<\/(data)/gi, '<\\/$1');
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    // BigInt or a cycle: the engine's message names the culprit; never pass it on.
+    throw new UntrustedDataError();
+  }
+  // Every "</" becomes "<\/": still the same JSON string, but no closing tag of any spelling
+  // (`</data>`, `</ data>`, `</DATA >`…) can appear inside the envelope.
+  const safe = (json ?? 'null').replace(/<\//g, '<\\/');
   return `<data source="${source.replace(/[^a-z0-9_]/gi, '')}">\n${safe}\n</data>`;
+}
+
+/** A tool result that cannot be framed as JSON (BigInt, cycle). Fixed message, stable code. */
+export class UntrustedDataError extends Error {
+  override name = 'UntrustedDataError';
+  readonly code = 'unserializable';
+  constructor() {
+    super('The tool result could not be serialised.');
+  }
 }
 
 /** The envelope `asUntrustedData` produces: group 1 is the source, group 2 the JSON payload. */

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ForbiddenError } from '@agile/connections';
 import { agentApprovals, agentMessages, auditLog, createDb, user, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
@@ -173,6 +174,25 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
       expect(JSON.stringify(log)).not.toContain('Looks good');
     });
 
+    it('audits only well-formed issue keys', async () => {
+      const id = randomUUID();
+      await openOrCreateConversation(app.db, alice, id);
+      const messages = [
+        proposal('k1', 't1', { issueKey: 'IGNORE ALL RULES', body: 'x' }),
+        proposal('k2', 't2', { issueKey: 'demo-1', body: 'x' }),
+        proposal('k3', 't3', { issueKey: 'AB_9-42', body: 'x' }),
+      ];
+      await withOrg(app.db, alice.orgId, (tx) => recordApprovalRequests(tx, alice, id, messages));
+      const keys = (await audits(id))
+        .map((a) => [a.metadata.approvalId, a.metadata.issueKey])
+        .sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+      expect(keys).toEqual([
+        ['k1', null],
+        ['k2', null],
+        ['k3', 'AB_9-42'],
+      ]);
+    });
+
     it("refuses to record approvals in another user's or workspace's conversation", async () => {
       const id = randomUUID();
       await openOrCreateConversation(app.db, alice, id);
@@ -286,7 +306,7 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
       });
     });
 
-    it('treats a superseded proposal whose row is already decided as closed', async () => {
+    it('closes a superseded proposal whose row is already decided as NOT approved (P3-R18)', async () => {
       for (const approved of [true, false]) {
         const { id, messages } = await proposed(alice);
         // The decision was stored but the message still shows the request.
@@ -301,9 +321,11 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
             { approvalId: 'ap1', approved: false, reason: 'superseded' },
           ]),
         );
+        // Even an approved-but-unexecuted change is closed as not approved: the SDK must never
+        // run it on a later turn. The row keeps the recorded decision.
         expect(partOf(out, 'ap1')).toMatchObject({
           state: 'approval-responded',
-          approval: { id: 'ap1', approved },
+          approval: { id: 'ap1', approved: false, reason: 'The user moved on without approving.' },
         });
         expect((await approvalRow(id, 'ap1'))?.status).toBe(approved ? 'approved' : 'denied');
         expect((await audits(id)).length).toBe(before);
@@ -371,6 +393,36 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
         action: 'agent_action.executed',
         metadata: { result: 'ok', approvalId: 'ap1' },
       });
+    });
+
+    it('records the outcome once: a second finish writes nothing', async () => {
+      const id = await approved();
+      const claim = await claimApprovedExecution(app.db, alice, call(id));
+      await claim.finish('ok');
+      await claim.finish('jira_error');
+      expect(await approvalRow(id, 'ap1')).toMatchObject({ status: 'executed', resultCode: 'ok' });
+      const outcomes = (await audits(id)).filter((a) =>
+        ['agent_action.executed', 'agent_action.failed'].includes(a.action),
+      );
+      expect(outcomes).toHaveLength(1);
+    });
+
+    it('binds an absent input like an empty one at proposal and claim time', async () => {
+      const id = randomUUID();
+      await openOrCreateConversation(app.db, alice, id);
+      const bare = proposal('apU', 'tcU');
+      delete (bare.parts[0] as { input?: unknown }).input;
+      const messages = [bare];
+      await withOrg(app.db, alice.orgId, async (tx) => {
+        await recordApprovalRequests(tx, alice, id, messages);
+        await applyDecisions(tx, alice, id, messages, [{ approvalId: 'apU', approved: true }]);
+      });
+      const claim = await claimApprovedExecution(
+        app.db,
+        alice,
+        call(id, { toolCallId: 'tcU', input: undefined }),
+      );
+      expect(claim.approvalId).toBe('apU');
     });
 
     it('marks a failed write failed', async () => {
@@ -470,6 +522,9 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
         replies: 1,
         costMicros: 10_500,
       });
+      await expect(usageSummary(app.db, alice, { since, allUsers: true })).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
       expect(
         await usageSummary(app.db, bob, {
           since: new Date(Date.now() + 3_600_000),

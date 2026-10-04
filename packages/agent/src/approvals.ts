@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto';
 import { recordAudit } from '@agile/connections';
 import { agentApprovals, type Db, type Tx, withOrg } from '@agile/db';
-import { isJiraWriteTool } from '@agile/jira-tools';
+import { isJiraWriteTool, type JiraToolErrorCode } from '@agile/jira-tools';
+import type { SyncFailureCode } from '@agile/sync';
 import type { UIMessage } from 'ai';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { requireOwnConversation } from './conversations';
 import type { AgentActor } from './deps';
 
-/** Canonical JSON (sorted keys) → sha256. Binds an approval to the exact tool input. */
+/**
+ * Canonical JSON (sorted keys) → sha256. Binds an approval to the exact tool input. An absent
+ * input counts as `{}`, the same at proposal, decision and claim time.
+ */
 export function hashInput(input: unknown): string {
   const canonical = (v: unknown): unknown =>
     Array.isArray(v)
@@ -20,7 +24,7 @@ export function hashInput(input: unknown): string {
           )
         : v;
   return createHash('sha256')
-    .update(JSON.stringify(canonical(input)))
+    .update(JSON.stringify(canonical(input ?? {})))
     .digest('hex');
 }
 
@@ -52,9 +56,12 @@ export function pendingApprovalParts(messages: UIMessage[]): ApprovalPart[] {
   );
 }
 
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,19}-\d{1,9}$/;
+
+/** The issue key for the audit trail, only when it looks like one (model input is untrusted). */
 const issueKeyOf = (input: unknown) => {
   const key = (input as { issueKey?: unknown } | null)?.issueKey;
-  return typeof key === 'string' ? key : null;
+  return typeof key === 'string' && ISSUE_KEY.test(key) ? key : null;
 };
 
 /** Closes a proposal in the stored messages (the AI SDK then runs or skips the tool call). */
@@ -95,7 +102,7 @@ export async function recordApprovalRequests(
         toolCallId: part.toolCallId,
         toolName,
         input: (part.input ?? {}) as Record<string, unknown>,
-        inputHash: hashInput(part.input ?? {}),
+        inputHash: hashInput(part.input),
       })
       .onConflictDoNothing()
       .returning({ id: agentApprovals.id });
@@ -131,9 +138,10 @@ export class DecisionError extends Error {
  * once. Nothing from the browser but the approval id and the yes/no is used. Throws
  * `DecisionError` (or `ConversationNotFoundError`) otherwise.
  *
- * `reason: 'superseded'` closes proposals the user moved past: a pending row is denied, a row
- * already decided is left as it is (the part just mirrors it), and a proposal that never got a
- * row (its stream was not stored) is closed and audited as rejected, `recorded: false`.
+ * `reason: 'superseded'` closes proposals the user moved past, always as not approved: a pending
+ * row is denied; a row already decided is left as it is (even 'approved': it is never claimed,
+ * since the part no longer asks the SDK to run it); a proposal that never got a row (its stream
+ * was not stored) is audited as rejected, `recorded: false`.
  */
 export async function applyDecisions(
   tx: Tx,
@@ -175,15 +183,16 @@ export async function applyDecisions(
           },
         });
       }
-      // Already decided: keep the recorded decision, only the stale part is closed.
-      respond(part, d.approvalId, row ? row.status !== 'denied' : false, !row);
+      // Already decided: the row keeps the recorded decision, but the stale part is closed as
+      // NOT approved (P3-R18) so the SDK never runs an approved-but-unexecuted change later.
+      respond(part, d.approvalId, false, true);
       parts.delete(d.approvalId);
       continue;
     }
     if (!row) throw new DecisionError('approval_not_found');
     if (row.status !== 'pending' || !part) throw new DecisionError('already_decided');
     if (
-      hashInput(part.input ?? {}) !== row.inputHash ||
+      hashInput(part.input) !== row.inputHash ||
       part.toolCallId !== row.toolCallId ||
       toolNameOf(part) !== row.toolName
     ) {
@@ -213,6 +222,9 @@ export async function applyDecisions(
   return messages;
 }
 
+/** Outcome stored for an executed Jira write: 'ok' or the failure code the tool reported. */
+export type ExecutionResultCode = 'ok' | JiraToolErrorCode | SyncFailureCode;
+
 export class ApprovalRequiredError extends Error {
   override name = 'ApprovalRequiredError';
   constructor() {
@@ -229,7 +241,7 @@ export async function claimApprovedExecution(
   db: Db,
   actor: AgentActor,
   call: { conversationId: string; toolCallId: string; toolName: string; input: unknown },
-): Promise<{ approvalId: string; finish: (resultCode: string) => Promise<void> }> {
+): Promise<{ approvalId: string; finish: (resultCode: ExecutionResultCode) => Promise<void> }> {
   const claimed = await withOrg(db, actor.orgId, (tx) =>
     tx
       .update(agentApprovals)
@@ -251,12 +263,15 @@ export async function claimApprovedExecution(
   if (!row) throw new ApprovalRequiredError();
   return {
     approvalId: row.approvalId,
+    // Idempotent: only the first outcome is stored and audited.
     finish: (resultCode) =>
       withOrg(db, actor.orgId, async (tx) => {
-        await tx
+        const updated = await tx
           .update(agentApprovals)
-          .set({ resultCode, ...(resultCode === 'ok' ? {} : { status: 'failed' }) })
-          .where(eq(agentApprovals.id, row.id));
+          .set({ resultCode, ...(resultCode === 'ok' ? {} : { status: 'failed' as const }) })
+          .where(and(eq(agentApprovals.id, row.id), isNull(agentApprovals.resultCode)))
+          .returning({ id: agentApprovals.id });
+        if (updated.length === 0) return;
         await recordAudit(tx, {
           orgId: actor.orgId,
           actorUserId: actor.userId,

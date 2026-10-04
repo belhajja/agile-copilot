@@ -1,3 +1,4 @@
+import { assertCanManage } from '@agile/connections';
 import { agentUsage, type Db, user, withOrg } from '@agile/db';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
@@ -14,12 +15,32 @@ export interface Prices {
   outputMicros: number | null;
 }
 
-/** Cost of one reply, in millionths; null unless both prices are known. Cached input is billed as input. */
+/** A cost that does not fit a safe integer (absurd token counts or prices). Stable code. */
+export class CostOverflowError extends Error {
+  override name = 'CostOverflowError';
+  readonly code = 'cost_overflow';
+  constructor() {
+    super('The reply cost is out of range.');
+  }
+}
+
+const big = (n: number) => {
+  if (!Number.isSafeInteger(n) || n < 0) throw new CostOverflowError();
+  return BigInt(n);
+};
+
+/**
+ * Cost of one reply, in millionths; null unless both prices are known. Cached input is billed as
+ * input. Exact integer math (rounded half up); throws `CostOverflowError` past 2^53.
+ */
 export function costMicros(usage: TokenUsage, prices: Prices): number | null {
   if (prices.inputMicros === null || prices.outputMicros === null) return null;
-  return Math.round(
-    (usage.inputTokens * prices.inputMicros + usage.outputTokens * prices.outputMicros) / 1_000_000,
-  );
+  const total =
+    big(usage.inputTokens) * big(prices.inputMicros) +
+    big(usage.outputTokens) * big(prices.outputMicros);
+  const cost = (total + 500_000n) / 1_000_000n;
+  if (cost > BigInt(Number.MAX_SAFE_INTEGER)) throw new CostOverflowError();
+  return Number(cost);
 }
 
 /** Reads the AI SDK's `totalUsage` defensively (providers omit fields). */
@@ -76,12 +97,16 @@ export interface UsageTotals {
   unpricedReplies: number;
 }
 
-/** Usage since `since`, per user (only the actor's own row unless `allUsers`). */
+/**
+ * Usage since `since`, per user: only the actor's own row unless `allUsers`, which requires a
+ * workspace owner or admin (`ForbiddenError` otherwise).
+ */
 export async function usageSummary(
   db: Db,
   actor: AgentActor,
   opts: { since: Date; allUsers: boolean },
 ): Promise<UsageTotals[]> {
+  if (opts.allUsers) assertCanManage(actor);
   // Sums of bigint columns exceed 32 bits: cast to bigint (postgres-js returns a string) and
   // read with Number() (exact up to 2^53).
   const rows = await withOrg(db, actor.orgId, (tx) =>
