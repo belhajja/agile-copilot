@@ -1,17 +1,10 @@
-/** Codes with a plain sentence under `delivery.errors` (not the nested `blocked` group). */
-export const CHANNEL_ERROR_CODES = [
-  'invalid_input',
-  'duplicate',
-  'insecure_transport',
-  'blocked_url',
-  'unreachable',
-  'rejected',
-  'timeout',
-  'auth_failed',
-  'invalid_channel',
-  'forbidden_role',
-  'not_found',
-] as const;
+import { CHANNEL_FAILURE_CODES } from '@agile/notify/codes';
+
+/**
+ * Codes with a plain sentence under `delivery.errors` (not the nested `blocked` group), derived
+ * from the package's own list (M10): the channel refusals, and the role check of the actions.
+ */
+export const CHANNEL_ERROR_CODES = [...CHANNEL_FAILURE_CODES, 'forbidden_role'] as const;
 
 export type ChannelErrorCode = (typeof CHANNEL_ERROR_CODES)[number];
 

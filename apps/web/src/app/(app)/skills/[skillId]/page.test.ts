@@ -205,6 +205,44 @@ describe('a skill page', () => {
     expect(admin?.props.canPostToChannels).toBe(true);
   });
 
+  it('offers "Run now" only while the skill is on, and says why (M6)', async () => {
+    const runNow = (tree: unknown) =>
+      find(tree as ReactNode, (e) => e.type === 'form' && text(e).includes('runNow'));
+    store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+    const on = await render();
+    expect(runNow(on)).toHaveLength(1);
+    expect(find(on, has('data-run-now-off'))).toEqual([]);
+    store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user', enabled: false }, true));
+    const off = await render();
+    expect(runNow(off)).toEqual([]);
+    expect(find(off, has('data-run-now-off'))).toHaveLength(1);
+  });
+
+  it('shows others one status per run: no failure next to "Done" (M7)', async () => {
+    automation.listRuns.mockResolvedValue([
+      { ...run, status: 'succeeded', resultCode: 'delivery_failed' },
+    ]);
+    store.getSkill.mockResolvedValue(detailOf());
+    const others = await render();
+    expect(find(others, has('data-result-code'))).toEqual([]);
+    expect(text(others)).not.toContain('resultCodes.');
+    store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+    const [mine] = find(await render(), has('data-result-code'));
+    expect(mine?.props['data-result-code']).toBe('delivery_failed');
+  });
+
+  it.each(['owner_limit', 'user_limit', 'disabled'])(
+    'explains a "Run now" that was not queued (?run=%s, P4-R30)',
+    async (code) => {
+      store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+      const [request] = find(
+        await render({ run: code }),
+        (e) => e.props['data-run-request'] !== undefined,
+      );
+      expect(request?.props['data-run-request']).toBe(code);
+    },
+  );
+
   it.each(['delivery_failed', 'forbidden_role'])(
     'shows others a generic failure instead of %s (M4)',
     async (resultCode) => {

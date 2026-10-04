@@ -26,16 +26,11 @@ import {
   DELIVERY_OUTCOMES,
   DELIVERY_OUTPUTS,
   RUN_REQUEST_CODES,
-  RUN_RESULT_CODES,
   SKILL_ERROR_CODES,
+  visibleResultCode,
 } from '../skill-errors';
 
 type Query = string | string[] | undefined;
-
-/** Result codes about delivery or the owner's role are the owner's business: others see "failed". */
-const OTHERS_RESULT_CODES = RUN_RESULT_CODES.filter(
-  (c) => c !== 'delivery_failed' && c !== 'forbidden_role',
-);
 
 /**
  * One skill: its full text (the only place a shared skill can be copied from, P4-R8), the editor
@@ -102,8 +97,13 @@ export default async function SkillPage({
           <AlertDescription>{t('enableCopyHint')}</AlertDescription>
         </Alert>
       )}
+      {owner && runnable && !skill.enabled && !skill.forkedFromId && (
+        <Alert data-run-now-off>
+          <AlertDescription>{t('runNowOff')}</AlertDescription>
+        </Alert>
+      )}
       <div className="flex flex-wrap gap-2">
-        {owner && runnable && (
+        {owner && runnable && skill.enabled && (
           <form action={runSkillNowAction.bind(null, skill.id)}>
             <Button size="sm">{t('runNow')}</Button>
           </form>
@@ -180,51 +180,52 @@ export default async function SkillPage({
         </CardHeader>
         <CardContent className="grid gap-4">
           {runs.length === 0 && <p className="text-sm text-muted-foreground">{t('noRuns')}</p>}
-          {runs.map((r, i) => (
-            <div
-              key={r.id}
-              className="grid gap-2 border-b pb-4 last:border-b-0"
-              data-run={r.status}
-            >
-              <p className="flex flex-wrap items-center gap-2 text-sm">
-                <Badge variant={r.status === 'failed' ? 'destructive' : 'secondary'}>
-                  {t(`runStatus.${r.status}`)}
-                </Badge>
-                <span>{t(`runTriggers.${r.trigger}`)}</span>
-                <span className="text-muted-foreground">
-                  {format.dateTime(r.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}
-                </span>
-                {r.resultCode && (
+          {runs.map((r, i) => {
+            const resultCode = visibleResultCode(r, owner);
+            return (
+              <div
+                key={r.id}
+                className="grid gap-2 border-b pb-4 last:border-b-0"
+                data-run={r.status}
+              >
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  <Badge variant={r.status === 'failed' ? 'destructive' : 'secondary'}>
+                    {t(`runStatus.${r.status}`)}
+                  </Badge>
+                  <span>{t(`runTriggers.${r.trigger}`)}</span>
                   <span className="text-muted-foreground">
-                    {t(
-                      `resultCodes.${pickCode(r.resultCode, owner ? RUN_RESULT_CODES : OTHERS_RESULT_CODES)}`,
-                    )}
+                    {format.dateTime(r.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}
                   </span>
+                  {resultCode && (
+                    <span className="text-muted-foreground" data-result-code={resultCode}>
+                      {t(`resultCodes.${resultCode}`)}
+                    </span>
+                  )}
+                </p>
+                {/* Delivery details and reports: the owner's only (P4-R1). */}
+                {owner &&
+                  Object.entries(r.deliveries)
+                    .filter(([channel]) => DELIVERY_OUTPUTS.some((o) => o === channel))
+                    .map(([channel, outcome]) => (
+                      <p
+                        key={channel}
+                        className="text-sm text-muted-foreground"
+                        data-delivery={channel}
+                      >
+                        {t('delivered', {
+                          channel: t(`outputs.${pickCode(channel, DELIVERY_OUTPUTS)}`),
+                          outcome: t(`deliveryOutcomes.${pickCode(outcome, DELIVERY_OUTCOMES)}`),
+                        })}
+                      </p>
+                    ))}
+                {owner && i === 0 && r.output && (
+                  <div className="rounded-md border p-3" data-run-output>
+                    <AgentMarkdown>{r.output}</AgentMarkdown>
+                  </div>
                 )}
-              </p>
-              {/* Delivery details and reports: the owner's only (P4-R1). */}
-              {owner &&
-                Object.entries(r.deliveries)
-                  .filter(([channel]) => DELIVERY_OUTPUTS.some((o) => o === channel))
-                  .map(([channel, outcome]) => (
-                    <p
-                      key={channel}
-                      className="text-sm text-muted-foreground"
-                      data-delivery={channel}
-                    >
-                      {t('delivered', {
-                        channel: t(`outputs.${pickCode(channel, DELIVERY_OUTPUTS)}`),
-                        outcome: t(`deliveryOutcomes.${pickCode(outcome, DELIVERY_OUTCOMES)}`),
-                      })}
-                    </p>
-                  ))}
-              {owner && i === 0 && r.output && (
-                <div className="rounded-md border p-3" data-run-output>
-                  <AgentMarkdown>{r.output}</AgentMarkdown>
-                </div>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
       <Card>

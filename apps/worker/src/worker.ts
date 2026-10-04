@@ -8,6 +8,14 @@ import { sql } from 'drizzle-orm';
 import { startHealthServer } from './health';
 import type { Logger } from './log';
 
+/**
+ * On stop, how long pg-boss waits for running jobs: above the longest skill run plus delivery
+ * (`SKILL_RUN_MAX_MS`, 180 s), so a run aborted mid-delivery can still record its outcome (M3).
+ */
+export const WORKER_STOP_TIMEOUT_MS = 190_000;
+/** The process exits anyway after this long (main.ts); below compose's `stop_grace_period` (200 s). */
+export const WORKER_STOP_BACKSTOP_MS = 195_000;
+
 export interface RunningWorker {
   healthPort: number;
   /** Aborted when the worker stops: running syncs end as `interrupted` between pages. */
@@ -112,8 +120,8 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
       shutdown.abort();
       try {
         await runningHealth.close();
-        // Lets running syncs finish (up to 30 s), then closes pg-boss's pool.
-        await runningBoss.stop({ graceful: true, timeout: 30_000 });
+        // Lets running syncs and runs (aborted above) record their outcome, then closes pg-boss's pool.
+        await runningBoss.stop({ graceful: true, timeout: WORKER_STOP_TIMEOUT_MS });
       } finally {
         await close();
       }

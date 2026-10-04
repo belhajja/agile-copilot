@@ -810,9 +810,13 @@
       "not_found": "Compétence introuvable.",
       "forbidden": "Seul son propriétaire peut exécuter cette compétence.",
       "not_runnable": "Seules les compétences planifiées et les alertes s'exécutent hors de la conversation.",
+      "owner_limit": "Non exécutée : vos compétences ont utilisé leur part des exécutions quotidiennes de l'espace. Réessayez plus tard.",
+      "user_limit": "Non exécutée : vous avez atteint votre limite de 10 exécutions « Exécuter maintenant » par 24 heures.",
+      "disabled": "Activez cette compétence avant de l'exécuter.",
       "unknown": "L'exécution n'a pas pu être mise en file."
     },
     "runNow": "Exécuter maintenant",
+    "runNowOff": "Cette compétence est désactivée : activez-la pour l'exécuter maintenant ou selon sa planification.",
     "enable": "Activer",
     "disable": "Désactiver",
     "share": "Partager avec l'espace",
@@ -846,6 +850,8 @@
       "delivery_failed": "Toutes les diffusions n'ont pas réussi",
       "interrupted": "Interrompue",
       "internal_error": "Erreur interne",
+      "owner_limit": "Part quotidienne du propriétaire atteinte",
+      "user_limit": "Limite « Exécuter maintenant » atteinte",
       "unknown": "Échec"
     },
     "delivered": "{channel} : {outcome}",

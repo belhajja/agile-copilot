@@ -1,10 +1,16 @@
-import { SKILL_TICK_CRON, SKILL_TICK_QUEUE } from '@agile/automation';
+import { readFileSync } from 'node:fs';
+import { SKILL_RUN_MAX_MS, SKILL_TICK_CRON, SKILL_TICK_QUEUE } from '@agile/automation';
 import { parseWorkerEnv } from '@agile/config';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { SYNC_TICK_QUEUE, startSyncQueue } from '@agile/sync';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Logger } from './log';
-import { type RunningWorker, startWorker } from './worker';
+import {
+  type RunningWorker,
+  startWorker,
+  WORKER_STOP_BACKSTOP_MS,
+  WORKER_STOP_TIMEOUT_MS,
+} from './worker';
 
 describe('worker', () => {
   let tdb: TestDatabase;
@@ -70,6 +76,18 @@ describe('worker', () => {
     expect(shutdownSignal.aborted).toBe(true);
     worker = undefined;
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+  });
+
+  it('waits on stop longer than a run and its delivery, within the container grace period (M3)', () => {
+    expect(WORKER_STOP_TIMEOUT_MS).toBeGreaterThanOrEqual(SKILL_RUN_MAX_MS + 10_000);
+    expect(WORKER_STOP_BACKSTOP_MS).toBeGreaterThan(WORKER_STOP_TIMEOUT_MS);
+    const compose = readFileSync(
+      new URL('../../../docker-compose.selfhost.yml', import.meta.url),
+      'utf8',
+    );
+    const worker = compose.slice(compose.indexOf('\n  worker:'));
+    const grace = /stop_grace_period: (\d+)s/.exec(worker)?.[1];
+    expect(Number(grace) * 1000).toBeGreaterThanOrEqual(WORKER_STOP_BACKSTOP_MS + 5_000);
   });
 
   it('reports 503 without details when the database is unreachable', async () => {

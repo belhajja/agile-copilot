@@ -6,6 +6,11 @@ export {
   type SkillSet,
 } from './catalog';
 export {
+  SKILL_FAILURE_CODES,
+  SKILL_ISSUE_CODES,
+  type SkillFailureCode,
+} from './codes';
+export {
   MAX_DOCUMENT_CHARS,
   MAX_INSTRUCTIONS_CHARS,
   type ParseResult,

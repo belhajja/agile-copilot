@@ -810,9 +810,13 @@
       "not_found": "Skill not found.",
       "forbidden": "Only its owner can run this skill.",
       "not_runnable": "Only scheduled and alert skills run outside the chat.",
+      "owner_limit": "Not run: your skills used their share of the workspace's daily runs. Try again later.",
+      "user_limit": "Not run: you reached your limit of 10 \"Run now\" runs per 24 hours.",
+      "disabled": "Turn this skill on before running it.",
       "unknown": "The run could not be queued."
     },
     "runNow": "Run now",
+    "runNowOff": "This skill is off: turn it on to run it now or on its schedule.",
     "enable": "Turn on",
     "disable": "Turn off",
     "share": "Share with the workspace",
@@ -846,6 +850,8 @@
       "delivery_failed": "Not every delivery succeeded",
       "interrupted": "Interrupted",
       "internal_error": "Internal error",
+      "owner_limit": "Owner's daily share reached",
+      "user_limit": "\"Run now\" limit reached",
       "unknown": "Failed"
     },
     "delivered": "{channel}: {outcome}",

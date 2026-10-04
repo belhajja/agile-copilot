@@ -24,6 +24,7 @@ import {
 } from '@agile/net';
 import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { z } from 'zod';
+import type { ChannelFailureCode } from './codes';
 import { isSingleAddress, type SmtpSecret, verifySmtp } from './email';
 import { type DeliveryCode, DeliveryError } from './errors';
 import { type ChannelMessage, postWebhook } from './webhook';
@@ -83,17 +84,7 @@ export interface ChannelView {
 
 export type ChannelFailure = {
   ok: false;
-  code:
-    | 'invalid_input'
-    | 'duplicate'
-    | 'not_found'
-    | 'insecure_transport'
-    | 'blocked_url'
-    | 'unreachable'
-    | 'rejected'
-    | 'timeout'
-    | 'auth_failed'
-    | 'invalid_channel';
+  code: ChannelFailureCode;
   /** Why a URL or host was refused (translated by the UI). */
   reason?: BlockedUrlReason;
   host?: string;

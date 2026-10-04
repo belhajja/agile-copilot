@@ -1,9 +1,12 @@
+import { SKILL_RUN_TIMEOUT_MS } from '@agile/agent';
 import { recordAudit } from '@agile/connections';
 import { type Db, isUuid, organization, skills, withOrg } from '@agile/db';
+import { EMAIL_DEADLINE_MS } from '@agile/notify';
 import type { SkillActor } from '@agile/skills';
 import { and, eq } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { z } from 'zod';
+import type { RunRequestFailureCode, RunSkipCode } from './codes';
 import type { AutomationDeps } from './deps';
 import { executeSkillRun, type RunOutcome } from './execute';
 import { planSkillRuns } from './plan';
@@ -13,6 +16,13 @@ export const SKILL_RUN_QUEUE = 'skill-run';
 export const SKILL_TICK_QUEUE = 'skills-tick';
 /** The scheduler looks for due schedules and alert conditions every 5 minutes. */
 export const SKILL_TICK_CRON = '*/5 * * * *';
+
+/**
+ * The longest a run can take: the model's deadline plus the slowest delivery (email's overall
+ * deadline; a webhook post has 10 s), database work aside. The worker waits at least this long
+ * for running runs when it stops.
+ */
+export const SKILL_RUN_MAX_MS = SKILL_RUN_TIMEOUT_MS + EMAIL_DEADLINE_MS;
 
 /**
  * How long a run job may stay active before pg-boss expires it (and aborts its signal): above the
@@ -52,16 +62,18 @@ const send = (boss: PgBoss, job: SkillJob) =>
   boss.send(SKILL_RUN_QUEUE, { ...job }, { singletonKey: job.runId });
 
 /**
- * "Run now": the owner runs one of their scheduled or alert skills once, outside its schedule
- * (same read-only run, same delivery, same daily limit).
+ * "Run now": the owner runs one of their enabled scheduled or alert skills once, outside its
+ * schedule (same read-only run, same delivery, same limits, plus their own "Run now" allowance,
+ * P4-R30). Over a limit the run is recorded as skipped and not queued (`skipped` says which).
  */
 export async function requestSkillRun(
   deps: { db: Db; boss: PgBoss; dailyLimit: number; now: Date },
   actor: SkillActor,
   skillId: string,
 ): Promise<
-  | { ok: true; runId: string; queued: boolean }
-  | { ok: false; code: 'not_found' | 'forbidden' | 'not_runnable' }
+  | { ok: true; runId: string; queued: true; skipped: null }
+  | { ok: true; runId: string; queued: false; skipped: RunSkipCode }
+  | { ok: false; code: RunRequestFailureCode }
 > {
   if (!isUuid(skillId)) return { ok: false, code: 'not_found' };
   const planned = await withOrg(deps.db, actor.orgId, async (tx) => {
@@ -70,6 +82,7 @@ export async function requestSkillRun(
         ownerUserId: skills.ownerUserId,
         visibility: skills.visibility,
         trigger: skills.trigger,
+        enabled: skills.enabled,
         version: skills.currentVersion,
       })
       .from(skills)
@@ -81,6 +94,8 @@ export async function requestSkillRun(
     if (skill.trigger !== 'schedule' && skill.trigger !== 'alert') {
       return { ok: false, code: 'not_runnable' } as const;
     }
+    // It would only be recorded as skipped: turn it on first (M6).
+    if (!skill.enabled) return { ok: false, code: 'disabled' } as const;
     const run = await createRun(tx, actor.orgId, {
       skillId,
       version: skill.version,
@@ -97,7 +112,10 @@ export async function requestSkillRun(
       targetId: skillId,
       metadata: { runId: run.id, queued: run.queued },
     });
-    return { ok: true, runId: run.id, queued: run.queued } as const;
+    // No `skip` was given, so a skipped run was refused by a limit.
+    return run.skipped
+      ? ({ ok: true, runId: run.id, queued: false, skipped: run.skipped as RunSkipCode } as const)
+      : ({ ok: true, runId: run.id, queued: true, skipped: null } as const);
   });
   // Sent after the run row is committed, so the worker always finds it. If the send fails, the
   // run stays queued and the tick re-sends it after RESEND_QUEUED_MINUTES (P4-R19).

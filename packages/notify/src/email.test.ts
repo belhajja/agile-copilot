@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { resolvePinnedAddress, sendEmail, verifySmtp } from './email';
 import { renderDigestEmail } from './email-template';
-import { DeliveryError } from './errors';
+import { DeliveryError, DeliveryInterruptedError } from './errors';
 import { type MockSmtp, startMockSmtp } from './testing';
 
 const outbound = { allowedPrivateHosts: ['127.0.0.1', 'mail.corp.test'] };
@@ -165,6 +165,31 @@ describe('email over SMTP (in-process server)', () => {
         ),
       ).toBe('timeout');
       expect(Date.now() - started).toBeLessThan(5_000);
+    } finally {
+      await stalled.close();
+    }
+  });
+
+  it("stops when the caller's signal aborts: interrupted, not a channel failure", async () => {
+    const stalled = await startMockSmtp({ stallData: true });
+    try {
+      const stop = new AbortController();
+      const started = Date.now();
+      const sending = sendEmail(secret(stalled.port), message, {
+        outbound,
+        timeoutMs: 30_000,
+        deadlineMs: 30_000,
+        signal: stop.signal,
+      }).catch((e: unknown) => e);
+      setTimeout(() => stop.abort(), 200);
+      expect(await sending).toBeInstanceOf(DeliveryInterruptedError);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      // Already stopped: no connection is opened.
+      const mails = open.mails.length;
+      await expect(
+        sendEmail(secret(open.port), message, { outbound, signal: AbortSignal.abort() }),
+      ).rejects.toBeInstanceOf(DeliveryInterruptedError);
+      expect(open.mails.length).toBe(mails);
     } finally {
       await stalled.close();
     }

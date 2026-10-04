@@ -198,9 +198,11 @@ async function planAlert(
         now,
         dailyLimit: deps.dailyLimit,
       });
-      if (run) {
+      // A run skipped by a limit did not fire: the boards stay new and the cooldown does not
+      // start, so the alert fires on a later tick once there is room (M2).
+      if (run?.queued) {
         fired = fresh.map((m) => m.boardId);
-        runId = run.queued ? run.id : null;
+        runId = run.id;
       }
     }
     // Boards that stopped matching are forgotten; boards that fired are added; others wait.

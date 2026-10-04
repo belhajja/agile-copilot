@@ -7,7 +7,7 @@ import {
   withDeadline,
 } from '@agile/net';
 import { createTransport, type Transporter } from 'nodemailer';
-import { DeliveryError } from './errors';
+import { DeliveryError, DeliveryInterruptedError, whenAborted } from './errors';
 
 /** A workspace's SMTP server (stored encrypted in its delivery channel). */
 export interface SmtpSecret {
@@ -26,7 +26,12 @@ export interface SmtpOptions {
   timeoutMs?: number;
   /** Total time for the whole operation, name resolution included (ms). Default 60 s. */
   deadlineMs?: number;
+  /** Stops the operation (worker shutdown): it fails with `DeliveryInterruptedError`. */
+  signal?: AbortSignal;
 }
+
+/** The default overall deadline of one SMTP operation (resolution, connection, exchange). */
+export const EMAIL_DEADLINE_MS = 60_000;
 
 /** One address, nothing else: no separators, no control characters, no display name. */
 const ADDRESS = /^[^\s@,;<>"()[\]\\:]+@[^\s@,;<>"()[\]\\:]+\.[^\s@,;<>"()[\]\\:]+$/;
@@ -104,6 +109,7 @@ async function withTransport(
   opts: SmtpOptions,
   action: (transport: Transporter) => Promise<unknown>,
 ): Promise<void> {
+  if (opts.signal?.aborted) throw new DeliveryInterruptedError();
   let transport: Transporter | undefined;
   const work = (async () => {
     transport = await transportFor(secret, opts);
@@ -113,8 +119,13 @@ async function withTransport(
   const closeLate = () => transport?.close();
   work.then(closeLate, closeLate);
   try {
-    await withDeadline(work, opts.deadlineMs ?? 60_000, () => new DeliveryError('timeout'));
+    await withDeadline(
+      Promise.race([work, whenAborted(opts.signal)]),
+      opts.deadlineMs ?? EMAIL_DEADLINE_MS,
+      () => new DeliveryError('timeout'),
+    );
   } catch (e) {
+    if (opts.signal?.aborted) throw new DeliveryInterruptedError();
     throw deliveryErrorOf(e);
   } finally {
     transport?.close();

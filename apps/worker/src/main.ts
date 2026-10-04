@@ -1,7 +1,7 @@
 import { EnvError, parseWorkerEnv } from '@agile/config';
 import { installCrashHandlers } from './crash';
 import { log } from './log';
-import { startWorker } from './worker';
+import { startWorker, WORKER_STOP_BACKSTOP_MS } from './worker';
 
 let env: ReturnType<typeof parseWorkerEnv>;
 try {
@@ -27,11 +27,11 @@ async function shutdown(signal: string) {
   stopping = true;
   const crashed = signal === 'unhandledRejection' || signal === 'uncaughtException';
   log('info', 'worker_stopping', { signal });
-  // Backstop: pg-boss waits up to 30 s for running syncs; never hang beyond that.
+  // Backstop: pg-boss waits up to WORKER_STOP_TIMEOUT_MS for running jobs; never hang beyond that.
   setTimeout(() => {
     log('error', 'worker_stop_timeout');
     process.exit(1);
-  }, 45_000).unref();
+  }, WORKER_STOP_BACKSTOP_MS).unref();
   try {
     await worker.stop();
     log('info', 'worker_stopped');

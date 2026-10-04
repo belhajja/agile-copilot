@@ -12,7 +12,15 @@ import { member, owner } from '@agile/sync/testing';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ALERT_COOLDOWN_HOURS, planSkillRuns } from './plan';
-import { claimRun, closeStaleRuns, createRun, finishRun, listRuns } from './runs';
+import {
+  claimRun,
+  closeStaleRuns,
+  createRun,
+  finishRun,
+  listRuns,
+  ownerRunShare,
+  SKILL_MANUAL_RUNS_PER_USER,
+} from './runs';
 import { startAutomationHarness } from './test-harness';
 
 const MONDAY_7 = new Date('2026-10-05T07:00:00Z');
@@ -281,6 +289,219 @@ describe('planning background runs (schedules, alerts, limits)', () => {
       ['queued', null],
       ['skipped', 'daily_limit'],
     ]);
+  });
+
+  // ---- Daily-cap fairness (P4-R30) ----
+
+  /** A run of `skillId` recorded at `now` (any trigger), in its own workspace. */
+  const runIn = (
+    orgId: string,
+    skillId: string,
+    now: Date,
+    opts: { trigger?: 'manual' | 'schedule' | 'alert'; dailyLimit?: number } = {},
+  ) =>
+    withOrg(h.db, orgId, (tx) =>
+      createRun(tx, orgId, {
+        skillId,
+        version: 1,
+        trigger: opts.trigger ?? 'manual',
+        scheduledFor: opts.trigger === 'schedule' ? now : null,
+        now,
+        dailyLimit: opts.dailyLimit ?? 1000,
+      }),
+    );
+  const outcomes = (id: string) =>
+    runsOf(id).then((rows) =>
+      rows
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((r) => (r.status === 'skipped' ? r.resultCode : r.status)),
+    );
+  const minutes = (base: Date, n: number) => new Date(base.getTime() + n * 60_000);
+
+  it(`lets a user "Run now" at most ${SKILL_MANUAL_RUNS_PER_USER} times per 24 hours (user_limit)`, async () => {
+    const org = 'org_user_cap';
+    const t0 = at('2026-11-02T08:00:00Z');
+    const id = await createIn(
+      org,
+      { name: 'manual-cap', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      t0,
+    );
+    for (let i = 0; i < SKILL_MANUAL_RUNS_PER_USER; i++) {
+      expect((await runIn(org, id, minutes(t0, i)))?.queued).toBe(true);
+    }
+    expect(await runIn(org, id, minutes(t0, 20))).toMatchObject({
+      queued: false,
+      skipped: 'user_limit',
+    });
+    // Schedules and alerts are not "Run now": they still run (within the owner's share).
+    expect((await runIn(org, id, minutes(t0, 21), { trigger: 'schedule' }))?.queued).toBe(true);
+    // Another member's "Run now" is theirs to spend.
+    const theirs = await createSkill(h.db, member(org), {
+      document: serializeSkill({
+        frontmatter: {
+          name: 'theirs',
+          description: 'Test',
+          trigger: 'schedule',
+          schedule: { cron: '0 6 * * *' },
+        } as never,
+        instructions: 'Report.',
+      }),
+      now: t0,
+    });
+    if (!theirs.ok) throw new Error(theirs.code);
+    expect((await runIn(org, theirs.id, minutes(t0, 22)))?.queued).toBe(true);
+    // A rolling window: 24 hours after the first, a slot is free again.
+    expect((await runIn(org, id, minutes(t0, 24 * 60 + 1)))?.queued).toBe(true);
+    expect((await outcomes(id)).filter((o) => o === 'user_limit')).toHaveLength(1);
+  });
+
+  it("keeps one owner's runs within their share of the workspace's day (owner_limit)", async () => {
+    const org = 'org_owner_share';
+    const t0 = at('2026-11-03T08:00:00Z');
+    // A limit of 10: one owner may use max(5, ceil(10 / 2)) = 5 of it.
+    const limit = 10;
+    const mine = await createIn(
+      org,
+      { name: 'hog', trigger: 'schedule', schedule: { cron: '0 * * * *' } },
+      t0,
+    );
+    for (let i = 0; i < 5; i++) {
+      const trigger = i % 2 === 0 ? 'schedule' : 'manual';
+      expect((await runIn(org, mine, minutes(t0, i), { trigger, dailyLimit: limit }))?.queued).toBe(
+        true,
+      );
+    }
+    expect(
+      await runIn(org, mine, minutes(t0, 10), { trigger: 'schedule', dailyLimit: limit }),
+    ).toMatchObject({ queued: false, skipped: 'owner_limit' });
+    expect(
+      await runIn(org, mine, minutes(t0, 11), { trigger: 'alert', dailyLimit: limit }),
+    ).toMatchObject({ queued: false, skipped: 'owner_limit' });
+    // The rest of the workspace's day is still there for everyone else.
+    const theirs = await createSkill(h.db, member(org), {
+      document: serializeSkill({
+        frontmatter: {
+          name: 'fair',
+          description: 'Test',
+          trigger: 'schedule',
+          schedule: { cron: '0 6 * * *' },
+        } as never,
+        instructions: 'Report.',
+      }),
+      now: t0,
+    });
+    if (!theirs.ok) throw new Error(theirs.code);
+    expect(
+      (await runIn(org, theirs.id, minutes(t0, 12), { trigger: 'schedule', dailyLimit: limit }))
+        ?.queued,
+    ).toBe(true);
+    // Small limits: the share never drops below 5 runs, the workspace limit still binds.
+    expect(ownerRunShare(10)).toBe(5);
+    expect(ownerRunShare(3)).toBe(5);
+    expect(ownerRunShare(50)).toBe(25);
+    expect(ownerRunShare(51)).toBe(26);
+    // 0 still turns every run off.
+    expect(
+      await runIn(org, theirs.id, minutes(t0, 13), { trigger: 'schedule', dailyLimit: 0 }),
+    ).toMatchObject({ queued: false, skipped: 'daily_limit' });
+  });
+
+  it('counts only runs that may reach the model against the caps', async () => {
+    const org = 'org_pre_model';
+    const t0 = at('2026-11-04T08:00:00Z');
+    const id = await createIn(
+      org,
+      { name: 'pre-model', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      t0,
+    );
+    // Ended before any model call: refused role, invalid document, no model, owner gone, skips.
+    const ended = [
+      ['failed', 'forbidden_role'],
+      ['failed', 'invalid_skill'],
+      ['failed', 'no_llm'],
+      ['skipped', 'owner_left'],
+      ['skipped', 'disabled'],
+    ] as const;
+    for (const [i, [status, resultCode]] of ended.entries()) {
+      const run = await runIn(org, id, minutes(t0, i), { dailyLimit: 1 });
+      expect(run?.queued).toBe(true);
+      await h.rawDb
+        .update(skillRuns)
+        .set({ status, resultCode })
+        .where(eq(skillRuns.id, run?.id ?? ''));
+    }
+    // None of them used the workspace's single run, nor the user's "Run now" allowance.
+    const counted = await runIn(org, id, minutes(t0, 10), { dailyLimit: 1 });
+    expect(counted?.queued).toBe(true);
+    // A run that reached the model counts, whatever its outcome.
+    await h.rawDb
+      .update(skillRuns)
+      .set({ status: 'failed', resultCode: 'model_failed' })
+      .where(eq(skillRuns.id, counted?.id ?? ''));
+    expect(await runIn(org, id, minutes(t0, 11), { dailyLimit: 1 })).toMatchObject({
+      queued: false,
+      skipped: 'daily_limit',
+    });
+  });
+
+  it('holds the "Run now" limit when two runs are requested at the same time', async () => {
+    const org = 'org_user_race';
+    const now = at('2026-11-05T12:00:00Z');
+    const id = await createIn(
+      org,
+      { name: 'user-race', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      now,
+    );
+    for (let i = 0; i < SKILL_MANUAL_RUNS_PER_USER - 1; i++) {
+      await runIn(org, id, minutes(now, -60 + i));
+    }
+    const lock = await holdLock((tx) =>
+      tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`skill_runs:${org}`}))`),
+    );
+    const both = Promise.all([runIn(org, id, now), runIn(org, id, now)]);
+    const waiters = await lockWaiters(2);
+    lock.release();
+    await lock.done;
+    const results = await both;
+    expect(waiters).toBeGreaterThanOrEqual(2);
+    expect(results.map((r) => r?.skipped ?? null).sort()).toEqual([null, 'user_limit'].sort());
+  });
+
+  it('does not use up an alert that the daily limit skipped: it fires on a later tick', async () => {
+    // The synced demo boards are in org_a; no other run of org_a falls on this day.
+    const org = 'org_a';
+    const t0 = at('2026-11-06T08:00:00Z');
+    const id = await createIn(
+      org,
+      {
+        name: 'capped-alert',
+        trigger: 'alert',
+        alert: { metric: 'wip', op: '>=', value: 1 },
+        output: 'chat',
+      },
+      t0,
+    );
+    // Another skill used the workspace's only run of the day.
+    const seed = await createIn(
+      org,
+      { name: 'cap-seed', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      t0,
+    );
+    await h.rawDb.update(skills).set({ enabled: false }).where(eq(skills.id, seed));
+    const used = await runIn(org, seed, minutes(t0, -30), { dailyLimit: 1 });
+    await h.rawDb
+      .update(skillRuns)
+      .set({ status: 'succeeded' })
+      .where(eq(skillRuns.id, used?.id ?? ''));
+    expect(await planIn(org, t0, 1)).toEqual([]);
+    const [skipped] = await h.rawDb.select().from(skills).where(eq(skills.id, id));
+    expect([skipped?.alertBoards, skipped?.alertFiredAt]).toEqual([[], null]);
+    expect(await outcomes(id)).toEqual(['daily_limit']);
+    // The day rolls over: the boards still match, so the alert fires now.
+    expect(await planIn(org, minutes(t0, 24 * 60), 1)).toHaveLength(1);
+    const [fired] = await h.rawDb.select().from(skills).where(eq(skills.id, id));
+    expect(fired?.alertBoards.length).toBeGreaterThan(0);
+    expect(fired?.alertFiredAt).toEqual(minutes(t0, 24 * 60));
   });
 
   it('snapshots the output and an in-workspace channel into the run (P4-R5)', async () => {

@@ -99,7 +99,7 @@ export async function runSkillNowAction(id: string): Promise<void> {
     id,
   );
   revalidatePath(`/skills/${id}`);
-  redirect(`/skills/${id}?run=${r.ok ? (r.queued ? 'queued' : 'daily_limit') : r.code}`);
+  redirect(`/skills/${id}?run=${r.ok ? (r.queued ? 'queued' : r.skipped) : r.code}`);
 }
 
 export type SkillIssueView = { code: string; field?: string };

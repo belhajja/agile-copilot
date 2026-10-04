@@ -124,10 +124,13 @@ describe('skills actions never fail silently (P4-R11)', () => {
   });
 
   it.each([
-    [{ ok: true, queued: true }, 'queued'],
-    [{ ok: true, queued: false }, 'daily_limit'],
+    [{ ok: true, queued: true, skipped: null }, 'queued'],
+    [{ ok: true, queued: false, skipped: 'daily_limit' }, 'daily_limit'],
+    [{ ok: true, queued: false, skipped: 'owner_limit' }, 'owner_limit'],
+    [{ ok: true, queued: false, skipped: 'user_limit' }, 'user_limit'],
     [{ ok: false, code: 'forbidden' }, 'forbidden'],
     [{ ok: false, code: 'not_runnable' }, 'not_runnable'],
+    [{ ok: false, code: 'disabled' }, 'disabled'],
   ])('runSkillNowAction %j shows run=%s', async (result, run) => {
     automation.requestSkillRun.mockResolvedValue(result);
     await expect(actions.runSkillNowAction(ID)).rejects.toThrow(

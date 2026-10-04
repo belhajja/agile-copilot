@@ -8,7 +8,7 @@ import {
   withDeadline,
 } from '@agile/net';
 import { resolvePinnedAddress } from './email';
-import { type DeliveryCode, DeliveryError } from './errors';
+import { type DeliveryCode, DeliveryError, DeliveryInterruptedError, whenAborted } from './errors';
 
 /** A message for a chat channel: plain text, never fetched or unfurled by us or the platform. */
 export interface ChannelMessage {
@@ -155,6 +155,8 @@ export interface WebhookOptions {
   outbound: OutboundPolicy;
   /** Overall deadline (ms). Default 10 s. */
   timeoutMs?: number;
+  /** Stops the request (worker shutdown): it fails with `DeliveryInterruptedError`. */
+  signal?: AbortSignal;
   onError?: DeliveryErrorHook;
 }
 
@@ -182,8 +184,11 @@ export async function sendWebhook(
   message: ChannelMessage,
   opts: WebhookOptions & { fetch?: typeof fetch },
 ): Promise<void> {
+  if (opts.signal?.aborted) throw new DeliveryInterruptedError();
   const timeoutMs = opts.timeoutMs ?? 10_000;
-  const signal = AbortSignal.timeout(timeoutMs);
+  const signal = opts.signal
+    ? AbortSignal.any([AbortSignal.timeout(timeoutMs), opts.signal])
+    : AbortSignal.timeout(timeoutMs);
   const work = (async () => {
     let target: URL;
     try {
@@ -207,8 +212,14 @@ export async function sendWebhook(
   work.catch(() => undefined);
   let status: number;
   try {
-    status = await withDeadline(work, timeoutMs, () => new DeliveryError('timeout'));
+    status = await withDeadline(
+      Promise.race([work, whenAborted(opts.signal)]),
+      timeoutMs,
+      () => new DeliveryError('timeout'),
+    );
   } catch (e) {
+    // Stopped by the caller: not the channel's failure (nothing to report or record).
+    if (opts.signal?.aborted) throw new DeliveryInterruptedError();
     throw deliveryErrorOf(e, opts.onError);
   }
   if (status < 200 || status >= 300)

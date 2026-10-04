@@ -59,8 +59,10 @@ services:
   worker:
     build: { context: ., dockerfile: apps/web/Dockerfile, target: worker }
     restart: unless-stopped
-    # The worker drains in-flight jobs for up to 30 s (+ a 45 s backstop) on SIGTERM.
-    stop_grace_period: 60s
+    # On SIGTERM the worker aborts running jobs, then waits up to 190 s for them to record their
+    # outcome (a skill run plus its delivery can take 180 s), with a 195 s backstop. Kubernetes:
+    # terminationGracePeriodSeconds: 200.
+    stop_grace_period: 200s
     # Only what the worker needs: never the owner credentials (POSTGRES_PASSWORD,
     # DATABASE_OWNER_URL). BETTER_AUTH_* are required by its env schema (the OAuth callback URL is
     # derived from BETTER_AUTH_URL).

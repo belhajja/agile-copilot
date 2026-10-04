@@ -1,6 +1,7 @@
 import { type Db, deliveryChannels, isUuid, skillRuns, skills, type Tx, withOrg } from '@agile/db';
 import type { SkillActor } from '@agile/skills';
-import { and, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
+import type { RunResultCode, RunSkipCode } from './codes';
 
 /** Background runs per workspace and rolling 24 hours (schedules, alerts and "Run now"). */
 export const DEFAULT_DAILY_RUN_LIMIT = 50;
@@ -29,30 +30,76 @@ export interface RunView {
   finishedAt: Date | null;
 }
 
-/** Runs of the last 24 hours that cost (or may cost) a model call. */
-async function runsToday(tx: Tx, orgId: string, now: Date): Promise<number> {
+/** "Run now" runs per user and rolling 24 hours (P4-R30): one member cannot use up the day. */
+export const SKILL_MANUAL_RUNS_PER_USER = 10;
+
+/**
+ * The part of the workspace's daily limit one owner's runs (schedules, alerts and "Run now") may
+ * use (P4-R30): half of it, and never fewer than 5 runs. The workspace limit still binds.
+ */
+export const ownerRunShare = (dailyLimit: number) => Math.max(5, Math.ceil(dailyLimit / 2));
+
+/**
+ * Failed runs that ended before any model call (the owner's role refused the output, an invalid
+ * document, no model): like skipped runs, they cost nothing and count toward no limit (P4-R30).
+ */
+const PRE_MODEL_FAILURES = [
+  'forbidden_role',
+  'invalid_skill',
+  'no_llm',
+] as const satisfies readonly RunResultCode[];
+
+/**
+ * Runs of the last 24 hours that cost (or may cost) a model call: in the workspace, of this
+ * owner's skills, and of their "Run now" requests ("Run now" is the owner's only).
+ */
+async function runsToday(tx: Tx, orgId: string, ownerUserId: string, now: Date) {
   const [row] = await tx
-    .select({ n: sql<number>`count(*)::int` })
+    .select({
+      workspace: sql<number>`count(*)::int`,
+      owner: sql<number>`(count(*) filter (where ${skills.ownerUserId} = ${ownerUserId}))::int`,
+      manual: sql<number>`(count(*) filter (where ${skills.ownerUserId} = ${ownerUserId} and ${skillRuns.trigger} = 'manual'))::int`,
+    })
     .from(skillRuns)
+    .innerJoin(skills, eq(skills.id, skillRuns.skillId))
     .where(
       and(
         eq(skillRuns.orgId, orgId),
         ne(skillRuns.status, 'skipped'),
+        or(
+          ne(skillRuns.status, 'failed'),
+          isNull(skillRuns.resultCode),
+          notInArray(skillRuns.resultCode, [...PRE_MODEL_FAILURES]),
+        ),
         gte(skillRuns.createdAt, new Date(now.getTime() - 24 * 3_600_000)),
       ),
     );
-  return row?.n ?? 0;
+  return { workspace: row?.workspace ?? 0, owner: row?.owner ?? 0, manual: row?.manual ?? 0 };
+}
+
+/** Why a run is recorded as skipped instead of queued, from the counts above (P4-R30). */
+function limitReached(
+  counts: Awaited<ReturnType<typeof runsToday>>,
+  trigger: RunTrigger,
+  dailyLimit: number,
+): RunSkipCode | null {
+  if (counts.workspace >= dailyLimit) return 'daily_limit';
+  if (counts.owner >= ownerRunShare(dailyLimit)) return 'owner_limit';
+  if (trigger === 'manual' && counts.manual >= SKILL_MANUAL_RUNS_PER_USER) return 'user_limit';
+  return null;
 }
 
 /**
- * Records a run to do, inside the caller's tenant transaction. Over the workspace's daily limit
- * the run is still recorded, as `skipped` with code `daily_limit`, so the owner sees why nothing
- * came; `skip` records it as skipped with that code whatever the count (e.g. `owner_left`).
- * Scheduled runs are unique per scheduled time: a second attempt returns null, as does a skill
- * that is not in this workspace.
+ * Records a run to do, inside the caller's tenant transaction. Over a limit the run is still
+ * recorded, as `skipped` with the limit's code (`daily_limit` for the workspace, `owner_limit` for
+ * the owner's share of it, `user_limit` for the owner's "Run now" allowance), so the owner sees why
+ * nothing came; `skip` records it as skipped with that code whatever the counts (e.g.
+ * `owner_left`). Scheduled runs are unique per scheduled time: a second attempt returns null, as
+ * does a skill that is not in this workspace.
  *
  * The skill's output and channel are snapshotted into the run (P4-R5): delivery uses them, not a
- * later edit. The channel is kept only when it is in this workspace (foreign keys bypass RLS).
+ * later edit. The channel is kept only when it is in this workspace (foreign keys bypass RLS); an
+ * email run keeps the workspace's SMTP server of the moment.
  */
 export async function createRun(
   tx: Tx,
@@ -65,12 +112,16 @@ export async function createRun(
     context?: Record<string, unknown>;
     now: Date;
     dailyLimit: number;
-    skip?: string;
+    skip?: RunSkipCode | 'owner_left';
   },
-): Promise<{ id: string; queued: boolean } | null> {
+): Promise<{ id: string; queued: boolean; skipped: RunSkipCode | 'owner_left' | null } | null> {
   if (!isUuid(input.skillId)) return null;
   const [skill] = await tx
-    .select({ output: skills.output, channelId: deliveryChannels.id })
+    .select({
+      output: skills.output,
+      ownerUserId: skills.ownerUserId,
+      channelId: deliveryChannels.id,
+    })
     .from(skills)
     .leftJoin(
       deliveryChannels,
@@ -78,13 +129,26 @@ export async function createRun(
     )
     .where(and(eq(skills.orgId, orgId), eq(skills.id, input.skillId)));
   if (!skill) return null;
+  let channelId = skill.channelId;
+  if (skill.output === 'email') {
+    // One SMTP server per workspace: the run is delivered through the one there is now.
+    const [smtp] = await tx
+      .select({ id: deliveryChannels.id })
+      .from(deliveryChannels)
+      .where(and(eq(deliveryChannels.orgId, orgId), eq(deliveryChannels.kind, 'smtp')));
+    channelId = smtp?.id ?? null;
+  }
   // Serialises the count-then-insert of one workspace (two ticks or two "Run now" at once): the
   // lock is held until commit, and under READ COMMITTED the count that follows sees every run
   // committed by the previous holder.
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`skill_runs:${orgId}`}))`);
   const skipCode =
     input.skip ??
-    ((await runsToday(tx, orgId, input.now)) >= input.dailyLimit ? 'daily_limit' : null);
+    limitReached(
+      await runsToday(tx, orgId, skill.ownerUserId, input.now),
+      input.trigger,
+      input.dailyLimit,
+    );
   const [row] = await tx
     .insert(skillRuns)
     .values({
@@ -95,7 +159,7 @@ export async function createRun(
       scheduledFor: input.scheduledFor ?? null,
       context: input.context ?? {},
       outputKind: skill.output,
-      channelId: skill.channelId,
+      channelId,
       // The caller's clock (the worker's), the one the daily window is counted with.
       createdAt: input.now,
       ...(skipCode
@@ -105,7 +169,7 @@ export async function createRun(
     .onConflictDoNothing()
     .returning({ id: skillRuns.id });
   if (!row) return null;
-  return { id: row.id, queued: !skipCode };
+  return { id: row.id, queued: !skipCode, skipped: skipCode };
 }
 
 /**

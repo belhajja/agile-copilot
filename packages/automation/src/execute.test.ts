@@ -9,12 +9,41 @@ import {
 import { createSkill, type SkillActor, serializeSkill } from '@agile/skills';
 import { member, owner } from '@agile/sync/testing';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { executeSkillRun } from './execute';
 import { createRun } from './runs';
 import { startAutomationHarness } from './test-harness';
 
 const NOW = new Date('2026-10-05T08:00:00Z');
+
+/** Database blips after a delivery went out (M1): `markChannel` and `finishRun` can be made to fail. */
+const blips = vi.hoisted(() => ({ markChannel: 0, finishRun: 0 }));
+vi.mock('@agile/notify', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@agile/notify')>();
+  return {
+    ...real,
+    markChannel: async (...args: Parameters<typeof real.markChannel>) => {
+      if (blips.markChannel > 0) {
+        blips.markChannel--;
+        throw new Error('connection reset');
+      }
+      return real.markChannel(...args);
+    },
+  };
+});
+vi.mock('./runs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./runs')>();
+  return {
+    ...real,
+    finishRun: async (...args: Parameters<typeof real.finishRun>) => {
+      if (blips.finishRun > 0) {
+        blips.finishRun--;
+        throw new Error('connection reset');
+      }
+      return real.finishRun(...args);
+    },
+  };
+});
 
 describe('executing a run: owner, read-only report, delivery', () => {
   let h: Awaited<ReturnType<typeof startAutomationHarness>>;
@@ -47,18 +76,22 @@ describe('executing a run: owner, read-only report, delivery', () => {
     if (!r.ok) throw new Error(r.code);
     return r.id;
   };
-  const queue = async (skillId: string, trigger: 'manual' | 'alert' = 'manual') => {
+  // Scheduled runs (one per scheduled time) under a high limit: this file records more runs than
+  // one owner's "Run now" allowance and share of the default limit (P4-R30).
+  let slot = 0;
+  const queue = async (skillId: string, trigger: 'schedule' | 'alert' = 'schedule') => {
     const run = await withOrg(h.db, 'org_a', (tx) =>
       createRun(tx, 'org_a', {
         skillId,
         version: 1,
         trigger,
+        scheduledFor: trigger === 'schedule' ? new Date(NOW.getTime() + ++slot * 60_000) : null,
         now: new Date(),
-        dailyLimit: 50,
+        dailyLimit: 1000,
         context: trigger === 'alert' ? { matches: [{ board: 'OPS Kanban', value: 9 }] } : {},
       }),
     );
-    if (!run) throw new Error('no run');
+    if (!run?.queued) throw new Error('no run');
     return run.id;
   };
   const runRow = async (id: string) =>
@@ -153,6 +186,96 @@ describe('executing a run: owner, read-only report, delivery', () => {
       expect.objectContaining({ path: '/services/T/B/x' }),
     ]);
     expect(h.smtp.mails.length).toBe(mails);
+  });
+
+  it("emails through the workspace's SMTP server snapshotted into the run (P4-R5, M5)", async () => {
+    const id = await skillFor(owner(), 'smtp-snapshot', 'email');
+    const runId = await queue(id);
+    const [smtp] = await h.rawDb
+      .select({ id: deliveryChannels.id })
+      .from(deliveryChannels)
+      .where(eq(deliveryChannels.kind, 'smtp'));
+    expect((await runRow(runId))?.channelId).toBe(smtp?.id);
+    // A run recorded while the workspace had no SMTP server is not sent through a later one.
+    const without = await queue(id);
+    await h.rawDb.update(skillRuns).set({ channelId: null }).where(eq(skillRuns.id, without));
+    const mails = h.smtp.mails.length;
+    expect(await executeSkillRun(h.deps, 'org_a', without)).toEqual({
+      status: 'succeeded',
+      deliveries: { email: 'no_channel' },
+    });
+    expect(h.smtp.mails.length).toBe(mails);
+  });
+
+  it('never records a sent report as failed when the database blips afterwards (M1)', async () => {
+    const id = await skillFor(owner(), 'blip-post', 'slack', { channelId: h.slackChannelId });
+    const errors: string[] = [];
+    const deps = { ...h.deps, onError: (_e: unknown, code: string) => errors.push(code) };
+    // Recording the channel's outcome fails: the post went out, the run says so.
+    blips.markChannel = 1;
+    const marked = await queue(id);
+    expect(await executeSkillRun(deps, 'org_a', marked)).toEqual({
+      status: 'succeeded',
+      deliveries: { slack: 'sent' },
+    });
+    expect(await runRow(marked)).toMatchObject({ status: 'succeeded', resultCode: null });
+    expect(errors).toEqual(['channel_mark_failed']);
+    // Storing the outcome fails once: retried.
+    blips.finishRun = 1;
+    const once = await queue(id);
+    expect(await executeSkillRun(deps, 'org_a', once)).toMatchObject({ status: 'succeeded' });
+    expect(await runRow(once)).toMatchObject({
+      status: 'succeeded',
+      deliveries: { slack: 'sent' },
+    });
+    // Fails twice: reported, never turned into a failed run (the stale-run sweep closes it).
+    blips.finishRun = 2;
+    const twice = await queue(id);
+    const posts = h.hook.posts.length;
+    expect(await executeSkillRun(deps, 'org_a', twice)).toEqual({
+      status: 'succeeded',
+      deliveries: { slack: 'sent' },
+    });
+    expect(h.hook.posts.length).toBe(posts + 1);
+    expect(errors).toEqual(['channel_mark_failed', 'finish_failed']);
+    expect(await runRow(twice)).toMatchObject({ status: 'running' });
+  });
+
+  it('ends a run as interrupted when the worker stops during its delivery (M3)', async () => {
+    const id = await skillFor(owner(), 'stopping-post', 'slack', { channelId: h.slackChannelId });
+    const runId = await queue(id);
+    const [before] = await h.rawDb
+      .select({ lastError: deliveryChannels.lastError })
+      .from(deliveryChannels)
+      .where(eq(deliveryChannels.id, h.slackChannelId));
+    h.hook.stalling.add('/services/T/B/x');
+    try {
+      const stop = new AbortController();
+      const posts = h.hook.posts.length;
+      const running = executeSkillRun(h.deps, 'org_a', runId, stop.signal);
+      // The post reached the platform, which does not answer: the worker stops now.
+      for (let i = 0; i < 200 && h.hook.posts.length === posts; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(h.hook.posts.length).toBe(posts + 1);
+      stop.abort();
+      expect(await running).toEqual({ status: 'failed', code: 'interrupted' });
+    } finally {
+      h.hook.stalling.delete('/services/T/B/x');
+    }
+    // Finished (not left running), with its report; the channel is not blamed.
+    expect(await runRow(runId)).toMatchObject({
+      status: 'failed',
+      resultCode: 'interrupted',
+      output: 'Report for stopping-post: 2 boards checked.',
+      deliveries: {},
+    });
+    expect((await runRow(runId))?.finishedAt).not.toBeNull();
+    const [after] = await h.rawDb
+      .select({ lastError: deliveryChannels.lastError })
+      .from(deliveryChannels)
+      .where(eq(deliveryChannels.id, h.slackChannelId));
+    expect(after?.lastError).toBe(before?.lastError);
   });
 
   it('posts nothing for an owner who is no longer an owner or admin (P4-R4)', async () => {

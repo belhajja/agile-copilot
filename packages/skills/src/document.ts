@@ -1,5 +1,6 @@
 import { parseDocument, stringify } from 'yaml';
 import type { z } from 'zod';
+import type { SkillIssueCode } from './codes';
 import {
   type SkillFrontmatter,
   type SkillFrontmatterInput,
@@ -11,20 +12,7 @@ export const MAX_DOCUMENT_CHARS = 24_000;
 export const MAX_INSTRUCTIONS_CHARS = 20_000;
 
 /** Why a document was refused: a fixed code (translated by the UI) and the field it concerns. */
-export type SkillIssueCode =
-  | 'too_long'
-  | 'missing_frontmatter'
-  | 'invalid_yaml'
-  | 'empty_instructions'
-  | 'required'
-  | 'unknown_field'
-  | 'timezone_invalid'
-  | 'cron_invalid'
-  | 'cron_too_frequent'
-  | 'only_for_schedule'
-  | 'only_for_alert'
-  | 'chat_only'
-  | 'invalid';
+export type { SkillIssueCode } from './codes';
 
 export interface SkillIssue {
   code: SkillIssueCode;

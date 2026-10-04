@@ -1,5 +1,5 @@
 import { auditLog, skillRuns, withOrg } from '@agile/db';
-import { createSkill, serializeSkill, setSkillVisibility } from '@agile/skills';
+import { createSkill, serializeSkill, setSkillEnabled, setSkillVisibility } from '@agile/skills';
 import { startSyncQueue } from '@agile/sync';
 import { member, owner } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
@@ -14,7 +14,7 @@ import {
   SKILL_TICK_QUEUE,
   startSkillWorker,
 } from './queue';
-import { createRun } from './runs';
+import { createRun, SKILL_MANUAL_RUNS_PER_USER } from './runs';
 import { startAutomationHarness } from './test-harness';
 
 describe('"Run now" and the skill worker (pg-boss)', () => {
@@ -118,10 +118,17 @@ describe('"Run now" and the skill worker (pg-boss)', () => {
   it('records but does not queue a run over the daily limit', async () => {
     const id = await create();
     const r = await requestSkillRun({ ...deps(), dailyLimit: 0 }, owner(), id);
-    expect(r).toMatchObject({ ok: true, queued: false });
+    expect(r).toMatchObject({ ok: true, queued: false, skipped: 'daily_limit' });
     if (!r.ok) throw new Error('unreachable');
     const [run] = await h.rawDb.select().from(skillRuns).where(eq(skillRuns.id, r.runId));
     expect(run).toMatchObject({ status: 'skipped', resultCode: 'daily_limit' });
+  });
+
+  it('does not run a skill that is turned off (M6)', async () => {
+    const id = await create(owner(), 'schedule');
+    await setSkillEnabled(h.db, owner(), id, false, new Date());
+    expect(await requestSkillRun(deps(), owner(), id)).toEqual({ ok: false, code: 'disabled' });
+    expect(await h.rawDb.select().from(skillRuns).where(eq(skillRuns.skillId, id))).toEqual([]);
   });
 
   it('re-sends a run whose job was lost; sent twice, it still runs once (P4-R19)', async () => {
@@ -182,5 +189,26 @@ describe('"Run now" and the skill worker (pg-boss)', () => {
       SKILL_TICK_QUEUE,
       SKILL_TICK_CRON,
     ]);
+  });
+
+  // Last: it uses up the owner's "Run now" allowance for the rest of this file.
+  it(`refuses a user's "Run now" beyond ${SKILL_MANUAL_RUNS_PER_USER} a day, with its code (P4-R30)`, async () => {
+    const id = await create(owner(), 'schedule');
+    // Earlier "Run now" runs of this owner (another skill of theirs), within the last 24 hours.
+    const other = await create(owner(), 'schedule');
+    const earlier = new Date(Date.now() - 3_600_000);
+    for (let i = 0; i < SKILL_MANUAL_RUNS_PER_USER; i++) {
+      await withOrg(h.db, 'org_a', (tx) =>
+        createRun(tx, 'org_a', {
+          skillId: other,
+          version: 1,
+          trigger: 'manual',
+          now: earlier,
+          dailyLimit: 1000,
+        }),
+      );
+    }
+    const r = await requestSkillRun({ ...deps(), dailyLimit: 1000 }, owner(), id);
+    expect(r).toMatchObject({ ok: true, queued: false, skipped: 'user_limit' });
   });
 });

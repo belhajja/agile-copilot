@@ -13,6 +13,7 @@ import {
   withOrg,
 } from '@agile/db';
 import { and, asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
+import type { SkillFailureCode } from './codes';
 import {
   type ParseResult,
   parseSkillDocument,
@@ -47,14 +48,7 @@ export interface SkillView {
 
 export type SkillFailure = {
   ok: false;
-  code:
-    | 'not_found'
-    | 'forbidden'
-    | 'invalid'
-    | 'duplicate_name'
-    | 'invalid_channel'
-    | 'forbidden_output'
-    | 'version_conflict';
+  code: SkillFailureCode;
   issues?: SkillIssue[];
 };
 

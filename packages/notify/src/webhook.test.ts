@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DeliveryError } from './errors';
+import { DeliveryError, DeliveryInterruptedError } from './errors';
 import { type MockWebhook, startMockWebhook } from './testing';
 import { postWebhook, sendWebhook, slackPayload, teamsPayload } from './webhook';
 
@@ -116,6 +116,28 @@ describe('postWebhook', () => {
         postWebhook('slack', `${hook.url}/slow`, message, { outbound, timeoutMs: 200 }),
       ),
     ).toEqual(['timeout', null]);
+  });
+
+  it("stops when the caller's signal aborts: interrupted, not a channel failure", async () => {
+    const onError = vi.fn();
+    const stop = new AbortController();
+    const started = Date.now();
+    const sending = postWebhook('slack', `${hook.url}/slow`, message, {
+      outbound,
+      timeoutMs: 30_000,
+      signal: stop.signal,
+      onError,
+    }).catch((e: unknown) => e);
+    setTimeout(() => stop.abort(), 100);
+    expect(await sending).toBeInstanceOf(DeliveryInterruptedError);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(onError).not.toHaveBeenCalled();
+    // Already stopped: nothing is sent at all.
+    const before = hook.posts.length;
+    await expect(
+      postWebhook('slack', `${hook.url}/x`, message, { outbound, signal: AbortSignal.abort() }),
+    ).rejects.toBeInstanceOf(DeliveryInterruptedError);
+    expect(hook.posts.length).toBe(before);
   });
 
   it('never puts the webhook URL in an error', async () => {
