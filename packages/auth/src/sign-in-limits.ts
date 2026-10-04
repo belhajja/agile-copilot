@@ -35,7 +35,16 @@ export function withClientAddress(request: Request, trustedProxyHops: number): R
   headers.delete(CLIENT_ADDRESS_HEADER);
   const address = clientAddress(request.headers, trustedProxyHops);
   if (address) headers.set(CLIENT_ADDRESS_HEADER, address);
-  return new Request(request, { headers });
+  // Rebuilt from its parts, not `new Request(request)`: Next.js hands over a request of another
+  // class, whose private state this realm's Request cannot read.
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: hasBody ? request.body : null,
+    signal: request.signal,
+    ...(hasBody ? { duplex: 'half' } : {}),
+  } as RequestInit);
 }
 
 /** better-auth's `rateLimit` and `advanced.ipAddress` settings for the per-address layer. */
