@@ -80,7 +80,7 @@ docker compose -f docker-compose.selfhost.yml up -d --build
 
 Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ollama.internal`) to let self-hosted Jira or Ollama instances resolve to private addresses; by default outbound requests to private ranges are blocked. Never expose Postgres publicly: the compose file deliberately publishes no database port.
 
-The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) and the external MCP settings (`MCP_RATE_LIMIT_PER_MINUTE`, `TRUSTED_PROXY_HOPS`) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)*).
+The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE`, and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)* and *Sign-in limits*).
 
 ### Worker settings and the `pgboss` schema
 
@@ -402,11 +402,11 @@ The analytics tools (`list_boards`, `list_metrics`, `get_metric`, `forecast`, `f
 - **These two limits are per web process.** With several replicas, each one counts its own.
 - **Corporate NAT:** people behind one shared address share one per-address budget.
 
-**`TRUSTED_PROXY_HOPS`** says how many reverse proxies in front of the app append the client address to `X-Forwarded-For`. The app needs it to find the client's address, which is read from that many entries from the end of the header.
+**`TRUSTED_PROXY_HOPS`** says how many reverse proxies in front of the app append the client address to `X-Forwarded-For`. The app needs it to find the client's address, which is read from that many entries from the end of the header. The sign-in limits use the same setting (see *Security model → Sign-in limits*).
 
 | Setting | When to use it |
 | --- | --- |
-| `0` (default) | The app is reached directly, as with the self-host compose's published port. The header is ignored, and all requests share one deployment-wide bucket (1,200 per minute). |
+| `0` (default) | The app is reached directly, as with the self-host compose's published port. The header is ignored, and all requests share one deployment-wide bucket (1,200 per minute for MCP; 600 per minute per sign-in path). |
 | `1` | One reverse proxy, ingress controller or load balancer that appends the address. The Helm chart sets this when `ingress.enabled=true`. |
 | `2` | A CDN or external load balancer, then your ingress. |
 
@@ -551,6 +551,11 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - The assistant never writes to Jira without the user's explicit approval of that exact change. Skill runs have no write tools at all.
 - Skills written by other members never reach your assistant unless you copy them (they start disabled); skill emails go only to the skill owner's own address; Slack/Teams posts are escaped and not unfurled.
 
+### Sign-in limits
+
+- **Per account:** at most 10 password sign-ins per address in 15 minutes, failed or not, from any client address. The next one gets 429 (with `X-Retry-After`) until the window ends, even with the right password; a successful sign-in starts the count over. It is counted in Postgres (`sign_in_attempts`, a keyed hash of the address, never the address), so it holds across web replicas. An address without an account is counted the same way, so the answer never tells whether an account exists.
+- **Per client address:** better-auth's own limiter (3 sign-ins or sign-ups per 10 seconds per address, 100 requests per 10 seconds on other auth paths). The address comes from `TRUSTED_PROXY_HOPS`, exactly as for `/api/mcp`; an `X-Forwarded-For` the client wrote is never used. With `TRUSTED_PROXY_HOPS=0` there is no address: everyone shares one bucket per auth path, with a ceiling of 600 requests per minute, so nobody can lock everyone out, nor get a fresh budget by writing the header. This limit is kept in memory, per web process.
+
 ### Known limitations
 
 - mcp-atlassian applies its own outbound rules (`MCP_ALLOWED_URL_DOMAINS`), separate from `ALLOWED_PRIVATE_HOSTS`.
@@ -574,6 +579,8 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - **Break-glass administrators cannot accept invitations while SSO is on:** their address is never verified (they never get an SSO identity). Have them create their own workspace, or invite them before turning SSO on.
 - **Adding an address to `BREAK_GLASS_EMAILS` later does not unlink an SSO identity** the account already has. It stops new links only. Remove that identity in the database (`account` rows of the user whose `provider_id` is not `credential`) if the account must be password-only.
 - **Unlinking is refused for every account under `PASSWORD_LOGIN=admin_only`**, not only for SSO identities: the check cannot tell which sign-in method an unlink request names.
+- **Anyone who knows an address can keep that account's password sign-in refused**, 15 minutes at a time, by spending its 10 attempts (the price of stopping password guessing per account). SSO sign-in is not affected. An operator can lift every account's count at once with `DELETE FROM sign_in_attempts` (rows are keyed by a hash, not the address).
+- The per-address sign-in limit is per web process (each replica counts its own); the per-account limit is shared.
 - External MCP's per-address limit before authentication is per web process (each replica counts its own), and people behind one corporate NAT share one address budget.
 - The live provider, production IdP, Stripe, Langfuse, Claude Desktop and Kubernetes checks have not been run here (see *Checking enterprise features by hand*).
 

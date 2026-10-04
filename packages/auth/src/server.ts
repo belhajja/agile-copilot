@@ -25,6 +25,12 @@ import {
 } from './hooks';
 import { seatsInUse } from './members';
 import {
+  addressLimitOptions,
+  clearSignInAttempts,
+  takeSignInAttempt,
+  withClientAddress,
+} from './sign-in-limits';
+import {
   guardPasswordLogin,
   guardSsoStart,
   isBreakGlass,
@@ -59,6 +65,17 @@ export interface AuthOptions {
    * default, and self-host). Checked when someone is invited, added or accepts; never removes.
    */
   seatLimit?: (orgId: string) => Promise<number | null>;
+  /**
+   * TRUSTED_PROXY_HOPS: how many reverse proxies append the client address to X-Forwarded-For.
+   * The per-address sign-in limit reads the address that many entries from the end, as `/api/mcp`
+   * does; 0 (the default) never reads the header (see sign-in-limits.ts).
+   */
+  trustedProxyHops?: number;
+  /**
+   * better-auth's per-address limiter: `enabled` unset keeps its default (on in production only);
+   * `sharedPerMinute` is the ceiling shared without a trusted address (tests lower it).
+   */
+  rateLimit?: { enabled?: boolean; sharedPerMinute?: number };
 }
 
 /**
@@ -77,6 +94,8 @@ export function createAuth(
     breakGlassEmails = [],
     beforeWorkspaceDeleted = async () => {},
     seatLimit = async () => null,
+    trustedProxyHops = 0,
+    rateLimit = {},
   }: AuthOptions,
   { ssoProvider = true }: { ssoProvider?: boolean } = {},
 ) {
@@ -91,14 +110,16 @@ export function createAuth(
         .where(eq(schema.user.id, userId))
         .limit(1)
     )[0];
-  return betterAuth({
+  const limits = addressLimitOptions(rateLimit);
+  const auth = betterAuth({
     baseURL,
     secret,
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     emailAndPassword: { enabled: true, minPasswordLength: 10 },
     // Explicit, so tests (where better-auth skips it by default) run the production checks:
     // trusted Origin on cookie requests, and callback URLs on our own origin.
-    advanced: { disableOriginCheck: false },
+    advanced: { disableOriginCheck: false, ipAddress: limits.ipAddress },
+    rateLimit: limits.rateLimit,
     account: {
       // Access and refresh tokens are encrypted at rest with the auth secret (better-auth leaves
       // the ID token as is: it carries the identity claims, no grant).
@@ -119,12 +140,23 @@ export function createAuth(
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
         guardSsoStart(ctx);
+        // Before the policy guard, which may point a refused address elsewhere.
+        if (ctx.path === '/sign-in/email' && typeof ctx.body?.email === 'string') {
+          await takeSignInAttempt(db, secret, ctx.body.email);
+        }
         guardPasswordLogin(ctx, policy);
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);
         await rememberBeforeState(db, ctx);
       }),
       after: createAuthMiddleware(async (ctx) => {
+        if (
+          ctx.path === '/sign-in/email' &&
+          ctx.context.newSession &&
+          typeof ctx.body?.email === 'string'
+        ) {
+          await clearSignInAttempts(db, secret, ctx.body.email);
+        }
         await checkInvitationListScope(db, ctx);
         await auditMembership(db, ctx);
         const redacted = await redactFullOrganization(db, ctx);
@@ -264,6 +296,12 @@ export function createAuth(
       }),
       nextCookies(), // must stay last
     ],
+  });
+  // Every HTTP request reaches better-auth (and its limiter) with the address from
+  // TRUSTED_PROXY_HOPS, never a client-written one.
+  const handler = auth.handler;
+  return Object.assign(auth, {
+    handler: (request: Request) => handler(withClientAddress(request, trustedProxyHops)),
   });
 }
 

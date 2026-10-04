@@ -89,7 +89,8 @@
       "server_error": "Votre fournisseur d'identité a signalé une erreur. Réessayez dans une minute.",
       "invalid_request": "Votre fournisseur d'identité a refusé la demande de connexion.",
       "SSO_UNLINK_NOT_ALLOWED": "Les méthodes de connexion ne peuvent pas être retirées tant que le mot de passe est réservé aux administrateurs.",
-      "SEAT_LIMIT_REACHED": "Cet espace n'a plus de place disponible dans son offre. Un propriétaire peut changer d'offre dans Facturation."
+      "SEAT_LIMIT_REACHED": "Cet espace n'a plus de place disponible dans son offre. Un propriétaire peut changer d'offre dans Facturation.",
+      "TOO_MANY_REQUESTS": "Trop de tentatives. Patientez quelques minutes, puis réessayez."
     },
     "ssoButton": "Continuer avec {name}",
     "ssoUnavailable": "L'authentification unique est injoignable pour le moment. Réessayez dans une minute.",

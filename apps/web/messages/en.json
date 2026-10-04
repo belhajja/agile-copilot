@@ -89,7 +89,8 @@
       "server_error": "Your identity provider reported an error. Try again in a minute.",
       "invalid_request": "Your identity provider refused the sign-in request.",
       "SSO_UNLINK_NOT_ALLOWED": "Sign-in methods cannot be removed while password sign-in is reserved for administrators.",
-      "SEAT_LIMIT_REACHED": "This workspace has no free seat on its plan. An owner can upgrade on the Billing page."
+      "SEAT_LIMIT_REACHED": "This workspace has no free seat on its plan. An owner can upgrade on the Billing page.",
+      "TOO_MANY_REQUESTS": "Too many attempts. Wait a few minutes, then try again."
     },
     "ssoButton": "Continue with {name}",
     "ssoUnavailable": "Single sign-on is not reachable right now. Try again in a minute.",

@@ -1,5 +1,6 @@
-import { isIPv4, isIPv6 } from 'node:net';
+import { isIPv4 } from 'node:net';
 import { serverEnv } from '@agile/config';
+import { clientAddress } from '@agile/net';
 
 /**
  * Pre-authentication limit of `/api/mcp` (P5-R36): a cheap in-memory token bucket per client
@@ -8,10 +9,9 @@ import { serverEnv } from '@agile/config';
  * still applies to authenticated requests.
  *
  * The client address comes from X-Forwarded-For only when `TRUSTED_PROXY_HOPS` says how many
- * proxies append to it (the entry that many places from the end, written by our own proxy, never
- * one the client wrote). Next.js does not give route handlers the connection's address, so
- * without a trusted proxy every request shares one deployment-wide bucket (a larger budget). The
- * buckets live in each server process: with several replicas, each has its own. On top of the
+ * proxies append to it (`clientAddress` from @agile/net, shared with the sign-in limits). Next.js
+ * does not give route handlers the connection's address, so without a trusted proxy every request
+ * shares one deployment-wide bucket (a larger budget). The buckets live in each server process: with several replicas, each has its own. On top of the
  * per-address buckets, one ceiling bounds all pre-auth traffic of the process (P5-R42).
  */
 
@@ -52,15 +52,9 @@ function ipv6Groups(address: string): number[] {
 
 /** The bucket a request counts against: its client address (IPv6 by /64), else `GLOBAL_KEY`. */
 export function clientKey(headers: Headers, trustedProxyHops: number): string {
-  if (trustedProxyHops < 1) return GLOBAL_KEY;
-  const entries = (headers.get('x-forwarded-for') ?? '')
-    .split(',')
-    .map((e) => e.trim())
-    .filter(Boolean);
-  const address = entries[entries.length - trustedProxyHops];
+  const address = clientAddress(headers, trustedProxyHops);
   if (!address) return GLOBAL_KEY;
   if (isIPv4(address)) return address;
-  if (!isIPv6(address)) return GLOBAL_KEY;
   const g = ipv6Groups(address);
   // IPv4-mapped (::ffff:a.b.c.d, in any spelling): the IPv4 client's own bucket.
   if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {

@@ -53,10 +53,20 @@ export const AUTH_ERROR_CODES = [
   'INVITATION_LIMIT_REACHED',
   // SaaS plan seats (invite, accept).
   'SEAT_LIMIT_REACHED',
+  // Sign-in limits (per address, per account): a 429 with no code.
+  'TOO_MANY_REQUESTS',
   'invalid_input',
   ...INVITATION_PAGE_ERRORS,
   ...SSO_ERROR_CODES,
 ] as const;
+
+/** The sentence key for a better-auth client error, or null for the generic one. */
+export function authErrorCode(
+  error: { code?: string; status?: number } | null | undefined,
+): (typeof AUTH_ERROR_CODES)[number] | null {
+  const code = error?.code ?? (error?.status === 429 ? 'TOO_MANY_REQUESTS' : undefined);
+  return allowedCode(code, AUTH_ERROR_CODES);
+}
 
 /**
  * Maps a better-auth client error to a translated message: `auth.errors.<code>` when we have one,
@@ -65,8 +75,8 @@ export const AUTH_ERROR_CODES = [
  */
 export function useAuthErrorMessage() {
   const t = useTranslations('auth');
-  return (error: { code?: string } | null | undefined): string => {
-    const code = allowedCode(error?.code, AUTH_ERROR_CODES);
+  return (error: { code?: string; status?: number } | null | undefined): string => {
+    const code = authErrorCode(error);
     return code ? t(`errors.${code}`) : t('genericError');
   };
 }
