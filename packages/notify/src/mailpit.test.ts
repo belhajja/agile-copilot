@@ -34,13 +34,17 @@ describe('email contract (Mailpit)', () => {
       { outbound: { allowedPrivateHosts: [host] } },
     );
     const api = `http://${host}:${mailpit.getMappedPort(8025)}/api/v1`;
-    const list = (await (await fetch(`${api}/messages`)).json()) as {
+    const listRes = await fetch(`${api}/messages`);
+    expect(listRes.ok).toBe(true);
+    const list = (await listRes.json()) as {
       messages: { ID: string; Subject: string; To: { Address: string }[] }[];
     };
     expect(list.messages.map((m) => [m.Subject, m.To.map((t) => t.Address)])).toEqual([
       ['Report: sprint-digest', ['pat@example.com']],
     ]);
-    const message = (await (await fetch(`${api}/message/${list.messages[0]?.ID}`)).json()) as {
+    const messageRes = await fetch(`${api}/message/${list.messages[0]?.ID}`);
+    expect(messageRes.ok).toBe(true);
+    const message = (await messageRes.json()) as {
       From: { Address: string };
       HTML: string;
       Text: string;

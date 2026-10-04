@@ -4,8 +4,9 @@ import {
   isBlockedAddressError,
   normalizeHost,
   type OutboundPolicy,
+  withDeadline,
 } from '@agile/net';
-import { createTransport } from 'nodemailer';
+import { createTransport, type Transporter } from 'nodemailer';
 import { DeliveryError } from './errors';
 
 /** A workspace's SMTP server (stored encrypted in its delivery channel). */
@@ -23,7 +24,13 @@ export interface SmtpOptions {
   outbound: OutboundPolicy;
   /** Connection, greeting and socket deadlines (ms). Default 15 s. */
   timeoutMs?: number;
+  /** Total time for the whole operation, name resolution included (ms). Default 60 s. */
+  deadlineMs?: number;
 }
+
+/** One address, nothing else: no separators, no control characters, no display name. */
+const ADDRESS = /^[^\s@,;<>"()[\]\\:]+@[^\s@,;<>"()[\]\\:]+\.[^\s@,;<>"()[\]\\:]+$/;
+export const isSingleAddress = (value: string) => value.length <= 254 && ADDRESS.test(value);
 
 /**
  * Resolves the SMTP host once, through the same rule as every other user-supplied host
@@ -33,9 +40,12 @@ export interface SmtpOptions {
 export function resolvePinnedAddress(host: string, outbound: OutboundPolicy): Promise<string> {
   const lookup = createPinnedLookup(outbound);
   return new Promise((resolve, reject) =>
-    lookup(host, {}, (error, address) =>
-      error ? reject(error) : resolve(typeof address === 'string' ? address : ''),
-    ),
+    lookup(host, {}, (error, address) => {
+      if (error) return reject(error);
+      if (typeof address !== 'string' || address === '')
+        return reject(Object.assign(new Error(`Could not resolve ${host}`), { code: 'ENOTFOUND' }));
+      resolve(address);
+    }),
   );
 }
 
@@ -85,16 +95,35 @@ function deliveryErrorOf(e: unknown): DeliveryError {
   return new DeliveryError('unreachable');
 }
 
-/** Connects (and logs in) without sending anything: the check when a channel is saved. */
-export async function verifySmtp(secret: SmtpSecret, opts: SmtpOptions): Promise<void> {
-  const transport = await transportFor(secret, opts);
+/**
+ * Runs `action` on a fresh transport under one overall deadline (resolution, connection, login and
+ * the exchange itself): per-socket timeouts do not stop a server that trickles bytes.
+ */
+async function withTransport(
+  secret: SmtpSecret,
+  opts: SmtpOptions,
+  action: (transport: Transporter) => Promise<unknown>,
+): Promise<void> {
+  let transport: Transporter | undefined;
+  const work = (async () => {
+    transport = await transportFor(secret, opts);
+    await action(transport);
+  })();
+  // If the deadline wins, the work may still finish later: close whatever it opened then.
+  const closeLate = () => transport?.close();
+  work.then(closeLate, closeLate);
   try {
-    await transport.verify();
+    await withDeadline(work, opts.deadlineMs ?? 60_000, () => new DeliveryError('timeout'));
   } catch (e) {
     throw deliveryErrorOf(e);
   } finally {
-    transport.close();
+    transport?.close();
   }
+}
+
+/** Connects (and logs in) without sending anything: the check when a channel is saved. */
+export async function verifySmtp(secret: SmtpSecret, opts: SmtpOptions): Promise<void> {
+  await withTransport(secret, opts, (transport) => transport.verify());
 }
 
 export interface EmailMessage {
@@ -110,20 +139,19 @@ export async function sendEmail(
   message: EmailMessage,
   opts: SmtpOptions,
 ): Promise<void> {
-  const transport = await transportFor(secret, opts);
-  try {
-    await transport.sendMail({
+  // Exactly one sender and one recipient, checked before anything is resolved or opened.
+  if (!isSingleAddress(secret.from) || !isSingleAddress(message.to))
+    throw new DeliveryError('rejected');
+  await withTransport(secret, opts, (transport) =>
+    transport.sendMail({
       from: secret.from,
       to: message.to,
+      envelope: { from: secret.from, to: [message.to] },
       subject: message.subject.replace(/[\r\n]+/g, ' ').slice(0, 200),
       html: message.html,
       text: message.text,
       // No tracking, no remote content: the report is all there is.
       headers: { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' },
-    });
-  } catch (e) {
-    throw deliveryErrorOf(e);
-  } finally {
-    transport.close();
-  }
+    }),
+  );
 }
