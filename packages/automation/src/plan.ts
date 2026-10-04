@@ -18,6 +18,8 @@ export const ALERT_COOLDOWN_HOURS = 12;
 export interface PlanDeps {
   db: Db;
   dailyLimit: number;
+  /** Required: a skill that fails to plan is skipped, never silently (log its code and name). */
+  onError: (error: unknown) => void;
 }
 
 type Candidate = {
@@ -214,15 +216,10 @@ async function planAlert(
 /**
  * One scheduler tick for one workspace: closes lost runs, re-sends runs whose job may have been
  * lost, records the runs that are due (schedules) or triggered (alerts) and returns the ids to
- * queue. Skills whose owner left are disabled instead. Skills that fail to plan are reported and
- * skipped; the others still run.
+ * queue. Skills whose owner left are disabled instead. Skills that fail to plan are reported
+ * (`deps.onError`) and skipped; the others still run.
  */
-export async function planSkillRuns(
-  deps: PlanDeps,
-  orgId: string,
-  now: Date,
-  onError: (error: unknown) => void = () => {},
-): Promise<string[]> {
+export async function planSkillRuns(deps: PlanDeps, orgId: string, now: Date): Promise<string[]> {
   await closeStaleRuns(deps.db, orgId, now);
   const queued = await queuedRunsToResend(deps.db, orgId, now);
   const { list, members } = await candidates(deps.db, orgId);
@@ -254,7 +251,7 @@ export async function planSkillRuns(
           : await planAlert(deps, orgId, c, now, boards, dataset);
       if (id) queued.push(id);
     } catch (error) {
-      onError(error);
+      deps.onError(error);
     }
   }
   return queued;

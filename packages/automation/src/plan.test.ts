@@ -10,7 +10,7 @@ import {
 import { createSkill, serializeSkill, setSkillVisibility } from '@agile/skills';
 import { member, owner } from '@agile/sync/testing';
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ALERT_COOLDOWN_HOURS, planSkillRuns } from './plan';
 import { claimRun, closeStaleRuns, createRun, finishRun, listRuns } from './runs';
 import { startAutomationHarness } from './test-harness';
@@ -24,9 +24,16 @@ describe('planning background runs (schedules, alerts, limits)', () => {
     h = await startAutomationHarness();
   });
   afterAll(async () => h?.stop());
+  // Each test starts with no skill planned (its own skills only) and fails on any planning error.
+  const errors: unknown[] = [];
+  beforeEach(async () => {
+    errors.length = 0;
+    await h.rawDb.update(skills).set({ enabled: false });
+  });
+  afterEach(() => expect(errors).toEqual([]));
 
-  const create = async (frontmatter: Record<string, unknown>, now = MONDAY_7) => {
-    const r = await createSkill(h.db, owner(), {
+  const createIn = async (orgId: string, frontmatter: Record<string, unknown>, now = MONDAY_7) => {
+    const r = await createSkill(h.db, owner(orgId), {
       document: serializeSkill({
         frontmatter: { description: 'Test', ...frontmatter } as never,
         instructions: 'Report.',
@@ -37,10 +44,53 @@ describe('planning background runs (schedules, alerts, limits)', () => {
     if (!r.ok) throw new Error(r.code);
     return r.id;
   };
+  const create = (frontmatter: Record<string, unknown>, now = MONDAY_7) =>
+    createIn('org_a', frontmatter, now);
   const runsOf = (skillId: string) =>
     h.rawDb.select().from(skillRuns).where(eq(skillRuns.skillId, skillId));
-  const plan = (now: Date, dailyLimit = 50) =>
-    planSkillRuns({ db: h.db, dailyLimit }, 'org_a', now);
+  const planIn = (orgId: string, now: Date, dailyLimit = 50) =>
+    planSkillRuns({ db: h.db, dailyLimit, onError: (e) => errors.push(e) }, orgId, now);
+  const plan = (now: Date, dailyLimit = 50) => planIn('org_a', now, dailyLimit);
+  const manualRunIn = (orgId: string, skillId: string, now: Date, dailyLimit = 50) =>
+    withOrg(h.db, orgId, (tx) =>
+      createRun(tx, orgId, { skillId, version: 1, trigger: 'manual', now, dailyLimit }),
+    );
+  const manualRun = (skillId: string, now: Date, dailyLimit = 50) =>
+    manualRunIn('org_a', skillId, now, dailyLimit);
+  /** Waits until `n` sessions of the app role wait on a lock; returns how many were seen. */
+  const lockWaiters = async (n: number) => {
+    let seen = 0;
+    for (let i = 0; i < 400; i++) {
+      const [row] = await h.db.execute<{ n: number }>(
+        sql`select count(*)::int as n from pg_stat_activity
+            where wait_event_type = 'Lock' and datname = current_database()`,
+      );
+      seen = row?.n ?? 0;
+      if (seen >= n) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return seen;
+  };
+  /** Holds a lock (taken by `take`) in another session until `release()` is called. */
+  const holdLock = async (
+    take: (tx: Parameters<Parameters<typeof h.rawDb.transaction>[0]>[0]) => Promise<unknown>,
+  ) => {
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let held = () => {};
+    const holding = new Promise<void>((r) => {
+      held = r;
+    });
+    const done = h.rawDb.transaction(async (tx) => {
+      await take(tx);
+      held();
+      await gate;
+    });
+    await holding;
+    return { release, done };
+  };
   const disable = (id: string) =>
     h.rawDb.update(skills).set({ enabled: false }).where(eq(skills.id, id));
 
@@ -105,7 +155,16 @@ describe('planning background runs (schedules, alerts, limits)', () => {
       schedule: { cron: '0 * * * *' },
       output: 'chat',
     });
-    // The two runs planned above count against the day: a limit of 2 is reached.
+    // Two runs earlier today (of another skill): a limit of 2 is reached.
+    const seed = await create({
+      name: 'hourly-seed',
+      trigger: 'schedule',
+      schedule: { cron: '0 6 * * *' },
+      output: 'chat',
+    });
+    await disable(seed);
+    await manualRun(seed, at('2026-10-05T10:55:00Z'));
+    await manualRun(seed, at('2026-10-05T10:56:00Z'));
     expect(await plan(at('2026-10-05T11:01:00Z'), 2)).toEqual([]);
     expect((await runsOf(id)).map((r) => [r.status, r.resultCode])).toEqual([
       ['skipped', 'daily_limit'],
@@ -142,14 +201,7 @@ describe('planning background runs (schedules, alerts, limits)', () => {
 
   // ---- Controller rulings (P4-R1, R2, R5, R10 L21, R19, daily cap) ----
 
-  const disableAll = () => h.rawDb.update(skills).set({ enabled: false });
-  const manualRun = (skillId: string, now: Date, dailyLimit = 50) =>
-    withOrg(h.db, 'org_a', (tx) =>
-      createRun(tx, 'org_a', { skillId, version: 1, trigger: 'manual', now, dailyLimit }),
-    );
-
   it('fires an alert once when two ticks plan it at the same time (P4-R2)', async () => {
-    await disableAll();
     const now = at('2026-10-22T12:00:00Z');
     const id = await create(
       {
@@ -162,38 +214,20 @@ describe('planning background runs (schedules, alerts, limits)', () => {
     );
     // Hold the skill row until both ticks are blocked in their transactions, so they truly
     // overlap: each has evaluated the boards and seen no board alerted yet.
-    let release = () => {};
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    let held = () => {};
-    const holding = new Promise<void>((r) => {
-      held = r;
-    });
-    const holder = h.rawDb.transaction(async (tx) => {
-      await tx.select({ id: skills.id }).from(skills).where(eq(skills.id, id)).for('update');
-      held();
-      await gate;
-    });
-    await holding;
+    const lock = await holdLock((tx) =>
+      tx.select({ id: skills.id }).from(skills).where(eq(skills.id, id)).for('update'),
+    );
     const both = Promise.all([plan(now), plan(now)]);
-    for (let i = 0; i < 400; i++) {
-      const [row] = await h.db.execute<{ n: number }>(
-        sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'`,
-      );
-      if ((row?.n ?? 0) >= 2) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    release();
-    await holder;
+    const waiters = await lockWaiters(2);
+    lock.release();
+    await lock.done;
     const [a, b] = await both;
+    expect(waiters).toBeGreaterThanOrEqual(2);
     expect([...a, ...b]).toHaveLength(1);
     expect(await runsOf(id)).toHaveLength(1);
-    await disable(id);
   });
 
   it('keeps a board that starts matching during the cooldown able to fire later (P4-R10 L21)', async () => {
-    await disableAll();
     const t0 = at('2026-10-24T08:00:00Z');
     const id = await create(
       {
@@ -217,19 +251,27 @@ describe('planning background runs (schedules, alerts, limits)', () => {
     expect(await plan(at('2026-10-24T19:00:00Z'))).toHaveLength(1);
     const [after] = await h.rawDb.select().from(skills).where(eq(skills.id, id));
     expect(after?.alertBoards.length).toBeGreaterThan(0);
-    await disable(id);
   });
 
   it('holds the daily limit when two runs are requested at the same time', async () => {
-    await disableAll();
-    const now = at('2026-11-30T12:00:00Z');
-    const id = await create(
+    // A workspace of its own: no other run counts against its day.
+    const org = 'org_cap';
+    const now = at('2026-10-20T12:00:00Z');
+    const id = await createIn(
+      org,
       { name: 'cap-race', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
       now,
     );
-    await disable(id);
-    // Later than every other run of this file: a limit of 1 leaves room for exactly one.
-    const results = await Promise.all([manualRun(id, now, 1), manualRun(id, now, 1)]);
+    // Hold the workspace's run lock until both requests wait on it, so they truly contend.
+    const lock = await holdLock((tx) =>
+      tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`skill_runs:${org}`}))`),
+    );
+    const both = Promise.all([manualRunIn(org, id, now, 1), manualRunIn(org, id, now, 1)]);
+    const waiters = await lockWaiters(2);
+    lock.release();
+    await lock.done;
+    const results = await both;
+    expect(waiters).toBeGreaterThanOrEqual(2);
     expect(results.map((r) => r?.queued).sort()).toEqual([false, true]);
     expect(
       (await runsOf(id))
@@ -242,7 +284,6 @@ describe('planning background runs (schedules, alerts, limits)', () => {
   });
 
   it('snapshots the output and an in-workspace channel into the run (P4-R5)', async () => {
-    await disableAll();
     const now = at('2026-10-25T12:00:00Z');
     const id = await create(
       { name: 'snap', trigger: 'schedule', schedule: { cron: '0 6 * * *' }, output: 'slack' },
@@ -278,7 +319,6 @@ describe('planning background runs (schedules, alerts, limits)', () => {
   });
 
   it('shows run outputs and deliveries to the skill owner only (P4-R1)', async () => {
-    await disableAll();
     const now = at('2026-10-26T12:00:00Z');
     const id = await create(
       { name: 'shared-report', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
@@ -287,11 +327,14 @@ describe('planning background runs (schedules, alerts, limits)', () => {
     await disable(id);
     expect((await setSkillVisibility(h.db, owner(), id, 'workspace')).ok).toBe(true);
     const run = await manualRun(id, now);
-    await finishRun(h.db, 'org_a', run?.id ?? '', {
-      status: 'succeeded',
-      output: 'Live Jira report',
-      deliveries: { email: 'sent' },
-    });
+    expect(await claimRun(h.db, 'org_a', run?.id ?? '', now)).toBe(true);
+    expect(
+      await finishRun(h.db, 'org_a', run?.id ?? '', now, {
+        status: 'succeeded',
+        output: 'Live Jira report',
+        deliveries: { email: 'sent' },
+      }),
+    ).toBe(true);
     const [mine] = await listRuns(h.db, owner(), id);
     expect([mine?.status, mine?.output, mine?.deliveries]).toEqual([
       'succeeded',
@@ -312,26 +355,52 @@ describe('planning background runs (schedules, alerts, limits)', () => {
   });
 
   it('re-sends runs left queued for 10 minutes; claiming keeps the re-send harmless (P4-R19)', async () => {
-    await disableAll();
+    const org = 'org_resend';
     const now = at('2026-10-21T12:00:00Z');
-    const id = await create(
+    const id = await createIn(
+      org,
       { name: 'lost', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
       now,
     );
-    await disable(id);
-    const old = await manualRun(id, at('2026-10-21T11:45:00Z'));
-    const fresh = await manualRun(id, at('2026-10-21T11:55:00Z'));
-    expect(await plan(now)).toEqual([old?.id]);
+    const old = await manualRunIn(org, id, at('2026-10-21T11:45:00Z'));
+    const fresh = await manualRunIn(org, id, at('2026-10-21T11:55:00Z'));
+    expect(await planIn(org, now)).toEqual([old?.id]);
     // Every tick re-sends it while it waits; the worker's claim runs it once.
-    expect(await plan(now)).toEqual([old?.id]);
-    expect(await claimRun(h.db, 'org_a', old?.id ?? '')).toBe(true);
-    expect(await claimRun(h.db, 'org_a', old?.id ?? '')).toBe(false);
-    expect(await plan(now)).toEqual([]);
+    expect(await planIn(org, now)).toEqual([old?.id]);
+    expect(await claimRun(h.db, org, old?.id ?? '', now)).toBe(true);
+    expect(await claimRun(h.db, org, old?.id ?? '', now)).toBe(false);
+    expect(await planIn(org, now)).toEqual([]);
     expect(fresh?.queued).toBe(true);
   });
 
+  it('never closes a run claimed late while it runs; finishing an interrupted run changes nothing', async () => {
+    const org = 'org_late';
+    const id = await createIn(
+      org,
+      { name: 'late', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      at('2026-10-27T11:00:00Z'),
+    );
+    // Re-sent and claimed 25 minutes after it was queued: 40 minutes old, running for 15.
+    const run = await manualRunIn(org, id, at('2026-10-27T11:20:00Z'));
+    expect(await claimRun(h.db, org, run?.id ?? '', at('2026-10-27T11:45:00Z'))).toBe(true);
+    expect(await closeStaleRuns(h.db, org, at('2026-10-27T12:00:00Z'))).toBe(0);
+    // Still running 30 minutes after its claim: its worker is gone.
+    expect(await closeStaleRuns(h.db, org, at('2026-10-27T12:16:00Z'))).toBe(1);
+    // The lost worker comes back: its late outcome does not overwrite the interruption.
+    expect(
+      await finishRun(h.db, org, run?.id ?? '', at('2026-10-27T12:20:00Z'), {
+        status: 'succeeded',
+        output: 'late report',
+      }),
+    ).toBe(false);
+    expect(
+      (await runsOf(id)).map((r) => [r.status, r.resultCode, r.output, r.startedAt, r.finishedAt]),
+    ).toEqual([
+      ['failed', 'interrupted', null, at('2026-10-27T11:45:00Z'), at('2026-10-27T12:16:00Z')],
+    ]);
+  });
+
   it('disables a skill whose owner left, once, with a skipped run and an audit (P4-R19)', async () => {
-    await disableAll();
     const t0 = at('2026-10-23T11:30:00Z');
     const r = await createSkill(h.db, member(), {
       document: serializeSkill({

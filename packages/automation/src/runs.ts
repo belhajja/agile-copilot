@@ -1,6 +1,6 @@
 import { type Db, deliveryChannels, isUuid, skillRuns, skills, type Tx, withOrg } from '@agile/db';
 import type { SkillActor } from '@agile/skills';
-import { and, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm';
 
 /** Background runs per workspace and rolling 24 hours (schedules, alerts and "Run now"). */
 export const DEFAULT_DAILY_RUN_LIMIT = 50;
@@ -108,33 +108,42 @@ export async function createRun(
   return { id: row.id, queued: !skipCode };
 }
 
-/** Moves a queued run to running; false when another worker already took it (or it is gone). */
-export async function claimRun(db: Db, orgId: string, runId: string): Promise<boolean> {
+/**
+ * Moves a queued run to running at `now` (the worker's clock, the one `createRun` and
+ * `closeStaleRuns` use); false when another worker already took it (or it is gone).
+ */
+export async function claimRun(db: Db, orgId: string, runId: string, now: Date): Promise<boolean> {
   if (!isUuid(runId)) return false;
   const rows = await withOrg(db, orgId, (tx) =>
     tx
       .update(skillRuns)
-      .set({ status: 'running', startedAt: new Date() })
-      .where(and(eq(skillRuns.id, runId), eq(skillRuns.status, 'queued')))
+      .set({ status: 'running', startedAt: now })
+      .where(
+        and(eq(skillRuns.orgId, orgId), eq(skillRuns.id, runId), eq(skillRuns.status, 'queued')),
+      )
       .returning({ id: skillRuns.id }),
   );
   return rows.length > 0;
 }
 
-/** Stores a run's outcome (a code, never an error message). */
+/**
+ * Stores a running run's outcome (a code, never an error message). False when the run is no
+ * longer running (e.g. closed as `interrupted` meanwhile): a late outcome never overwrites it.
+ */
 export async function finishRun(
   db: Db,
   orgId: string,
   runId: string,
+  now: Date,
   outcome: {
     status: 'succeeded' | 'failed' | 'skipped';
     resultCode?: string | null;
     output?: string | null;
     deliveries?: Record<string, string>;
   },
-): Promise<void> {
-  if (!isUuid(runId)) return;
-  await withOrg(db, orgId, (tx) =>
+): Promise<boolean> {
+  if (!isUuid(runId)) return false;
+  const rows = await withOrg(db, orgId, (tx) =>
     tx
       .update(skillRuns)
       .set({
@@ -142,14 +151,23 @@ export async function finishRun(
         resultCode: outcome.resultCode ?? null,
         output: outcome.output ?? null,
         deliveries: outcome.deliveries ?? {},
-        finishedAt: new Date(),
+        finishedAt: now,
       })
-      .where(eq(skillRuns.id, runId)),
+      .where(
+        and(eq(skillRuns.orgId, orgId), eq(skillRuns.id, runId), eq(skillRuns.status, 'running')),
+      )
+      .returning({ id: skillRuns.id }),
   );
+  return rows.length > 0;
 }
 
-/** Closes runs left queued or running by a crashed worker. */
+/**
+ * Closes runs a crashed worker left behind: queued for `STALE_RUN_MINUTES` since they were
+ * recorded, or running for that long since they were claimed (a run re-sent and claimed late is
+ * timed from its claim).
+ */
 export async function closeStaleRuns(db: Db, orgId: string, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_RUN_MINUTES * 60_000);
   const rows = await withOrg(db, orgId, (tx) =>
     tx
       .update(skillRuns)
@@ -157,8 +175,13 @@ export async function closeStaleRuns(db: Db, orgId: string, now: Date): Promise<
       .where(
         and(
           eq(skillRuns.orgId, orgId),
-          inArray(skillRuns.status, ['queued', 'running']),
-          lt(skillRuns.createdAt, new Date(now.getTime() - STALE_RUN_MINUTES * 60_000)),
+          or(
+            and(eq(skillRuns.status, 'queued'), lt(skillRuns.createdAt, cutoff)),
+            and(
+              eq(skillRuns.status, 'running'),
+              sql`coalesce(${skillRuns.startedAt}, ${skillRuns.createdAt}) < ${cutoff.toISOString()}::timestamptz`,
+            ),
+          ),
         ),
       )
       .returning({ id: skillRuns.id }),
