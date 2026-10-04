@@ -1,5 +1,5 @@
 import { listConversations } from '@agile/agent';
-import { listLlmConnections } from '@agile/connections';
+import { listJiraConnections, listLlmConnections } from '@agile/connections';
 import type { UIMessage } from 'ai';
 import { Bot, MessageSquarePlus } from 'lucide-react';
 import Link from 'next/link';
@@ -28,9 +28,10 @@ export async function AgentPage({
 }) {
   const t = await getTranslations('agent');
   const format = await getFormatter();
-  const [llms, conversations] = await Promise.all([
+  const [llms, conversations, jiraSites] = await Promise.all([
     listLlmConnections(connectionDeps(), actor.orgId),
     listConversations(services().db, actor, 10),
+    listJiraConnections(connectionDeps(), actor.orgId),
   ]);
   if (!llms.some((c) => c.isDefault)) {
     return (
@@ -80,6 +81,7 @@ export async function AgentPage({
         key={conversationId}
         conversationId={conversationId}
         initialMessages={initialMessages}
+        siteNames={Object.fromEntries(jiraSites.map((s) => [s.id, s.name]))}
       />
     </div>
   );

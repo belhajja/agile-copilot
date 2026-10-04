@@ -7,6 +7,9 @@ import type { UIMessage } from 'ai';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requireOwnConversation } from './conversations';
 import type { AgentActor } from './deps';
+import { type DecisionReason, REASON_TEXT } from './reasons';
+
+export type { DecisionReason };
 
 /**
  * Canonical JSON (sorted keys) → sha256. Binds an approval to the exact tool input. An absent
@@ -65,16 +68,6 @@ const issueKeyOf = (input: unknown) => {
 };
 
 /** Closes a proposal in the stored messages (the AI SDK then runs or skips the tool call). */
-/** Why a proposal was closed without the user's yes. */
-export type DecisionReason = 'superseded' | 'forbidden_role';
-
-/** What the model is told when a proposal closes for a reason (fixed sentences). */
-const REASON_TEXT: Record<DecisionReason, string> = {
-  superseded: 'The user moved on without approving.',
-  forbidden_role:
-    'Not approved: Jira changes are not available for this user’s role (forbidden_role).',
-};
-
 function respond(
   part: ApprovalPart,
   approvalId: string,

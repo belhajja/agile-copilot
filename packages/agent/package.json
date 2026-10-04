@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./reasons": "./src/reasons.ts",
     "./untrusted": "./src/untrusted.ts"
   },
   "scripts": {

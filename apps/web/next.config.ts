@@ -4,6 +4,7 @@ import { parseEnv } from 'node:util';
 import { updateInitialEnv } from '@next/env';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { securityHeaders } from './src/csp';
 
 const repoRoot = path.join(import.meta.dirname, '../..');
 
@@ -45,6 +46,8 @@ const config: NextConfig = {
   ],
   // Node-only database clients: loaded at runtime instead of being bundled.
   serverExternalPackages: ['postgres', 'pg-boss'],
+  // No other origin for images or connections (see src/csp.ts).
+  headers: async () => securityHeaders(),
 };
 
 export default withNextIntl(config);
