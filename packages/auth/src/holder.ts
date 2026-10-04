@@ -18,9 +18,33 @@ export interface AuthHolder {
   ssoReady(): Promise<boolean>;
 }
 
-class DiscoveryTimeout extends Error {
-  override name = 'DiscoveryTimeout';
+/** Why discovery failed, as logged: a fixed code (never the issuer, document or response). */
+type DiscoveryFailure =
+  | 'sso_issuer_mismatch'
+  | 'sso_discovery_http'
+  | 'sso_discovery_incomplete'
+  | 'sso_discovery_timeout'
+  | 'sso_discovery_unreachable'
+  | 'sso_provider_skipped';
+
+class DiscoveryError extends Error {
+  override name = 'DiscoveryError';
+  constructor(readonly code: DiscoveryFailure) {
+    super(code);
+  }
 }
+
+class DiscoveryTimeout extends Error {
+  override name = 'TimeoutError';
+}
+
+const failureOf = (error: unknown): DiscoveryFailure => {
+  if (error instanceof DiscoveryError) return error.code;
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return 'sso_discovery_timeout';
+  }
+  return 'sso_discovery_unreachable';
+};
 
 const withTimeout = <T>(p: Promise<T>, ms: number) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -42,12 +66,13 @@ async function discoverable(sso: SsoConfig, timeoutMs: number): Promise<void> {
     redirect: 'error',
     headers: { accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`discovery answered ${res.status}`);
-  const doc = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) throw new DiscoveryError('sso_discovery_http');
+  const doc = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!doc || typeof doc !== 'object') throw new DiscoveryError('sso_discovery_incomplete');
   const issuer = typeof doc.issuer === 'string' ? doc.issuer.replace(/\/$/, '') : '';
-  if (issuer !== sso.issuer.replace(/\/$/, '')) throw new Error('issuer mismatch');
+  if (issuer !== sso.issuer.replace(/\/$/, '')) throw new DiscoveryError('sso_issuer_mismatch');
   for (const key of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
-    if (typeof doc[key] !== 'string') throw new Error('incomplete discovery document');
+    if (typeof doc[key] !== 'string') throw new DiscoveryError('sso_discovery_incomplete');
   }
 }
 
@@ -76,13 +101,13 @@ export function createAuthHolder(
       const candidate = createAuth(options);
       const ctx = await withTimeout(candidate.$context, discoveryTimeoutMs);
       if (!ctx.socialProviders.some((p) => p.id === ssoProviderId(sso))) {
-        throw new Error('provider left out after discovery');
+        throw new DiscoveryError('sso_provider_skipped');
       }
       auth = candidate;
       ready = true;
     } catch (error) {
       console.warn(
-        `[auth] sso_discovery_failed ${error instanceof Error ? error.name : 'UnknownError'}`,
+        `[auth] ${failureOf(error)} ${error instanceof Error ? error.name : 'UnknownError'}`,
       );
     }
     return ready;

@@ -43,6 +43,12 @@ export function ssoProviderConfig(sso: SsoConfig): GenericOAuthConfig {
 }
 
 export const PASSWORD_LOGIN_DISABLED = 'PASSWORD_LOGIN_DISABLED';
+export const ID_TOKEN_SIGN_IN_DISABLED = 'ID_TOKEN_SIGN_IN_DISABLED';
+export const SCOPES_NOT_ALLOWED = 'SCOPES_NOT_ALLOWED';
+export const SIGN_UP_NOT_ALLOWED = 'SIGN_UP_NOT_ALLOWED';
+
+/** Endpoints that start an SSO sign-in or link. */
+const SSO_START_PATHS = new Set(['/sign-in/social', '/link-social']);
 
 /** Emails are compared trimmed and lower-cased, as better-auth stores them. */
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
@@ -68,6 +74,46 @@ export function guardPasswordLogin(
   throw new APIError('FORBIDDEN', {
     code: PASSWORD_LOGIN_DISABLED,
     message: 'Sign in with your organisation account.',
+  });
+}
+
+/**
+ * Before-hook: SSO starts only as the redirect flow (authorization code, PKCE, nonce) with the
+ * scopes we configured. A browser may not hand us an ID token directly (no nonce bound to its
+ * session, so a token leaked elsewhere would sign in) nor ask for extra scopes (offline_access…).
+ */
+export function guardSsoStart(ctx: { path?: string; body?: unknown }): void {
+  if (!ctx.path || !SSO_START_PATHS.has(ctx.path)) return;
+  const body = (ctx.body ?? {}) as { idToken?: unknown; scopes?: unknown };
+  if (body.idToken !== undefined) {
+    throw new APIError('BAD_REQUEST', {
+      code: ID_TOKEN_SIGN_IN_DISABLED,
+      message: 'Sign in through your organisation account page.',
+    });
+  }
+  if (body.scopes !== undefined) {
+    throw new APIError('BAD_REQUEST', {
+      code: SCOPES_NOT_ALLOWED,
+      message: 'Additional scopes cannot be requested.',
+    });
+  }
+}
+
+/**
+ * Before-hook: break-glass accounts are created server-side only (the `break-glass:create` CLI,
+ * which calls the API without an HTTP request). Over HTTP their sign-up is refused in every
+ * mode, so nobody can claim a platform admin address first. The message names no reason.
+ */
+export function guardBreakGlassSignUp(
+  ctx: { path?: string; body?: unknown; request?: Request },
+  breakGlassEmails: readonly string[],
+): void {
+  if (ctx.path !== '/sign-up/email' || !ctx.request) return;
+  const email = (ctx.body as { email?: unknown } | undefined)?.email;
+  if (typeof email !== 'string' || !isBreakGlass(email, breakGlassEmails)) return;
+  throw new APIError('FORBIDDEN', {
+    code: SIGN_UP_NOT_ALLOWED,
+    message: 'This address cannot sign up here.',
   });
 }
 

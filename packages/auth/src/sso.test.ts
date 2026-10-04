@@ -1,8 +1,12 @@
+import { spawn } from 'node:child_process';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer, type Server, type Socket } from 'node:net';
+import { join } from 'node:path';
 import { account, createDb, user } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createBreakGlassAccount } from './break-glass';
 import { createAuthHolder, SSO_DISCOVERY_TIMEOUT_MS, SSO_RETRY_MS } from './holder';
 import { type AuthOptions, createAuth } from './server';
 import type { SsoConfig } from './sso';
@@ -43,6 +47,59 @@ async function startBlackhole(): Promise<{ issuer: string; close: () => Promise<
         server.close(() => resolve());
       }),
   };
+}
+
+/** An issuer whose discovery document is whatever `doc` returns (status 200 unless it is a number). */
+async function startFakeDiscovery(doc: (issuer: string) => Record<string, unknown> | number) {
+  const server = createHttpServer((_req, res) => {
+    const body = doc(issuer);
+    res.writeHead(typeof body === 'number' ? body : 200, { 'content-type': 'application/json' });
+    res.end(typeof body === 'number' ? '{}' : JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const issuer = `http://127.0.0.1:${(server.address() as { port: number }).port}/realms/acme`;
+  return { issuer, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+/** A browser request to the auth handler (with the Origin header a browser sends). */
+const httpPost = (
+  auth: { handler(r: Request): Promise<Response> },
+  path: string,
+  body: unknown,
+  cookie = '',
+) =>
+  auth.handler(
+    new Request(`${BASE}/api/auth${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: BASE, cookie },
+      body: JSON.stringify(body),
+    }),
+  );
+
+/** Runs the break-glass CLI as an operator would, the password on stdin. */
+function runBreakGlassCli(
+  args: string[],
+  env: Record<string, string>,
+  stdin: string,
+): Promise<{ code: number | null; out: string }> {
+  const pkg = join(import.meta.dirname, '..');
+  const child = spawn(
+    join(pkg, 'node_modules', '.bin', 'tsx'),
+    ['src/break-glass-cli.ts', ...args],
+    {
+      cwd: pkg,
+      env: { PATH: process.env.PATH ?? '', ...env },
+    },
+  );
+  let out = '';
+  child.stdout.on('data', (d) => {
+    out += d;
+  });
+  child.stderr.on('data', (d) => {
+    out += d;
+  });
+  child.stdin.end(stdin);
+  return new Promise((resolve) => child.on('close', (code) => resolve({ code, out })));
 }
 
 const elapsed = async <T>(fn: () => Promise<T>) => {
@@ -98,6 +155,14 @@ describe('SSO (OIDC) and the password policy', () => {
     // No workspace yet: the user lands on onboarding (invitations or a new workspace).
     expect(session?.session.activeOrganizationId ?? null).toBeNull();
     expect(await accountsOf('alice@example.com')).toEqual(['keycloak']);
+    // OAuth tokens are stored encrypted (the mock IdP's access tokens are JWTs: eyJ…).
+    const [stored] = await conn.db
+      .select({ accessToken: account.accessToken })
+      .from(account)
+      .where(eq(account.userId, session?.user.id ?? ''));
+    expect(stored?.accessToken).toBeTruthy();
+    expect(stored?.accessToken).not.toMatch(/^eyJ/);
+    expect(stored?.accessToken).toMatch(/^[0-9a-f]+$/);
     // Signing in again finds the same account.
     const again = await ssoRoundTrip(auth, { baseURL: BASE, provider: 'keycloak' });
     expect((await auth.api.getSession({ headers: jarHeaders(again.cookies) }))?.user.id).toBe(
@@ -245,9 +310,20 @@ describe('SSO (OIDC) and the password policy', () => {
 
   it('with PASSWORD_LOGIN=admin_only, passwords work for break-glass accounts only', async () => {
     const auth = createAuth({ ...options, passwordLogin: 'admin_only' });
-    // Bootstrap: an operator creates the break-glass account (any letter case).
-    await auth.api.signUpEmail({
-      body: { email: 'Root@Example.com', password: 'break-glass-pass', name: 'Root' },
+    // Nobody creates a break-glass account over HTTP, whatever the mode.
+    const anonymous = await httpPost(auth, '/sign-up/email', {
+      email: 'Root@Example.com',
+      password: 'break-glass-pass',
+      name: 'Root',
+    });
+    expect(anonymous.status).toBe(403);
+    expect(await anonymous.json()).toMatchObject({ code: 'SIGN_UP_NOT_ALLOWED' });
+    expect(await userRow('root@example.com')).toBeUndefined();
+    // Bootstrap: an operator creates it server-side (the CLI; any letter case).
+    await createBreakGlassAccount(auth, ['root@example.com'], {
+      email: 'Root@Example.com',
+      password: 'break-glass-pass',
+      name: 'Root',
     });
     await expect(
       auth.api.signUpEmail({
@@ -299,9 +375,11 @@ describe('SSO (OIDC) and the password policy', () => {
     expect(location).toContain('error=');
     expect(await auth.api.getSession({ headers: jarHeaders(cookies) })).toBeNull();
     expect(await userRow('ops@example.com')).toBeUndefined();
-    // The operator can still create it with a password.
-    await auth.api.signUpEmail({
-      body: { email: 'ops@example.com', password: 'break-glass-pass', name: 'Ops' },
+    // The operator can still create it with a password, server-side.
+    await createBreakGlassAccount(auth, ['ops@example.com'], {
+      email: 'ops@example.com',
+      password: 'break-glass-pass',
+      name: 'Ops',
     });
     expect(await accountsOf('ops@example.com')).toEqual(['credential']);
   });
@@ -369,11 +447,158 @@ describe('SSO (OIDC) and the password policy', () => {
       expect(refused.value).toMatchObject({ body: { code: 'PASSWORD_LOGIN_DISABLED' } });
       expect(refused.ms).toBeLessThan(1_000);
       // Discovery gives up after its timeout; SSO stays off.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const ready = await elapsed(() => holder.ssoReady());
       expect(ready.value).toBe(false);
       expect(ready.ms).toBeLessThan(SSO_DISCOVERY_TIMEOUT_MS + 1_000);
+      expect(warn).toHaveBeenCalledWith('[auth] sso_discovery_timeout TimeoutError');
+      warn.mockRestore();
     } finally {
       await hole.close();
     }
   }, 15_000);
+
+  it('refuses ID-token sign-in and linking (the redirect flow with PKCE and nonce only)', async () => {
+    const auth = createAuth(options);
+    idp.setUser({ sub: 'kc-ivan', email: 'ivan@example.com', name: 'Ivan', emailVerified: true });
+    // A genuine token from our IdP, for our client, without a nonce.
+    const token = await idp.signIdToken('agile');
+    const signIn = await httpPost(auth, '/sign-in/social', {
+      provider: 'keycloak',
+      idToken: { token },
+    });
+    expect(signIn.status).toBe(400);
+    expect(await signIn.json()).toMatchObject({ code: 'ID_TOKEN_SIGN_IN_DISABLED' });
+    expect(signIn.headers.getSetCookie().some((c) => c.includes('session_token'))).toBe(false);
+    expect(await userRow('ivan@example.com')).toBeUndefined();
+
+    const { headers } = await auth.api.signInEmail({
+      body: { email: 'carol@example.com', password: 'carol-password-1' },
+      returnHeaders: true,
+    });
+    const cookie = cookieHeader(headers).get('cookie') ?? '';
+    const link = await httpPost(
+      auth,
+      '/link-social',
+      { provider: 'keycloak', idToken: { token } },
+      cookie,
+    );
+    expect(link.status).toBe(400);
+    expect(await link.json()).toMatchObject({ code: 'ID_TOKEN_SIGN_IN_DISABLED' });
+    expect(await accountsOf('carol@example.com')).toEqual(['credential']);
+  });
+
+  it('refuses scopes chosen by the browser', async () => {
+    const auth = createAuth(options);
+    const start = await httpPost(auth, '/sign-in/social', {
+      provider: 'keycloak',
+      callbackURL: '/',
+      scopes: ['offline_access'],
+    });
+    expect(start.status).toBe(400);
+    expect(await start.json()).toMatchObject({ code: 'SCOPES_NOT_ALLOWED' });
+    const { headers } = await auth.api.signInEmail({
+      body: { email: 'carol@example.com', password: 'carol-password-1' },
+      returnHeaders: true,
+    });
+    const link = await httpPost(
+      auth,
+      '/link-social',
+      { provider: 'keycloak', callbackURL: '/', scopes: ['offline_access'] },
+      cookieHeader(headers).get('cookie') ?? '',
+    );
+    expect(link.status).toBe(400);
+    expect(await link.json()).toMatchObject({ code: 'SCOPES_NOT_ALLOWED' });
+  });
+
+  it('only lets SSO return to our own origin', async () => {
+    const auth = createAuth(options);
+    await expect(
+      ssoRoundTrip(auth, {
+        baseURL: BASE,
+        provider: 'keycloak',
+        callbackURL: 'https://evil.example/after-login',
+      }),
+    ).rejects.toThrow(/SSO start failed \(403\)/);
+  });
+
+  it('refuses HTTP sign-up for a break-glass address in every mode; the server side may', async () => {
+    const auth = createAuth({ ...options, breakGlassEmails: ['ops2@example.com'] });
+    const res = await httpPost(auth, '/sign-up/email', {
+      email: 'OPS2@Example.com',
+      password: 'break-glass-pass',
+      name: 'Ops',
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'SIGN_UP_NOT_ALLOWED' });
+    expect(await userRow('ops2@example.com')).toBeUndefined();
+    // Ordinary sign-ups are untouched in `all` mode.
+    expect(
+      (
+        await httpPost(auth, '/sign-up/email', {
+          email: 'frank@example.com',
+          password: 'frank-password-1',
+          name: 'Frank',
+        })
+      ).status,
+    ).toBe(200);
+    // The server-side helper refuses addresses that are not break-glass.
+    await expect(
+      createBreakGlassAccount(auth, ['ops2@example.com'], {
+        email: 'grace@example.com',
+        password: 'grace-password-1',
+        name: 'Grace',
+      }),
+    ).rejects.toThrow('NOT_BREAK_GLASS');
+    expect(await userRow('grace@example.com')).toBeUndefined();
+  });
+
+  it('creates a break-glass account from the CLI, the password read from stdin', async () => {
+    const env = {
+      DATABASE_URL: tdb.appUrl,
+      BETTER_AUTH_SECRET: 'x'.repeat(32),
+      BETTER_AUTH_URL: BASE,
+      ENCRYPTION_KEYS: `v1:${Buffer.alloc(32, 1).toString('base64')}`,
+      BREAK_GLASS_EMAILS: 'cli@example.com',
+    };
+    const refused = await runBreakGlassCli(['nope@example.com'], env, 'cli-password-12\n');
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain('NOT_BREAK_GLASS');
+    expect(await userRow('nope@example.com')).toBeUndefined();
+
+    const ok = await runBreakGlassCli(['cli@example.com'], env, 'cli-password-12\n');
+    expect(ok.out).not.toContain('cli-password-12');
+    expect(ok.code).toBe(0);
+    const auth = createAuth({ ...options, breakGlassEmails: ['cli@example.com'] });
+    const signedIn = await auth.api.signInEmail({
+      body: { email: 'cli@example.com', password: 'cli-password-12' },
+    });
+    expect(signedIn.user.email).toBe('cli@example.com');
+  }, 30_000);
+
+  it('logs why discovery failed, with a distinct code and no details', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cases = [
+      { code: 'sso_issuer_mismatch', doc: () => ({ issuer: 'https://evil.example' }) },
+      { code: 'sso_discovery_http', doc: () => 503 },
+      { code: 'sso_discovery_incomplete', doc: (issuer: string) => ({ issuer }) },
+    ];
+    try {
+      for (const c of cases) {
+        const fake = await startFakeDiscovery(c.doc);
+        try {
+          const holder = createAuthHolder({ ...options, sso: { ...sso, issuer: fake.issuer } });
+          expect(await holder.ssoReady()).toBe(false);
+          expect(warn).toHaveBeenLastCalledWith(
+            expect.stringMatching(new RegExp(`^\\[auth\\] ${c.code} `)),
+          );
+        } finally {
+          await fake.close();
+        }
+      }
+      for (const [line] of warn.mock.calls) expect(String(line)).not.toContain('127.0.0.1');
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

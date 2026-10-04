@@ -1,5 +1,6 @@
 export { ac, orgRoles } from './access';
 export { assertAssignableRole, ROLE_NOT_ALLOWED } from './assign';
+export { createBreakGlassAccount, NOT_BREAK_GLASS } from './break-glass';
 export {
   type AuthHolder,
   createAuthHolder,
@@ -32,10 +33,13 @@ export {
 } from './roles';
 export { type Auth, type AuthOptions, createAuth } from './server';
 export {
+  ID_TOKEN_SIGN_IN_DISABLED,
   isBreakGlass,
   normalizeEmail,
   PASSWORD_LOGIN_DISABLED,
   type PasswordLogin,
+  SCOPES_NOT_ALLOWED,
+  SIGN_UP_NOT_ALLOWED,
   type SsoConfig,
   ssoProviderId,
 } from './sso';

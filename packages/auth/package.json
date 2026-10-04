@@ -9,9 +9,11 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "generate-schema": "auth generate --config src/cli-config.ts --output ../db/src/schema/auth.ts --adapter drizzle --dialect postgresql --yes"
+    "generate-schema": "auth generate --config src/cli-config.ts --output ../db/src/schema/auth.ts --adapter drizzle --dialect postgresql --yes",
+    "break-glass:create": "tsx --env-file-if-exists=../../.env src/break-glass-cli.ts"
   },
   "dependencies": {
+    "@agile/config": "workspace:*",
     "@agile/db": "workspace:*",
     "better-auth": "1.7.7",
     "drizzle-orm": "0.45.3"
@@ -21,6 +23,7 @@
     "next": "16.3.8",
     "oauth2-mock-server": "9.2.0",
     "testcontainers": "12.2.0",
+    "tsx": "4.23.15",
     "yaml": "2.9.1"
   }
 }

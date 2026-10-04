@@ -13,6 +13,8 @@ export interface MockOidc {
   issuer: string;
   /** Every later login (until the next call) signs in as this person. */
   setUser(user: OidcUser): void;
+  /** A genuine ID token for the current user and `audience`, signed by this IdP, without a nonce. */
+  signIdToken(audience: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -52,6 +54,12 @@ export async function startMockOidc(
     setUser: (u) => {
       user = u;
     },
+    signIdToken: (audience) =>
+      server.issuer.buildToken({
+        scopesOrTransform: (_header, payload) => {
+          Object.assign(payload, claims(), { aud: audience });
+        },
+      }),
     close: () => server.stop(),
   };
 }
@@ -73,19 +81,30 @@ interface AuthHandler {
 /**
  * Runs the browser's part of an SSO sign-in against `auth.handler`: start → IdP authorize →
  * callback. Returns the final redirect and the cookies (session included when it worked).
- * `link` signs in to link the identity to the session in `cookies` instead.
+ * `link` signs in to link the identity to the session in `cookies` instead. The start request
+ * carries the app's Origin, as a browser's does, so better-auth's origin checks run.
  */
 export async function ssoRoundTrip(
   auth: AuthHandler,
-  opts: { baseURL: string; provider: string; cookies?: Map<string, string>; link?: boolean },
+  opts: {
+    baseURL: string;
+    provider: string;
+    cookies?: Map<string, string>;
+    link?: boolean;
+    callbackURL?: string;
+  },
 ): Promise<{ location: string; cookies: Map<string, string> }> {
   const jar = new Map(opts.cookies ?? []);
   const path = opts.link ? '/api/auth/link-social' : '/api/auth/sign-in/social';
   const start = await auth.handler(
     new Request(new URL(path, opts.baseURL), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: cookieHeader(jar) },
-      body: JSON.stringify({ provider: opts.provider, callbackURL: '/' }),
+      headers: {
+        'content-type': 'application/json',
+        origin: new URL(opts.baseURL).origin,
+        cookie: cookieHeader(jar),
+      },
+      body: JSON.stringify({ provider: opts.provider, callbackURL: opts.callbackURL ?? '/' }),
     }),
   );
   cookiesOf(start, jar);

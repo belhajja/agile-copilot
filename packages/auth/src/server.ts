@@ -17,7 +17,9 @@ import {
   rememberBeforeState,
 } from './hooks';
 import {
+  guardBreakGlassSignUp,
   guardPasswordLogin,
+  guardSsoStart,
   isBreakGlass,
   normalizeEmail,
   type PasswordLogin,
@@ -66,7 +68,13 @@ export function createAuth(
     secret,
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     emailAndPassword: { enabled: true, minPasswordLength: 10 },
+    // Explicit, so tests (where better-auth skips it by default) run the production checks:
+    // trusted Origin on cookie requests, and callback URLs on our own origin.
+    advanced: { disableOriginCheck: false },
     account: {
+      // Access and refresh tokens are encrypted at rest with the auth secret (better-auth leaves
+      // the ID token as is: it carries the identity claims, no grant).
+      encryptOAuthTokens: true,
       accountLinking: {
         enabled: true,
         // An SSO identity joins an existing account by itself only when BOTH the identity provider
@@ -82,6 +90,8 @@ export function createAuth(
       // The role exactly as the client sent it: better-auth trims and splits roles before its
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
+        guardSsoStart(ctx);
+        guardBreakGlassSignUp(ctx, breakGlassEmails);
         guardPasswordLogin(ctx, policy);
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);

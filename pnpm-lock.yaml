@@ -351,6 +351,9 @@ importers:
 
   packages/auth:
     dependencies:
+      '@agile/config':
+        specifier: workspace:*
+        version: link:../config
       '@agile/db':
         specifier: workspace:*
         version: link:../db
@@ -373,6 +376,9 @@ importers:
       testcontainers:
         specifier: 12.2.0
         version: 12.2.0
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
       yaml:
         specifier: 2.9.1
         version: 2.9.1
