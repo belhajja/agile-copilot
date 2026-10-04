@@ -75,6 +75,12 @@ const DC_SERVER_INFO = {
   serverTitle: 'Corp Jira',
 };
 
+const CATEGORY = {
+  new: { id: 2, name: 'To Do' },
+  indeterminate: { id: 4, name: 'In Progress' },
+  done: { id: 3, name: 'Done' },
+};
+
 const json = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -202,12 +208,36 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
         })),
       );
     }
+    const categoryOf = (statusId: unknown) => {
+      const key = ds.statuses.find((st) => st.id === statusId)?.categoryKey ?? 'new';
+      return { id: CATEGORY[key].id, key, name: CATEGORY[key].name };
+    };
+    const withCategory = (status: unknown) => {
+      const s = status as { id?: unknown } | null;
+      return s ? { ...s, statusCategory: categoryOf(s.id) } : s;
+    };
+    // Data Center serialises the Sprint field as greenhopper toString() text, Cloud as objects.
+    const sprintValue = (value: unknown) => {
+      if (opts.flavor === 'cloud' || !Array.isArray(value)) return value;
+      return value.map((v: { id: number }) => {
+        const sp = ds.sprints.find((x) => x.id === v.id);
+        const date = (d?: string) => (d ? d.replace('+0000', 'Z') : '<null>');
+        return `com.atlassian.greenhopper.service.sprint.Sprint@${v.id.toString(16).padStart(6, '0')}[id=${v.id},rapidViewId=${sp?.boardId ?? 1},state=${(sp?.state ?? 'future').toUpperCase()},name=${sp?.name ?? ''},startDate=${date(sp?.startDate)},endDate=${date(sp?.endDate)},completeDate=${date(sp?.completeDate)},sequence=${v.id},goal=${sp?.goal ?? ''}]`;
+      });
+    };
     const issueJson = (i: MockIssue) => {
       const limit = opts.searchChangelogLimit ?? 100;
+      const fields: Record<string, unknown> = {
+        ...i.fields,
+        status: withCategory(i.fields.status),
+      };
+      for (const f of ds.fields) {
+        if (f.schemaCustom?.endsWith(':gh-sprint')) fields[f.id] = sprintValue(fields[f.id]);
+      }
       return {
         id: i.id,
         key: i.key,
-        fields: i.fields,
+        fields,
         changelog: {
           startAt: 0,
           maxResults: limit,
@@ -251,7 +281,7 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
       return json(res, 200, {
         id: issue.id,
         key: issue.key,
-        fields: { status: issue.fields.status },
+        fields: { status: withCategory(issue.fields.status) },
         changelog: {
           startAt: 0,
           maxResults: issue.histories.length,
