@@ -31,10 +31,13 @@ export const kanbanLayout = (): WidgetSpec[] =>
     { id: 'hygiene', metric: 'hygiene', chart: 'table' },
   ]);
 
-/** Scrum boards get a sprint dashboard and a flow dashboard; Kanban/simple boards a flow one. */
-export function defaultDashboards(boardType: 'scrum' | 'kanban' | 'simple') {
+/**
+ * Boards with sprints (Scrum, and team-managed boards whose project uses sprints) get a sprint
+ * dashboard and a flow dashboard; the others a flow one.
+ */
+export function defaultDashboards(boardType: 'scrum' | 'kanban' | 'simple', hasSprints = false) {
   const flow = { name: 'Flow', kind: 'kanban' as const, widgets: kanbanLayout() };
-  return boardType === 'scrum'
+  return boardType === 'scrum' || (boardType === 'simple' && hasSprints)
     ? [{ name: 'Scrum', kind: 'scrum' as const, widgets: scrumLayout() }, flow]
     : [flow];
 }

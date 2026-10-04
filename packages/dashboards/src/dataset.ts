@@ -11,6 +11,7 @@ import {
   jiraStatusMappings,
   withOrg,
 } from '@agile/db';
+import { usesPointEstimates } from '@agile/jira';
 import type {
   BoardDataset,
   Interval,
@@ -209,7 +210,8 @@ export async function loadBoardDataset(
     const membersBy = group(membership, (m) => m.jiraSprintId);
 
     return {
-      hasEstimates: board.estimationFieldId !== null,
+      // Time tracking (seconds) is not a point estimate: such boards count issues.
+      hasEstimates: usesPointEstimates(board.estimationFieldId),
       issues: issues.map((i) =>
         toMetricIssue(i, transitionsBy.get(i.id) ?? [], changesBy.get(i.id) ?? [], mappings),
       ),

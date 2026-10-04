@@ -1,4 +1,4 @@
-import { type Db, dashboards, jiraBoards, withOrg } from '@agile/db';
+import { type Db, dashboards, jiraBoardSprints, jiraBoards, withOrg } from '@agile/db';
 import { and, asc, eq } from 'drizzle-orm';
 import { defaultDashboards } from './layouts';
 import { parseWidgets, type WidgetSpec, widgetListSchema } from './widget-spec';
@@ -15,7 +15,7 @@ export async function ensureDefaultDashboards(
   db: Db,
   orgId: string,
   userId: string,
-  /** `type` is ignored: the layouts follow the stored board's type. */
+  /** `type` is ignored: the layouts follow the stored board's type (and whether it has sprints). */
   board: { id: string; type?: 'scrum' | 'kanban' | 'simple' },
 ): Promise<void> {
   await withOrg(db, orgId, async (tx) => {
@@ -25,10 +25,15 @@ export async function ensureDefaultDashboards(
       .from(jiraBoards)
       .where(and(eq(jiraBoards.id, board.id), eq(jiraBoards.orgId, orgId)));
     if (!own) return;
+    const [sprint] = await tx
+      .select({ id: jiraBoardSprints.sprintId })
+      .from(jiraBoardSprints)
+      .where(eq(jiraBoardSprints.boardId, own.id))
+      .limit(1);
     await tx
       .insert(dashboards)
       .values(
-        defaultDashboards(own.type).map((d, position) => ({
+        defaultDashboards(own.type, sprint !== undefined).map((d, position) => ({
           orgId,
           userId,
           boardId: board.id,

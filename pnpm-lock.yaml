@@ -245,6 +245,9 @@ importers:
       '@agile/db':
         specifier: workspace:*
         version: link:../db
+      '@agile/jira':
+        specifier: workspace:*
+        version: link:../jira
       '@agile/metrics':
         specifier: workspace:*
         version: link:../metrics

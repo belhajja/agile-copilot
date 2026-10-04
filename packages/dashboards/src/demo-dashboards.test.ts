@@ -1,11 +1,11 @@
-import { dashboards } from '@agile/db';
+import { dashboards, jiraBoardSprints, jiraBoards, jiraSprints } from '@agile/db';
 import { discoverBoards, listBoards, runSync, setBoardSelection } from '@agile/sync';
 import { NOW, owner, startSyncHarness } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeWidget } from './compute';
 import { loadBoardDataset } from './dataset';
-import { kanbanLayout, scrumLayout } from './layouts';
+import { defaultDashboards, kanbanLayout, scrumLayout } from './layouts';
 import { ensureDefaultDashboards, listDashboards, saveDashboardWidgets } from './store';
 import type { WidgetData } from './widget-data';
 
@@ -111,6 +111,64 @@ describe('default dashboards on the synced demo data', () => {
     expect((await listDashboards(h.db, 'org_a', 'user_3', kanbanId)).map((d) => d.kind)).toEqual([
       'kanban',
     ]);
+  });
+
+  it('counts issues, never seconds, on a board that estimates with time tracking', async () => {
+    const [board] = await h.rawDb.select().from(jiraBoards).where(eq(jiraBoards.id, scrumId));
+    try {
+      for (const field of ['timeoriginalestimate', 'aggregatetimeestimate']) {
+        await h.rawDb
+          .update(jiraBoards)
+          .set({ estimationFieldId: field })
+          .where(eq(jiraBoards.id, scrumId));
+        const ds = await loadBoardDataset(h.db, 'org_a', scrumId);
+        expect(ds?.hasEstimates).toBe(false);
+        const spec = scrumLayout().find((w) => w.id === 'avg-velocity');
+        if (!spec || !ds) throw new Error('fixture');
+        expect(computeWidget(spec, ds, NOW)).toMatchObject({ kind: 'kpi', format: 'issues' });
+      }
+    } finally {
+      await h.rawDb
+        .update(jiraBoards)
+        .set({ estimationFieldId: board?.estimationFieldId ?? null })
+        .where(eq(jiraBoards.id, scrumId));
+    }
+    expect((await loadBoardDataset(h.db, 'org_a', scrumId))?.hasEstimates).toBe(true);
+  });
+
+  it('gives team-managed boards the Scrum layouts only when they have sprints', async () => {
+    expect(defaultDashboards('simple', true).map((d) => d.kind)).toEqual(['scrum', 'kanban']);
+    expect(defaultDashboards('simple', false).map((d) => d.kind)).toEqual(['kanban']);
+    const [scrumBoard] = await h.rawDb.select().from(jiraBoards).where(eq(jiraBoards.id, scrumId));
+    if (!scrumBoard) throw new Error('fixture');
+    const team = async (jiraBoardId: number) => {
+      const [b] = await h.rawDb
+        .insert(jiraBoards)
+        .values({
+          orgId: 'org_a',
+          connectionId: scrumBoard.connectionId,
+          jiraBoardId,
+          name: `TEAM ${jiraBoardId}`,
+          type: 'simple',
+          selected: true,
+        })
+        .returning();
+      return b?.id ?? '';
+    };
+    const withSprints = await team(901);
+    const withoutSprints = await team(902);
+    const [sprint] = await h.rawDb.select().from(jiraSprints).limit(1);
+    await h.rawDb
+      .insert(jiraBoardSprints)
+      .values({ orgId: 'org_a', boardId: withSprints, sprintId: sprint?.id ?? '' });
+    await ensureDefaultDashboards(h.db, 'org_a', 'user_t', { id: withSprints });
+    await ensureDefaultDashboards(h.db, 'org_a', 'user_t', { id: withoutSprints });
+    expect((await listDashboards(h.db, 'org_a', 'user_t', withSprints)).map((d) => d.kind)).toEqual(
+      ['scrum', 'kanban'],
+    );
+    expect(
+      (await listDashboards(h.db, 'org_a', 'user_t', withoutSprints)).map((d) => d.kind),
+    ).toEqual(['kanban']);
   });
 
   it('rejects duplicate or malformed widget ids', async () => {
