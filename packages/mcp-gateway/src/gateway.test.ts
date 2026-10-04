@@ -22,11 +22,13 @@ const ENDPOINT = 'http://agile.test/api/mcp';
 const viewer = { orgId: 'org_a', userId: 'u_viewer', roles: ['viewer'] };
 const admin = { orgId: 'org_a', userId: 'user_org_a', roles: ['owner'] };
 const manager = { orgId: 'org_a', userId: 'u_manager', roles: ['manager'] };
+const ownerB = { orgId: 'org_b', userId: 'u_owner_b', roles: ['owner'] };
 
 describe('external analytics MCP (personal tokens)', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
   let deps: McpHttpDeps;
   let planAllows = true;
+  let boardIdA = '';
 
   /** An MCP client (the official SDK) whose HTTP requests reach the handler in process. */
   async function connect(token: string, d: McpHttpDeps = deps) {
@@ -65,15 +67,25 @@ describe('external analytics MCP (personal tokens)', () => {
       boards.map((b) => b.id),
     );
     await runSync(h.deps, { orgId: 'org_a', connectionId, trigger: 'manual' });
+    boardIdA = boards[0]?.id ?? '';
     await h.rawDb.insert(user).values([
+      { id: 'u_owner_b', name: 'Ob', email: 'ob@example.com' },
       { id: 'u_viewer', name: 'Vi', email: 'vi@example.com' },
       { id: 'user_org_a', name: 'Own', email: 'own@example.com' },
       { id: 'u_manager', name: 'Ma', email: 'ma@example.com' },
     ]);
-    await h.rawDb
-      .insert(organization)
-      .values({ id: 'org_a', name: 'A', slug: 'a', createdAt: new Date() });
+    await h.rawDb.insert(organization).values([
+      { id: 'org_a', name: 'A', slug: 'a', createdAt: new Date() },
+      { id: 'org_b', name: 'B', slug: 'b', createdAt: new Date() },
+    ]);
     await h.rawDb.insert(member).values([
+      {
+        id: 'mb',
+        organizationId: 'org_b',
+        userId: 'u_owner_b',
+        role: 'owner',
+        createdAt: new Date(),
+      },
       {
         id: 'm1',
         organizationId: 'org_a',
@@ -114,6 +126,12 @@ describe('external analytics MCP (personal tokens)', () => {
       createMcpToken(deps, { ...viewer, roles: ['member'] }, { name: 'x' }),
     ).rejects.toMatchObject({ code: 'forbidden_role' });
     await expect(createMcpToken(deps, viewer, { name: '' })).rejects.toBeInstanceOf(TokenError);
+    // A workspace id the token format cannot carry is refused (the token would never parse).
+    for (const orgId of ['org a', 'org.a', 'x'.repeat(65)]) {
+      await expect(createMcpToken(deps, { ...viewer, orgId }, { name: 'x' })).rejects.toMatchObject(
+        { code: 'invalid_input' },
+      );
+    }
     // Lifetimes are 30 to 365 days.
     for (const expiresInDays of [1, 29, 366]) {
       await expect(
@@ -217,8 +235,12 @@ describe('external analytics MCP (personal tokens)', () => {
     planAllows = true;
     // Removed from the workspace: same, at once (every role holds `mcp.token`, and the schema
     // refuses any other role, so removal is the way to lose it).
+    // Re-invited later (a new membership): tokens of the old membership stay dead, and creating a
+    // token revokes them, so they no longer count against the cap.
+    const { id: oldId, token: oldToken } = await createMcpToken(deps, viewer, { name: 'Old' });
     await h.rawDb.delete(member).where(eq(member.id, 'm1'));
     expect((await post(token, listTools)).status).toBe(401);
+    await new Promise((r) => setTimeout(r, 5));
     await h.rawDb.insert(member).values({
       id: 'm1',
       organizationId: 'org_a',
@@ -226,10 +248,20 @@ describe('external analytics MCP (personal tokens)', () => {
       role: 'viewer',
       createdAt: new Date(),
     });
-    expect((await post(token, listTools)).status).toBe(200);
-    // An admin revokes it.
-    await revokeMcpToken(h.db, admin, id);
     expect((await post(token, listTools)).status).toBe(401);
+    expect((await post(oldToken, listTools)).status).toBe(401);
+    const fresh = await createMcpToken(deps, viewer, { name: 'After rejoining' });
+    expect((await post(fresh.token, listTools)).status).toBe(200);
+    const mine = await listMcpTokens(h.db, viewer);
+    expect(mine.filter((t) => t.revokedAt === null).map((t) => t.id)).toEqual([fresh.id]);
+    expect(mine.find((t) => t.id === oldId)?.revokedAt).not.toBeNull();
+    // An admin revokes a token.
+    await revokeMcpToken(h.db, admin, fresh.id);
+    expect((await post(fresh.token, listTools)).status).toBe(401);
+    expect((await post(token, listTools)).status).toBe(401);
+    await expect(revokeMcpToken(h.db, admin, fresh.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
     await expect(revokeMcpToken(h.db, admin, id)).rejects.toMatchObject({ code: 'not_found' });
     await expect(revokeMcpToken(h.db, admin, 'not-a-uuid')).rejects.toMatchObject({
       code: 'not_found',
@@ -281,12 +313,21 @@ describe('external analytics MCP (personal tokens)', () => {
     expect((await lastUsed())?.getTime()).toBe(t0 + LAST_USED_THROTTLE_MS + 1000);
   });
 
-  it('limits requests per token per minute, refuses big bodies and non-POST methods', async () => {
+  it('limits requests per person per minute, refuses big bodies and non-POST methods', async () => {
     const { token } = await createMcpToken(deps, viewer, { name: 'Busy' });
-    const limited = { ...deps, rateLimitPerMinute: 3 };
+    const { token: second } = await createMcpToken(deps, viewer, { name: 'Busy too' });
+    // A fixed minute of its own (earlier tests spent this person's budget for the current one).
+    const at = Date.now() + 86_400_000;
+    const limited = { ...deps, rateLimitPerMinute: 3, now: () => new Date(at) };
     const statuses: number[] = [];
-    for (let i = 0; i < 4; i++) statuses.push((await post(token, listTools, limited)).status);
+    for (let i = 0; i < 2; i++) statuses.push((await post(token, listTools, limited)).status);
+    // A second token of the same person shares the budget (more tokens give no more requests).
+    statuses.push((await post(second, listTools, limited)).status);
+    statuses.push((await post(second, listTools, limited)).status);
     expect(statuses).toEqual([200, 200, 200, 429]);
+    // Someone else's budget is their own.
+    const { token: other } = await createMcpToken(deps, manager, { name: 'Other' });
+    expect((await post(other, listTools, limited)).status).toBe(200);
     const res = await post(token, listTools, limited);
     expect(res.status).toBe(429);
     expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
@@ -327,25 +368,105 @@ describe('external analytics MCP (personal tokens)', () => {
   });
 
   it('counts concurrent requests exactly (no lost updates across replicas)', async () => {
-    const { id } = await createMcpToken(deps, viewer, { name: 'Race' });
+    const key = { orgId: 'org_a', userId: 'u_race' };
     const now = new Date('2026-10-04T10:00:30Z');
     const results = await Promise.all(
-      Array.from({ length: 20 }, () => takeRequest(h.db, { orgId: 'org_a', tokenId: id }, 5, now)),
+      Array.from({ length: 20 }, () => takeRequest(h.db, key, 5, now)),
     );
     expect(results.filter((r) => r.allowed)).toHaveLength(5);
     expect(results.find((r) => !r.allowed)).toEqual({ allowed: false, retryAfterSeconds: 30 });
     const [bucket] = await h.rawDb
       .select()
       .from(mcpRateBuckets)
-      .where(eq(mcpRateBuckets.tokenId, id));
+      .where(eq(mcpRateBuckets.userId, 'u_race'));
     expect(bucket?.count).toBe(20);
     // The next window starts afresh.
-    const next = await takeRequest(
-      h.db,
-      { orgId: 'org_a', tokenId: id },
-      5,
-      new Date('2026-10-04T10:01:00Z'),
-    );
+    const next = await takeRequest(h.db, key, 5, new Date('2026-10-04T10:01:00Z'));
     expect(next).toEqual({ allowed: true });
+  });
+
+  /** How many tool calls the audit log holds (all actors). */
+  const toolCalls = async () =>
+    (await h.rawDb.select().from(auditLog).where(eq(auditLog.action, 'mcp.tool_called'))).length;
+  const call = (id: number | undefined, name = 'list_boards') => ({
+    jsonrpc: '2.0',
+    ...(id === undefined ? {} : { id }),
+    method: 'tools/call',
+    params: { name, arguments: {} },
+  });
+
+  it('refuses JSON-RPC batches and malformed messages before any audit or tool call', async () => {
+    const { token } = await createMcpToken(deps, viewer, { name: 'Shapes' });
+    const before = await toolCalls();
+    const batch = await post(
+      token,
+      Array.from({ length: 50 }, (_, i) => call(i + 1)),
+    );
+    expect(batch.status).toBe(400);
+    expect(await batch.json()).toEqual({ error: 'invalid_request' });
+    for (const bad of [
+      [call(1)],
+      [],
+      { method: 'tools/call', params: { name: 'list_boards' } }, // no jsonrpc
+      { ...call(1), jsonrpc: '1.0' },
+      'tools/call',
+      null,
+      42,
+    ]) {
+      const res = await post(token, bad);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'invalid_request' });
+    }
+    // A notification-shaped call (no id) is never executed, so never audited.
+    expect((await post(token, call(undefined))).status).toBe(202);
+    // Oversized or unparsable bodies: nothing audited either.
+    const big = await post(token, {
+      ...call(1),
+      params: { name: 'list_boards', pad: 'x'.repeat(70_000) },
+    });
+    expect(big.status).toBe(413);
+    const notJson = await handleMcpHttpRequest(
+      deps,
+      new Request(ENDPOINT, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: '{"jsonrpc":"2.0","id":1,"method":"tools/call"',
+      }),
+    );
+    expect(notJson.status).toBe(400);
+    expect(await notJson.json()).toEqual({ error: 'invalid_json' });
+    expect(await toolCalls()).toBe(before);
+    // A single well-formed call still works, audited once.
+    const ok = await post(token, call(7));
+    expect(ok.status).toBe(200);
+    const answer = (await ok.json()) as { id: number; result: { content: { text: string }[] } };
+    expect(answer.id).toBe(7);
+    expect(JSON.parse(answer.result.content[0]?.text ?? '{}').boards).toHaveLength(2);
+    expect(await toolCalls()).toBe(before + 1);
+  });
+
+  it('serves each token only its own workspace', async () => {
+    await updateWorkspaceSettings(h.db, ownerB, { externalMcpEnabled: true });
+    const { token } = await createMcpToken(deps, ownerB, { name: 'B' });
+    const client = await connect(token);
+    try {
+      const boards = await client.callTool({ name: 'list_boards', arguments: {} });
+      const text = (boards.content as { text: string }[])[0]?.text ?? '';
+      expect(JSON.parse(text)).toEqual({ boards: [] });
+      // org_a's board id, asked from org_b: unknown there.
+      const metric = await client.callTool({
+        name: 'get_metric',
+        arguments: { metric: 'throughput', boardId: boardIdA },
+      });
+      expect(metric.isError).toBe(true);
+      expect((metric.content as { text: string }[])[0]?.text).toContain('unknown_board');
+      expect((metric.content as { text: string }[])[0]?.text).not.toContain('DEMO');
+    } finally {
+      await client.close();
+    }
+    // org_a's token still names org_a only; swapping the workspace part never authenticates.
+    const { token: tokenA } = await createMcpToken(deps, viewer, { name: 'A' });
+    const swapped = `acp_org_b.${tokenA.split('.')[1]}`;
+    expect((await post(swapped, listTools)).status).toBe(401);
   });
 });

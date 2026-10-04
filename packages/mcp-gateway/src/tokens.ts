@@ -1,8 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { can, getMemberRoles } from '@agile/auth';
-import { type Db, isUuid, mcpTokens, recordAudit, withOrg } from '@agile/db';
+import { can, parseRoles } from '@agile/auth';
+import { type Db, isUuid, mcpTokens, member, recordAudit, type Tx, withOrg } from '@agile/db';
 import { getWorkspaceSettings } from '@agile/privacy';
-import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 export interface TokenActor {
@@ -53,6 +53,8 @@ export const createTokenSchema = z
  * random bits, stored only as a SHA-256.
  */
 const TOKEN_PATTERN = /^acp_([A-Za-z0-9_-]{1,64})\.([A-Za-z0-9_-]{43})$/;
+/** Workspace ids a token can carry (the first group of `TOKEN_PATTERN`). */
+const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -63,6 +65,37 @@ export function parseToken(token: string): { orgId: string } | null {
 
 /** What lists show to recognise a token: the workspace part and the first 4 secret characters. */
 const prefixOf = (token: string) => token.slice(0, token.indexOf('.') + 5);
+
+/** The person's current membership: roles and since when (null when not a member). */
+async function membership(
+  db: Db | Tx,
+  orgId: string,
+  userId: string,
+): Promise<{ roles: string[]; since: Date } | null> {
+  const [row] = await db
+    .select({ role: member.role, createdAt: member.createdAt })
+    .from(member)
+    .where(and(eq(member.organizationId, orgId), eq(member.userId, userId)))
+    .limit(1);
+  return row ? { roles: parseRoles(row.role), since: row.createdAt } : null;
+}
+
+/**
+ * Revokes the person's tokens issued before their current membership began (they left or were
+ * removed, then joined again): such tokens never work again, and no longer count as active.
+ */
+const revokeEarlierMembershipTokens = (tx: Tx, orgId: string, userId: string, since: Date) =>
+  tx
+    .update(mcpTokens)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(mcpTokens.orgId, orgId),
+        eq(mcpTokens.userId, userId),
+        isNull(mcpTokens.revokedAt),
+        lt(mcpTokens.createdAt, since),
+      ),
+    );
 
 /** Why this person cannot use external MCP in this workspace now, or null when they can. */
 export async function mcpAccessProblem(
@@ -82,6 +115,8 @@ export async function createMcpToken(
   actor: TokenActor,
   input: unknown,
 ): Promise<{ id: string; token: string; prefix: string; expiresAt: Date }> {
+  // The token must carry the workspace id, or it would never authenticate.
+  if (!ORG_ID_PATTERN.test(actor.orgId)) throw new TokenError('invalid_input');
   const problem = await mcpAccessProblem(deps, actor.orgId, actor.roles);
   if (problem) throw new TokenError(problem);
   const parsed = createTokenSchema.safeParse(input);
@@ -95,6 +130,8 @@ export async function createMcpToken(
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`mcp_tokens:${actor.orgId}:${actor.userId}`}))`,
     );
+    const current = await membership(tx, actor.orgId, actor.userId);
+    if (current) await revokeEarlierMembershipTokens(tx, actor.orgId, actor.userId, current.since);
     const active = await tx.$count(
       mcpTokens,
       and(
@@ -113,6 +150,8 @@ export async function createMcpToken(
         tokenHash: hashToken(token),
         prefix,
         expiresAt,
+        // The app clock, like the membership's start it is compared with.
+        createdAt: new Date(),
       })
       .returning({ id: mcpTokens.id });
     if (!row) return null;
@@ -222,6 +261,7 @@ export async function authenticateToken(
         expiresAt: mcpTokens.expiresAt,
         lastUsedAt: mcpTokens.lastUsedAt,
         revokedAt: mcpTokens.revokedAt,
+        createdAt: mcpTokens.createdAt,
       })
       .from(mcpTokens)
       .where(and(eq(mcpTokens.orgId, parsed.orgId), eq(mcpTokens.tokenHash, hash))),
@@ -229,8 +269,17 @@ export async function authenticateToken(
   if (!row || row.revokedAt || row.expiresAt <= now) return null;
   // Equal by construction (looked up by hash); compared again in constant time all the same.
   if (!timingSafeEqual(Buffer.from(row.tokenHash), Buffer.from(hash))) return null;
-  // The CURRENT membership and role: a removed member's token stops at once.
-  const roles = await getMemberRoles(deps.db, row.orgId, row.userId);
+  // The CURRENT membership and role: a removed member's token stops at once, and a token issued
+  // during an earlier membership (removed, then invited again) never works again.
+  const current = await membership(deps.db, row.orgId, row.userId);
+  if (!current) return null;
+  if (row.createdAt < current.since) {
+    await withOrg(deps.db, row.orgId, (tx) =>
+      revokeEarlierMembershipTokens(tx, row.orgId, row.userId, current.since),
+    );
+    return null;
+  }
+  const roles = current.roles;
   if (await mcpAccessProblem(deps, row.orgId, roles)) return null;
   if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() >= LAST_USED_THROTTLE_MS) {
     await withOrg(deps.db, row.orgId, (tx) =>

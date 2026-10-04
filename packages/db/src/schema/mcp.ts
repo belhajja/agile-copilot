@@ -27,19 +27,22 @@ export const mcpTokens = pgTable(
   ],
 );
 
-/** Requests per token per minute (fixed windows), for the external MCP rate limit. */
+/**
+ * Requests per person per minute in one workspace (fixed windows), for the external MCP rate limit:
+ * all of a person's tokens share one budget. Rows are only needed for the current minute; the
+ * retention job drops older ones.
+ */
 export const mcpRateBuckets = pgTable(
   'mcp_rate_buckets',
   {
     orgId: text('org_id').notNull(),
-    tokenId: uuid('token_id')
-      .notNull()
-      .references(() => mcpTokens.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
     windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
     count: integer('count').notNull().default(0),
   },
   (t) => [
-    primaryKey({ columns: [t.tokenId, t.windowStart] }),
+    primaryKey({ columns: [t.orgId, t.userId, t.windowStart] }),
+    index('mcp_rate_buckets_window_idx').on(t.orgId, t.windowStart),
     tenantPolicy('mcp_rate_buckets', t.orgId),
   ],
 );

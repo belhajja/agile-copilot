@@ -1,12 +1,13 @@
 import { createAnalyticsMcpServer } from '@agile/analytics-mcp';
 import { recordAudit, withOrg } from '@agile/db';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { isJSONRPCRequest, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 import { BodyTooLargeError, readBodyCapped } from './body';
 import { DEFAULT_RATE_LIMIT_PER_MINUTE, takeRequest } from './rate-limit';
 import { authenticateToken, type GatewayDeps, type TokenIdentity } from './tokens';
 
 export interface McpHttpDeps extends GatewayDeps {
-  /** Requests per token per minute (`MCP_RATE_LIMIT_PER_MINUTE`). */
+  /** Requests per person per minute (`MCP_RATE_LIMIT_PER_MINUTE`). */
   rateLimitPerMinute?: number;
   /** Log hook: error name and code only. */
   onError?: (error: unknown, code: string) => void;
@@ -22,6 +23,7 @@ export type McpHttpErrorCode =
   | 'rate_limited'
   | 'payload_too_large'
   | 'invalid_json'
+  | 'invalid_request'
   | 'internal_error';
 
 const jsonError = (status: number, error: McpHttpErrorCode, headers: Record<string, string> = {}) =>
@@ -33,15 +35,14 @@ const unauthorized = () =>
 /** Tool names as the analytics server spells them; anything else is audited as `unknown`. */
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
-/** The tools a JSON-RPC body calls (single message or batch). Never their arguments. */
-function calledTools(body: unknown): string[] {
-  const messages = Array.isArray(body) ? body : [body];
-  return messages.flatMap((m) => {
-    const msg = m as { method?: unknown; params?: { name?: unknown } } | null;
-    if (msg?.method !== 'tools/call') return [];
-    const name = msg.params?.name;
-    return [typeof name === 'string' && TOOL_NAME.test(name) ? name : 'unknown'];
-  });
+/**
+ * The tool a request calls, for the audit log: a `tools/call` REQUEST only (a notification is
+ * never executed). Never its arguments.
+ */
+function calledTool(message: unknown): string | null {
+  if (!isJSONRPCRequest(message) || message.method !== 'tools/call') return null;
+  const name = message.params?.name;
+  return typeof name === 'string' && TOOL_NAME.test(name) ? name : 'unknown';
 }
 
 async function serve(deps: McpHttpDeps, request: Request): Promise<Response> {
@@ -79,20 +80,26 @@ async function serve(deps: McpHttpDeps, request: Request): Promise<Response> {
     return jsonError(400, 'invalid_json');
   }
 
-  const tools = calledTools(body);
-  if (tools.length > 0) {
-    await withOrg(deps.db, identity.orgId, async (tx) => {
-      for (const tool of tools) {
-        await recordAudit(tx, {
-          orgId: identity.orgId,
-          actorUserId: identity.userId,
-          action: 'mcp.tool_called',
-          targetType: 'mcp_token',
-          targetId: identity.tokenId,
-          metadata: { tool },
-        });
-      }
-    });
+  // One JSON-RPC message per POST: batches were removed from MCP (2025-06-18), and refusing them
+  // keeps one request = at most one tool call = one audit entry (P5-R36).
+  if (Array.isArray(body) || !JSONRPCMessageSchema.safeParse(body).success) {
+    return jsonError(400, 'invalid_request');
+  }
+
+  // Audited after the shape is checked and before the call runs: the log records attempts, and a
+  // failed audit write fails the request (closed), so no call ever runs unaudited.
+  const tool = calledTool(body);
+  if (tool) {
+    await withOrg(deps.db, identity.orgId, (tx) =>
+      recordAudit(tx, {
+        orgId: identity.orgId,
+        actorUserId: identity.userId,
+        action: 'mcp.tool_called',
+        targetType: 'mcp_token',
+        targetId: identity.tokenId,
+        metadata: { tool },
+      }),
+    );
   }
 
   const server = createAnalyticsMcpServer(
@@ -113,8 +120,9 @@ async function serve(deps: McpHttpDeps, request: Request): Promise<Response> {
 
 /**
  * The analytics MCP server over streamable HTTP for external clients (Claude Desktop through a
- * remote-MCP bridge, other MCP clients). Stateless: each POST is authenticated with a personal
- * token, rate limited, audited (one entry per tool call: its name, never its input or output), and
+ * remote-MCP bridge, other MCP clients). Stateless: each POST carries one JSON-RPC message, is
+ * authenticated with a personal token, rate limited per person, audited (one entry per tool call:
+ * its name, never its input or output), and
  * served by a fresh server bound to the token's workspace. Read-only by construction: the analytics
  * server has no write tool, and no Jira tool is ever exposed here. Failures are fixed codes.
  */

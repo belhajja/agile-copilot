@@ -4,6 +4,8 @@ import {
   type Db,
   deletedOrganizations,
   jiraSyncRuns,
+  mcpRateBuckets,
+  mcpTokens,
   organization,
   session,
   skillBuilderCalls,
@@ -28,6 +30,10 @@ export const BUILDER_CALLS_RETENTION_DAYS = 7;
 export const SYNC_RUNS_RETENTION_DAYS = 90;
 /** Sessions and verifications are deleted this long after they expired. */
 export const EXPIRED_AUTH_GRACE_DAYS = 1;
+/** External MCP rate windows only matter for the current minute; a day covers any clock skew. */
+export const MCP_RATE_WINDOWS_RETENTION_DAYS = 1;
+/** MCP tokens are deleted this long after they were revoked or expired (lists show them meanwhile). */
+export const MCP_TOKENS_RETENTION_DAYS = 90;
 /** Rows deleted per statement, each in its own short transaction. */
 export const RETENTION_BATCH_SIZE = 5000;
 
@@ -44,6 +50,10 @@ export interface RetentionResult {
   builderCalls: number;
   /** Sync runs older than `SYNC_RUNS_RETENTION_DAYS`, never a connection's latest finished one. */
   syncRuns: number;
+  /** MCP tokens revoked or expired more than `MCP_TOKENS_RETENTION_DAYS` ago. */
+  mcpTokens: number;
+  /** MCP rate windows older than `MCP_RATE_WINDOWS_RETENTION_DAYS`. */
+  mcpRateBuckets: number;
 }
 
 export interface RetentionRunResult {
@@ -105,7 +115,8 @@ const auditDrain = (db: Db, orgId: string, before: Date, opts: BatchOptions) =>
 /**
  * Applies one workspace's retention settings, in batches: idle conversations (their messages and
  * approvals cascade), finished skill runs with their reports (never queued or running ones, never
- * a skill's latest finished run), old usage records, skill-builder reservations and sync runs, and
+ * a skill's latest finished run), old usage records, skill-builder reservations and sync runs, MCP
+ * tokens long revoked or expired and past MCP rate windows, and
  * audit entries through `purge_audit_log` (the only way the app role can delete audit rows). The
  * function's floor is a global 90 days; the workspace's own audit setting is applied here, as the
  * cutoff passed to it (P5 L25). Idempotent; a stopped worker (`signal`) ends it between batches.
@@ -239,6 +250,37 @@ export async function applyRetention(
     ),
   );
 
+  const tokensCutoff = before(MCP_TOKENS_RETENTION_DAYS);
+  const mcpTokensDeleted = await tenantDrain(db, orgId, opts, (tx, size) =>
+    tx.delete(mcpTokens).where(
+      inArray(
+        mcpTokens.id,
+        tx
+          .select({ id: mcpTokens.id })
+          .from(mcpTokens)
+          .where(
+            and(
+              eq(mcpTokens.orgId, orgId),
+              or(lt(mcpTokens.revokedAt, tokensCutoff), lt(mcpTokens.expiresAt, tokensCutoff)),
+            ),
+          )
+          .limit(size),
+      ),
+    ),
+  );
+
+  // Composite key (org, user, window): matched as a row value.
+  const windowsCutoff = before(MCP_RATE_WINDOWS_RETENTION_DAYS);
+  const mcpRateBucketsDeleted = await tenantDrain(db, orgId, opts, (tx, size) =>
+    tx.delete(mcpRateBuckets).where(
+      sql`(${mcpRateBuckets.userId}, ${mcpRateBuckets.windowStart}) in (${tx
+        .select({ userId: mcpRateBuckets.userId, windowStart: mcpRateBuckets.windowStart })
+        .from(mcpRateBuckets)
+        .where(and(eq(mcpRateBuckets.orgId, orgId), lt(mcpRateBuckets.windowStart, windowsCutoff)))
+        .limit(size)}) and ${mcpRateBuckets.orgId} = ${orgId}`,
+    ),
+  );
+
   const audit = await auditDrain(db, orgId, before(s.auditRetentionDays), opts);
   return {
     conversations,
@@ -247,6 +289,8 @@ export async function applyRetention(
     audit,
     builderCalls,
     syncRuns,
+    mcpTokens: mcpTokensDeleted,
+    mcpRateBuckets: mcpRateBucketsDeleted,
   };
 }
 

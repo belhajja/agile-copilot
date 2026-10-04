@@ -8,6 +8,8 @@ import {
   deletedOrganizations,
   jiraConnections,
   jiraSyncRuns,
+  mcpRateBuckets,
+  mcpTokens,
   organization,
   session,
   skillBuilderCalls,
@@ -40,6 +42,8 @@ const NONE = {
   audit: 0,
   builderCalls: 0,
   syncRuns: 0,
+  mcpTokens: 0,
+  mcpRateBuckets: 0,
 };
 
 describe('retention and workspace settings', () => {
@@ -293,6 +297,8 @@ describe('retention and workspace settings', () => {
       builderCalls: 1,
       // 100, 200 (error) and 300 days; not the 10-day run, not the other connection's only run.
       syncRuns: 3,
+      mcpTokens: 0,
+      mcpRateBuckets: 0,
     });
     // The queued and running runs stay, whatever their age.
     expect(await count('org_a')).toEqual({
@@ -348,6 +354,46 @@ describe('retention and workspace settings', () => {
       audit: 3,
     });
     expect(await count('org_big')).toMatchObject({ usage: 0, audit: 0, conversations: 0 });
+  });
+
+  it('drops MCP rate windows after a day and tokens revoked or expired 90 days ago', async () => {
+    const token = (name: string, expiresAt: Date, revokedAt: Date | null = null) => ({
+      orgId: 'org_mcp',
+      userId: 'u1',
+      name,
+      tokenHash: `h_${name}`,
+      prefix: 'acp_org_mcp.abcd',
+      expiresAt,
+      revokedAt,
+    });
+    await raw.db
+      .insert(mcpTokens)
+      .values([
+        token('active', daysAgo(-30)),
+        token('revoked_recently', daysAgo(-30), daysAgo(10)),
+        token('revoked_long_ago', daysAgo(-30), daysAgo(91)),
+        token('expired_recently', daysAgo(10)),
+        token('expired_long_ago', daysAgo(91)),
+        { ...token('other_workspace', daysAgo(200)), orgId: 'org_mcp_other' },
+      ]);
+    await raw.db.insert(mcpRateBuckets).values([
+      { orgId: 'org_mcp', userId: 'u1', windowStart: new Date(NOW.getTime() - HOUR), count: 3 },
+      { orgId: 'org_mcp', userId: 'u1', windowStart: daysAgo(2), count: 9 },
+      { orgId: 'org_mcp', userId: 'u2', windowStart: daysAgo(3), count: 1 },
+      { orgId: 'org_mcp_other', userId: 'u1', windowStart: daysAgo(3), count: 1 },
+    ]);
+    expect(await applyRetention(app.db, 'org_mcp', NOW, { batchSize: 1 })).toEqual({
+      ...NONE,
+      mcpTokens: 2,
+      mcpRateBuckets: 2,
+    });
+    const names = (await raw.db.select().from(mcpTokens)).map((t) => t.name).sort();
+    expect(names).toEqual(['active', 'expired_recently', 'other_workspace', 'revoked_recently']);
+    const windows = await raw.db.select().from(mcpRateBuckets);
+    expect(windows.map((w) => `${w.orgId}:${w.count}`).sort()).toEqual([
+      'org_mcp:3',
+      'org_mcp_other:1',
+    ]);
   });
 
   it('stops between batches when the worker shuts down during a run', async () => {

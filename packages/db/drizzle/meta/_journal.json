@@ -204,6 +204,13 @@
       "when": 1791125174719,
       "tag": "0028_phase5_mcp_force_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791125756916,
+      "tag": "0029_phase5_mcp_rate_per_person",
+      "breakpoints": true
     }
   ]
 }
