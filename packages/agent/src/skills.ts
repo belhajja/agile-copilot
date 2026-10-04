@@ -3,14 +3,26 @@ import type { SkillSet } from '@agile/skills';
 import { type ModelMessage, type Tool, type ToolSet, tool } from 'ai';
 import { z } from 'zod';
 import type { AgentActor, AgentDeps } from './deps';
-import { AgentToolError } from './tools';
+import { AgentToolError } from './tool-errors';
 import { asUntrustedData } from './untrusted';
 
-/** No catalog, no preferences: what a turn uses when the skills store cannot be read (P4-R6). */
+/** A Map that refuses every change (`Object.freeze` does not stop `set`, `delete` or `clear`). */
+function frozenMap<K, V>(): ReadonlyMap<K, V> {
+  const map = new Map<K, V>();
+  const refuse = () => {
+    throw new TypeError('This map is read-only.');
+  };
+  return Object.freeze(Object.assign(map, { set: refuse, delete: refuse, clear: refuse }));
+}
+
+/**
+ * No catalog, no preferences: what a turn uses when the skills store cannot be read (P4-R6).
+ * Shared by every such turn, so it is frozen all the way down.
+ */
 export const EMPTY_SKILL_SET: SkillSet = Object.freeze({
-  catalog: [],
-  preferences: [],
-  instructions: new Map<string, string>(),
+  catalog: Object.freeze([]) as unknown as SkillSet['catalog'],
+  preferences: Object.freeze([]) as unknown as SkillSet['preferences'],
+  instructions: frozenMap<string, string>(),
 });
 
 /**
@@ -104,8 +116,8 @@ export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): T
         );
       } catch (e) {
         // A database error's text (query, parameters) must never reach the model or the history.
-        deps.onError?.(e, 'pin_failed');
-        throw new AgentToolError('internal_error', { tool: 'dashboard' });
+        deps.onError?.(e, 'dashboard_unavailable');
+        throw new AgentToolError('dashboard_unavailable', { tool: 'dashboard' });
       }
       if (!result.ok) {
         throw new AgentToolError(result.code, {

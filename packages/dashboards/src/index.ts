@@ -5,6 +5,7 @@ export {
   PINNED_DASHBOARD_NAME,
   type PinFailure,
   pinWidget,
+  type RemoveFailure,
   removeWidget,
   type WidgetOwner,
 } from './pin';

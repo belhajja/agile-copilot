@@ -6,7 +6,7 @@ import type { SyncFailureCode } from '@agile/sync';
  * The UI reads the code back with `toolErrorCodeOf` (never by copying the pattern) and translates
  * it; the tests check that both locales have a text for each code.
  *
- * Client-safe (type imports only): the web UI imports `@agile/agent/tool-errors`.
+ * Client-safe (type imports only, no Node APIs): the web UI imports `@agile/agent/tool-errors`.
  */
 
 /** `JiraToolError` codes (both Jira tool backends). */
@@ -47,8 +47,11 @@ const AGENT = [
 /** `load_skill`: a name the catalog no longer holds. */
 const SKILL = ['unknown_skill'] as const;
 
-/** `pin_widget` refusals (`@agile/dashboards` pinWidget; `unknown_board` is shared with analytics). */
-const DASHBOARD = ['invalid_widget', 'dashboard_full'] as const;
+/**
+ * `pin_widget` failures: `@agile/dashboards` pinWidget refusals (`unknown_board` is shared with
+ * analytics), and `dashboard_unavailable` when the dashboard store itself fails.
+ */
+const DASHBOARD = ['invalid_widget', 'dashboard_full', 'dashboard_unavailable'] as const;
 
 /** The analytics MCP server's failures (`@agile/analytics-mcp`). */
 export const ANALYTICS_ERROR_CODES = ['internal_error', 'unknown_board', 'invalid_params'] as const;
@@ -115,4 +118,20 @@ export function toolErrorCodeOf(errorText: string | undefined): ToolErrorCode | 
   if (plain) return plain;
   const code = CODE_AT_END.exec(first)?.[1];
   return isToolErrorCode(code) ? code : undefined;
+}
+
+/**
+ * What the model and the user see when a tool fails: a fixed sentence with a code
+ * (`toolErrorText`). For errors that carry data for the model (e.g. the candidates of an ambiguous
+ * assignee, the hint of an unknown board), the data follows the sentence, framed by
+ * `asUntrustedData`; it is never logged.
+ */
+export class AgentToolError extends Error {
+  override name = 'AgentToolError';
+  constructor(
+    readonly code: ToolErrorCode,
+    opts: { tool?: ToolKind; data?: string } = {},
+  ) {
+    super(`${toolErrorText(code, opts.tool)}${opts.data ? `\n${opts.data}` : ''}`);
+  }
 }

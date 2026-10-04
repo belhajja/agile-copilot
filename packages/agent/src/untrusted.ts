@@ -1,8 +1,8 @@
 /**
  * Wraps a tool result as data for the model. Everything a tool returns can carry text written by
  * Jira users (summaries, comments, descriptions), so it is framed in one fixed envelope that the
- * system prompt declares untrusted, and the closing tag (and any `<skill` opening) is escaped
- * inside the payload so content cannot end the envelope early and pose as instructions.
+ * system prompt declares untrusted, and every `<` is escaped inside the payload so content can
+ * neither end the envelope early nor open another one (`<skill>`) and pose as instructions.
  *
  * Client-safe (no Node APIs): the web UI imports `@agile/agent/untrusted` to read tool outputs.
  */
@@ -14,11 +14,10 @@ export function asUntrustedData(source: string, value: unknown): string {
     // BigInt or a cycle: the engine's message names the culprit; never pass it on.
     throw new UntrustedDataError();
   }
-  // Every "</" becomes "<\/": still the same JSON string, but no closing tag of any spelling
-  // (`</data>`, `</ data>`, `</DATA >`…) can appear inside the envelope. Every "<" that would open
-  // a skill envelope (`<skill`, `< SKILL`…) becomes "\u003c", the same JSON string again: data
-  // cannot pose as a skill's instructions (P4-R17).
-  const safe = (json ?? 'null').replace(/<\//g, '<\\/').replace(/<(?=\s*skill)/gi, '\\u003c');
+  // Every "<" becomes "\u003c": the same JSON once parsed (it can only occur inside strings), but
+  // no tag of any spelling can open or close inside the envelope: `</data>`, `<skill …>`, or a
+  // variant with zero-width or odd characters a special case would miss (P4-R17, P4-R27).
+  const safe = (json ?? 'null').replace(/</g, '\\u003c');
   return `<data source="${source.replace(/[^a-z0-9_]/gi, '')}">\n${safe}\n</data>`;
 }
 

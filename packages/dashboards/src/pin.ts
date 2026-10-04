@@ -16,10 +16,13 @@ export interface WidgetOwner {
 
 export type PinFailure = {
   ok: false;
-  code: 'invalid_widget' | 'unknown_board' | 'dashboard_full' | 'not_found';
+  code: 'invalid_widget' | 'unknown_board' | 'dashboard_full';
   /** Which fields of the spec were refused (paths only, for the model to fix its call). */
   issues?: string[];
 };
+
+/** Why a widget could not be removed (no such dashboard of the user's, or no such widget). */
+export type RemoveFailure = { ok: false; code: 'not_found' };
 
 /**
  * Adds a widget to the user's "Pinned" dashboard of a board (created on first use). The spec is
@@ -118,7 +121,7 @@ export async function removeWidget(
   owner: WidgetOwner,
   dashboardId: string,
   widgetId: string,
-): Promise<{ ok: true } | PinFailure> {
+): Promise<{ ok: true } | RemoveFailure> {
   if (!isUuid(dashboardId)) return { ok: false, code: 'not_found' };
   return withOrg(db, owner.orgId, async (tx) => {
     const [row] = await tx

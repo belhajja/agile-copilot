@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApprovalRequiredError } from './approvals';
-import { TOOL_ERROR_CODES, toolErrorCodeOf, toolErrorText } from './tool-errors';
-import { AgentToolError } from './tools';
+import { AgentToolError, TOOL_ERROR_CODES, toolErrorCodeOf, toolErrorText } from './tool-errors';
 import { asUntrustedData } from './untrusted';
 
 describe('tool error sentences', () => {
@@ -39,8 +38,16 @@ describe('tool error sentences', () => {
     expect(toolErrorText('dashboard_full', 'dashboard')).toBe(
       'The chart could not be pinned (dashboard_full).',
     );
+    expect(toolErrorText('dashboard_unavailable', 'dashboard')).toBe(
+      'The chart could not be pinned (dashboard_unavailable).',
+    );
     expect(TOOL_ERROR_CODES).toEqual(
-      expect.arrayContaining(['unknown_skill', 'invalid_widget', 'dashboard_full']),
+      expect.arrayContaining([
+        'unknown_skill',
+        'invalid_widget',
+        'dashboard_full',
+        'dashboard_unavailable',
+      ]),
     );
   });
 

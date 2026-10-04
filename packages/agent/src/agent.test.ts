@@ -20,8 +20,8 @@ import { ApprovalRequiredError, claimApprovedExecution, hashInput } from './appr
 import { loadConversation } from './conversations';
 import type { AgentDeps } from './deps';
 import { startAgentHarness, textOf } from './test-harness';
-import { toolErrorText } from './tool-errors';
-import { AgentToolError, analyticsTools, jiraTools } from './tools';
+import { AgentToolError, toolErrorText } from './tool-errors';
+import { analyticsTools, jiraTools } from './tools';
 import { handleAgentRequest } from './turn';
 import { usageSummary } from './usage';
 

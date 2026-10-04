@@ -36,7 +36,8 @@ import {
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
 import { jiraSitesData, systemPrompt } from './prompt';
-import { AgentToolError, buildAgentTools, canUseLiveJira } from './tools';
+import { AgentToolError } from './tool-errors';
+import { buildAgentTools, canUseLiveJira } from './tools';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**

@@ -27,13 +27,11 @@ import type { AgentActor, AgentDeps } from './deps';
 import type { JiraAccess, PromptSite } from './prompt';
 import { EMPTY_SKILL_SET, skillContext, skillTools } from './skills';
 import {
+  AgentToolError,
   ANALYTICS_ERROR_CODES,
   type AnalyticsErrorCode,
   CREDENTIAL_ERROR_CODES,
   type CredentialErrorCode,
-  type ToolErrorCode,
-  type ToolKind,
-  toolErrorText,
 } from './tool-errors';
 import { asUntrustedData, UntrustedDataError } from './untrusted';
 
@@ -46,22 +44,6 @@ function unwrapMcp(result: unknown): unknown {
     return JSON.parse(text);
   } catch {
     return text;
-  }
-}
-
-/**
- * What the model and the user see when a tool fails: a fixed sentence with a code
- * (`toolErrorText`). For errors that carry data for the model (e.g. the candidates of an ambiguous
- * assignee, the hint of an unknown board), the data follows the sentence, framed by
- * `asUntrustedData`; it is never logged.
- */
-export class AgentToolError extends Error {
-  override name = 'AgentToolError';
-  constructor(
-    readonly code: ToolErrorCode,
-    opts: { tool?: ToolKind; data?: string } = {},
-  ) {
-    super(`${toolErrorText(code, opts.tool)}${opts.data ? `\n${opts.data}` : ''}`);
   }
 }
 

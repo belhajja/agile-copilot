@@ -514,7 +514,8 @@
       "candidates": "Personnes trouvées : {names}.",
       "unknown_skill": "Cette compétence ne fait plus partie de vos compétences.",
       "invalid_widget": "Ce graphique n’existe pas dans le catalogue du tableau de bord.",
-      "dashboard_full": "Ce tableau de bord est plein (40 graphiques). Retirez-en un d’abord."
+      "dashboard_full": "Ce tableau de bord est plein (40 graphiques). Retirez-en un d’abord.",
+      "dashboard_unavailable": "Votre tableau de bord n’a pas pu être mis à jour. Réessayez dans un instant."
     },
     "image": "Image",
     "forbiddenRole": "Non approuvé : les modifications Jira ne sont pas disponibles pour votre rôle.",

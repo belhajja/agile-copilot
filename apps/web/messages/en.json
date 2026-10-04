@@ -514,7 +514,8 @@
       "candidates": "People found: {names}.",
       "unknown_skill": "This skill is no longer in your skills.",
       "invalid_widget": "This chart is not in the dashboard catalog.",
-      "dashboard_full": "This dashboard is full (40 charts). Remove one first."
+      "dashboard_full": "This dashboard is full (40 charts). Remove one first.",
+      "dashboard_unavailable": "Your dashboard could not be updated. Try again in a moment."
     },
     "image": "Image",
     "forbiddenRole": "Not approved: Jira changes are not available for your role.",

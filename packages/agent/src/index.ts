@@ -12,7 +12,7 @@ export {
 } from './conversations';
 export type { AgentActor, AgentDeps } from './deps';
 export { systemPrompt } from './prompt';
-export { AgentToolError } from './tools';
+export { AgentToolError } from './tool-errors';
 export { type AgentErrorCode, agentRequestSchema, handleAgentRequest } from './turn';
 export { asUntrustedData } from './untrusted';
 export { costMicros, type Prices, type UsageTotals, usageSummary } from './usage';

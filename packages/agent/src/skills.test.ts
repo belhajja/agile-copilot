@@ -13,7 +13,7 @@ import { member, owner } from '@agile/sync/testing';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConversation } from './conversations';
-import { asSkillText } from './skills';
+import { asSkillText, EMPTY_SKILL_SET } from './skills';
 import { startAgentHarness, textOf } from './test-harness';
 import { parseUntrustedData } from './untrusted';
 
@@ -96,8 +96,19 @@ describe('skills and pinned widgets in the chat', () => {
     });
     if (!shared.ok) throw new Error(shared.code);
     await setSkillVisibility(h.db, alice, shared.id, 'workspace');
+    const aliceTool = await createSkill(h.db, alice, {
+      document: skillDoc('alice-report', 'on_demand', 'Report what Alice wants.'),
+      now: NOW,
+    });
+    if (!aliceTool.ok) throw new Error(aliceTool.code);
+    await setSkillVisibility(h.db, alice, aliceTool.id, 'workspace');
     await h.ask(owner(), randomUUID(), 'hello');
     expect(JSON.stringify(lastRequest())).not.toContain('assign-to-alice');
+    // Not in the load_skill enum either: the model cannot even ask for it.
+    const loadSkill = JSON.stringify(h.llm.requests.at(-1)?.toolSchemas.load_skill);
+    expect(loadSkill).toContain('daily-standup-brief');
+    expect(loadSkill).not.toContain('alice-report');
+    expect(loadSkill).not.toContain('assign-to-alice');
     // Owner reads it and copies it on purpose; the copy starts disabled (P4-R8).
     const fork = await forkSkill(h.db, owner(), shared.id, NOW);
     if (!fork.ok) throw new Error(fork.code);
@@ -107,6 +118,18 @@ describe('skills and pinned widgets in the chat', () => {
     expect(await setSkillEnabled(h.db, owner(), fork.id, true, NOW)).toEqual({ ok: true });
     const r = await h.ask(owner(), randomUUID(), 'hello');
     expect(textOf(r.chunks)).toMatch(/assign-to-alice/);
+  });
+
+  it('uses a deeply frozen empty skill set as the fallback', () => {
+    expect(Object.isFrozen(EMPTY_SKILL_SET)).toBe(true);
+    expect(Object.isFrozen(EMPTY_SKILL_SET.catalog)).toBe(true);
+    expect(Object.isFrozen(EMPTY_SKILL_SET.preferences)).toBe(true);
+    expect(() => (EMPTY_SKILL_SET.catalog as unknown[]).push({})).toThrow(TypeError);
+    const map = EMPTY_SKILL_SET.instructions as Map<string, string>;
+    expect(() => map.set('x', 'y')).toThrow(TypeError);
+    expect(() => map.delete('x')).toThrow(TypeError);
+    expect(() => map.clear()).toThrow(TypeError);
+    expect(map.size).toBe(0);
   });
 
   it('keeps skill text inside its envelope', () => {
@@ -186,8 +209,8 @@ describe('skills and pinned widgets in the chat', () => {
     const error = r.chunks.find((c) => c.type === 'tool-output-error') as
       | { errorText: string }
       | undefined;
-    expect(error?.errorText).toBe('The chart could not be pinned (internal_error).');
-    expect(errors).toContain('pin_failed');
+    expect(error?.errorText).toBe('The chart could not be pinned (dashboard_unavailable).');
+    expect(errors).toContain('dashboard_unavailable');
   });
 
   it('keeps chatting and approving when the skills store fails (P4-R6)', async () => {

@@ -200,6 +200,8 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
     url: string;
     messages: MockChatMessage[];
     tools: string[];
+    /** Each offered tool's JSON Schema (`function.parameters`), by name. */
+    toolSchemas: Record<string, unknown>;
     stream: boolean;
   }[] = [];
   let calls = 0;
@@ -207,12 +209,12 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
   const server = createServer((req, res) => {
     const seen = { method: req.method ?? '', url: req.url ?? '' };
     if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
-      requests.push({ ...seen, messages: [], tools: [], stream: false });
+      requests.push({ ...seen, messages: [], tools: [], toolSchemas: {}, stream: false });
       req.resume();
       return send(res, 404, { error: { message: 'not found' } });
     }
     if (req.headers.authorization !== `Bearer ${opts.validKey}`) {
-      requests.push({ ...seen, messages: [], tools: [], stream: false });
+      requests.push({ ...seen, messages: [], tools: [], toolSchemas: {}, stream: false });
       req.resume();
       return send(res, 401, {
         error: { message: 'Incorrect API key provided', type: 'invalid_request_error' },
@@ -237,14 +239,17 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
     const handle = (raw: string) => {
       const body = JSON.parse(raw) as {
         messages?: MockChatMessage[];
-        tools?: { function: { name: string } }[];
+        tools?: { function: { name: string; parameters?: unknown } }[];
         tool_choice?: unknown;
         stream?: boolean;
         stream_options?: { include_usage?: boolean };
       };
       const tools = (body.tools ?? []).map((t) => t.function.name);
       const messages = body.messages ?? [];
-      requests.push({ ...seen, messages, tools, stream: body.stream === true });
+      const toolSchemas = Object.fromEntries(
+        (body.tools ?? []).map((t) => [t.function.name, t.function.parameters]),
+      );
+      requests.push({ ...seen, messages, tools, toolSchemas, stream: body.stream === true });
       const forcedProbe = tools.includes('report_status') && body.tool_choice === 'required';
       const turn: MockTurn = forcedProbe
         ? { toolCalls: [{ name: 'report_status', args: { status: 'ok' } }] }
