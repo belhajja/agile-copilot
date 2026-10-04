@@ -7,7 +7,20 @@ import { connectionDeps, services } from './context';
 
 /** Dependencies of the sync services (board discovery needs to refresh OAuth tokens too). */
 export function syncDeps(): SyncDeps {
-  return { ...connectionDeps(), oauth: atlassianOAuth() ?? undefined };
+  return {
+    ...connectionDeps(),
+    oauth: atlassianOAuth() ?? undefined,
+    // Code and error name only: Jira error messages may carry tokens or URLs.
+    onError: (error, code) =>
+      console.error(
+        JSON.stringify({
+          level: 'warn',
+          event: 'sync_error',
+          code,
+          error: error instanceof Error ? error.name : 'unknown',
+        }),
+      ),
+  };
 }
 
 // One pg-boss producer per server process, kept across dev hot-reloads like the db pool.

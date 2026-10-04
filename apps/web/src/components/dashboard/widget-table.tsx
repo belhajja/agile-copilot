@@ -2,14 +2,14 @@ import { getFormatter, getTranslations } from 'next-intl/server';
 import {
   Table,
   TableBody,
+  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
 import type { TableData } from './types';
-
-const MAX_ROWS = 20;
+import { visibleRows } from './visible-rows';
 
 export async function WidgetTable({ data }: { data: TableData }) {
   const t = await getTranslations('dashboards');
@@ -46,8 +46,17 @@ export async function WidgetTable({ data }: { data: TableData }) {
         return String(value);
     }
   };
+  const { rows, truncated } = visibleRows(data.rows);
   return (
     <Table>
+      {truncated && (
+        <TableCaption data-truncated>
+          {t('truncated', {
+            shown: format.number(truncated.shown),
+            total: format.number(truncated.total),
+          })}
+        </TableCaption>
+      )}
       <TableHeader>
         <TableRow>
           {data.columns.map((c) => (
@@ -58,7 +67,7 @@ export async function WidgetTable({ data }: { data: TableData }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {data.rows.slice(0, MAX_ROWS).map((row) => (
+        {rows.map((row) => (
           <TableRow key={String(row[0])}>
             {data.columns.map((c, j) => (
               <TableCell

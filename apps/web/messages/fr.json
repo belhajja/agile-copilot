@@ -198,7 +198,8 @@
     "selectionSaved": "Sélection des tableaux enregistrée.",
     "estimates": {
       "points": "Points d'effort",
-      "count": "Nombre de tickets"
+      "count": "Nombre de tickets",
+      "pending": "Lu à la première synchronisation"
     },
     "types": {
       "scrum": "Scrum",
@@ -253,7 +254,10 @@
       "oauth_unavailable": "La connexion Atlassian n'est pas configurée sur ce serveur.",
       "unknown": "Une erreur s'est produite.",
       "jira_paging": "Jira a renvoyé plus de résultats que prévu. Réessayez plus tard.",
-      "abandoned": "La synchronisation précédente a été interrompue. Réessayez."
+      "abandoned": "La synchronisation précédente a été interrompue. Réessayez.",
+      "board_query_rejected": "Jira a refusé le filtre de ce tableau. Vérifiez que le filtre enregistré du tableau existe toujours et qu'il est partagé.",
+      "board_not_found": "Ce tableau n'existe plus dans Jira. Actualisez les tableaux.",
+      "interrupted": "La synchronisation a été interrompue (redémarrage du worker). Elle sera relancée."
     }
   },
   "dashboards": {
@@ -398,6 +402,7 @@
       "no_estimates": "Ce tableau n'a pas d'estimations."
     },
     "notEnoughData": "Pas encore assez de données",
-    "cappedDays": "≥ {days} jours"
+    "cappedDays": "≥ {days} jours",
+    "truncated": "{shown} sur {total}"
   }
 }

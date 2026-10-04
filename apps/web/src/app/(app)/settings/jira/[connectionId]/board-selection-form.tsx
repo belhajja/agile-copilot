@@ -94,11 +94,22 @@ export function BoardSelectionForm({
                       <ItemDescription>
                         {[
                           b.projectKey,
-                          b.usesEstimates ? t('estimates.points') : t('estimates.count'),
+                          !b.configured
+                            ? t('estimates.pending')
+                            : b.usesEstimates
+                              ? t('estimates.points')
+                              : t('estimates.count'),
                         ]
                           .filter(Boolean)
                           .join(' · ')}
                       </ItemDescription>
+                      {b.lastError && (
+                        <ItemDescription className="text-destructive" data-board-error>
+                          {t.has(`errors.${b.lastError}`)
+                            ? t(`errors.${b.lastError}`)
+                            : t('errors.unknown')}
+                        </ItemDescription>
+                      )}
                     </ItemContent>
                     <ItemActions>
                       <Badge variant="outline">{t(`types.${b.type}`)}</Badge>

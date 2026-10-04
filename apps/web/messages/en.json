@@ -198,7 +198,8 @@
     "selectionSaved": "Board selection saved.",
     "estimates": {
       "points": "Story points",
-      "count": "Issue count"
+      "count": "Issue count",
+      "pending": "Read at the first sync"
     },
     "types": {
       "scrum": "Scrum",
@@ -253,7 +254,10 @@
       "oauth_unavailable": "Atlassian sign-in is not configured on this server.",
       "unknown": "Something went wrong.",
       "jira_paging": "Jira returned more results than expected. Try again later.",
-      "abandoned": "The previous sync was interrupted. Try again."
+      "abandoned": "The previous sync was interrupted. Try again.",
+      "board_query_rejected": "Jira rejected this board's filter. Check that the board's saved filter still exists and is shared.",
+      "board_not_found": "This board no longer exists in Jira. Refresh the boards.",
+      "interrupted": "The sync was interrupted (the worker restarted). It will be retried."
     }
   },
   "dashboards": {
@@ -398,6 +402,7 @@
       "no_estimates": "This board has no estimates."
     },
     "notEnoughData": "Not enough data yet",
-    "cappedDays": "≥ {days} days"
+    "cappedDays": "≥ {days} days",
+    "truncated": "{shown} of {total}"
   }
 }
