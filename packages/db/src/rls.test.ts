@@ -100,12 +100,17 @@ describe('row-level security (as app_user)', () => {
           where col.table_schema = 'public' and col.table_name = rel.relname
             and col.column_name = 'org_id')
     `)) as unknown as { name: string; on_delete: string }[];
-    // 'n' (SET NULL) is allowed for an optional pointer that must not take its child rows with it
-    // (skill_runs.channel_id): purge works in any order since it only nulls a column.
-    expect(rows.filter((r) => r.on_delete !== 'c' && r.on_delete !== 'n')).toEqual([]);
+    // The one allowed exception is skill_runs.channel_id (SET NULL): a run outlives its channel,
+    // and purge works in any order since it only nulls a column.
+    const setNullAllowed = ['skill_runs_channel_id_delivery_channels_id_fk'];
+    expect(
+      rows.filter(
+        (r) => r.on_delete !== 'c' && !(r.on_delete === 'n' && setNullAllowed.includes(r.name)),
+      ),
+    ).toEqual([]);
   });
 
-  it('guards the schema: every cascading foreign key is covered by an index', async () => {
+  it('guards the schema: every cascading or set-null foreign key is covered by an index', async () => {
     // Without one, each parent delete scans the child table: deleting a connection turns quadratic.
     // Partial indexes cannot serve the FK lookup, so they do not count.
     const rows = (await app.db.execute(sql`
@@ -113,7 +118,7 @@ describe('row-level security (as app_user)', () => {
       from pg_constraint con
       join pg_class rel on rel.oid = con.conrelid
       join pg_namespace n on n.oid = rel.relnamespace
-      where con.contype = 'f' and con.confdeltype = 'c' and n.nspname = 'public'
+      where con.contype = 'f' and con.confdeltype in ('c', 'n') and n.nspname = 'public'
         and not exists (
           select 1 from pg_index i
           where i.indrelid = con.conrelid and i.indpred is null

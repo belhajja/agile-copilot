@@ -56,7 +56,7 @@ export const skills = pgTable(
     builtinKey: text('builtin_key'),
     /**
      * The skill it was forked from. No foreign key: deleting the original must not delete forks
-     * (and the tenant guard requires every foreign key to cascade).
+     * (and the tenant guard only allows cascading foreign keys, plus `skill_runs.channel_id`).
      */
     forkedFromId: uuid('forked_from_id'),
     forkedFromVersion: integer('forked_from_version'),
@@ -123,10 +123,10 @@ export const skillRuns = pgTable(
     /** Alerts: the boards and values that fired the run. */
     context: jsonb('context').$type<Record<string, unknown>>().notNull().default({}),
     /** Snapshot at plan/request time of the skill's output kind: delivery uses it, not later edits. */
-    outputKind: text('output_kind'),
+    outputKind: skillOutput('output_kind'),
     /**
      * Snapshot of the skill's channel at plan/request time (P4-R5). Deleting the channel clears it
-     * (SET NULL, not cascade: the run and its report outlive the channel).
+     * (SET NULL, the one tenant FK that does not cascade: the run and its report outlive the channel).
      */
     channelId: uuid('channel_id').references(() => deliveryChannels.id, { onDelete: 'set null' }),
     /** Delivery outcome per output: { email: 'sent' | '<code>', slack: …, teams: … }. */

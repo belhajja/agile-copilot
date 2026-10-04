@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Tx, withOrg } from './client';
 import { purgeOrgTenantRows } from './purge';
-import { deliveryChannels, skillRuns, skills, skillVersions } from './schema';
+import { deliveryChannels, llmConnections, skillRuns, skills, skillVersions } from './schema';
 import { startTestDatabase, type TestDatabase } from './testing';
 
 const PHASE4_TABLES = ['delivery_channels', 'skill_runs', 'skill_versions', 'skills'];
@@ -194,6 +194,66 @@ describe('Phase 4 tenant tables (as app_user)', () => {
       expect(after?.outputKind).toBe('teams');
       await tx.delete(skillRuns).where(eq(skillRuns.id, run?.id ?? ''));
     });
+  });
+
+  it('allows one SMTP channel per org, unique channel names, any number of webhooks', async () => {
+    const channel = (orgId: string, kind: 'smtp' | 'slack' | 'teams', name: string) => ({
+      id: randomUUID(),
+      orgId,
+      kind,
+      name,
+      hint: 'x',
+      secret: 'x',
+      createdBy: 'u',
+    });
+    const insert = (orgId: string, kind: 'smtp' | 'slack' | 'teams', name: string) =>
+      withOrg(app.db, orgId, (tx) =>
+        tx.insert(deliveryChannels).values(channel(orgId, kind, name)),
+      );
+    await insert('org_u', 'smtp', 'Mail');
+    expect(await pgError(insert('org_u', 'smtp', 'Mail 2'))).toEqual({
+      code: '23505',
+      constraint: 'delivery_channels_one_smtp_uq',
+    });
+    expect(await pgError(insert('org_u', 'slack', 'Mail'))).toEqual({
+      code: '23505',
+      constraint: 'delivery_channels_org_name_uq',
+    });
+    // Another org has its own SMTP channel, and one org may have several Slack/Teams channels.
+    expect(await pgError(insert('org_v', 'smtp', 'Mail'))).toBe('no error');
+    expect(await pgError(insert('org_u', 'slack', 'Slack 1'))).toBe('no error');
+    expect(await pgError(insert('org_u', 'slack', 'Slack 2'))).toBe('no error');
+    expect(await pgError(insert('org_u', 'teams', 'Teams 1'))).toBe('no error');
+    for (const org of ['org_u', 'org_v']) {
+      await withOrg(app.db, org, (tx) => tx.delete(deliveryChannels));
+    }
+  });
+
+  it('allows one background model per org', async () => {
+    const connection = (orgId: string, isBackground: boolean) => ({
+      id: randomUUID(),
+      orgId,
+      label: randomUUID(),
+      provider: 'openai' as const,
+      model: 'm',
+      secret: 'x',
+      isBackground,
+      createdBy: 'u',
+    });
+    const insert = (orgId: string, isBackground: boolean) =>
+      withOrg(app.db, orgId, (tx) =>
+        tx.insert(llmConnections).values(connection(orgId, isBackground)),
+      );
+    expect(await pgError(insert('org_u', true))).toBe('no error');
+    expect(await pgError(insert('org_u', true))).toEqual({
+      code: '23505',
+      constraint: 'llm_connections_one_background_uq',
+    });
+    expect(await pgError(insert('org_u', false))).toBe('no error');
+    expect(await pgError(insert('org_v', true))).toBe('no error');
+    for (const org of ['org_u', 'org_v']) {
+      await withOrg(app.db, org, (tx) => tx.delete(llmConnections));
+    }
   });
 
   it('refuses cross-org writes on every Phase 4 table', async () => {

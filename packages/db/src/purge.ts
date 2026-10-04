@@ -6,7 +6,8 @@ import type { Tx } from './client';
  * `org_id` column), except the append-only `audit_log`. Tables are discovered at run time, so
  * tables added in later phases are purged without touching this function. Run inside
  * `withOrg(db, orgId, …)`: RLS then confines the deletes to that org a second time.
- * Requires every foreign key between tenant tables to be ON DELETE CASCADE (schema guard test).
+ * Requires every foreign key between tenant tables to be ON DELETE CASCADE, or SET NULL for the one
+ * allowlisted `skill_runs_channel_id_delivery_channels_id_fk` (schema guard test).
  */
 export async function purgeOrgTenantRows(tx: Tx, orgId: string): Promise<string[]> {
   const tables = (await tx.execute(sql`
