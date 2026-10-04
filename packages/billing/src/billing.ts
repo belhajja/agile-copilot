@@ -9,7 +9,7 @@ import {
   type Tx,
   withOrg,
 } from '@agile/db';
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Entitlements, entitlementsOf, SELFHOST } from './plans';
 
@@ -39,7 +39,12 @@ export interface BillingActor {
 export class BillingError extends Error {
   override name = 'BillingError';
   constructor(
-    readonly code: 'billing_disabled' | 'forbidden_role' | 'no_customer' | 'subscription_exists',
+    readonly code:
+      | 'billing_disabled'
+      | 'forbidden_role'
+      | 'no_customer'
+      | 'subscription_exists'
+      | 'no_checkout_url',
   ) {
     super(code);
   }
@@ -64,6 +69,19 @@ export function createStripe(config: BillingConfig): Stripe {
       : {}),
   });
 }
+
+/**
+ * Stripe calls made while a database transaction holds the workspace's billing row: short, so a
+ * slow Stripe never holds the lock for long. A failure rolls the transaction back (for a webhook,
+ * its dedup record too, so Stripe retries the delivery).
+ */
+const UNDER_LOCK = { timeout: 5_000, maxNetworkRetries: 1 } satisfies Stripe.RequestOptions;
+
+/** Checkout sessions expire after 30 minutes (Stripe's minimum), so a stale one never lingers. */
+const CHECKOUT_TTL_SECONDS = 30 * 60;
+
+/** Processed event ids are kept 30 days: Stripe retries a delivery for 3 days at most. */
+const STRIPE_EVENT_RETENTION_MS = 30 * 86_400_000;
 
 const enabled = (deps: BillingDeps): BillingConfig => {
   if (!deps.billing) throw new BillingError('billing_disabled');
@@ -113,44 +131,53 @@ const assertOwner = (actor: BillingActor) => {
   if (!can(actor.roles, 'billing.manage')) throw new BillingError('forbidden_role');
 };
 
+/** The workspace's row, locked until the transaction ends (billing changes serialize). */
+const lockedRow = async (tx: Tx, orgId: string) =>
+  (
+    await tx
+      .select()
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.orgId, orgId))
+      .for('update')
+  )[0];
+
 /**
- * The workspace's Stripe customer, created on first use. The customer carries the workspace id
- * as metadata only: no names or addresses are sent (Checkout collects billing details itself).
- * Refuses when the workspace already has a subscription that has not ended (paid, pending after a
- * completed Checkout, or past due): a second Checkout would bill it twice. Owners use the portal.
+ * The workspace's Stripe customer row, created on first use. The customer carries the workspace
+ * id as metadata only: no names or addresses are sent (Checkout collects billing details itself).
  */
-async function customerForCheckout(
-  deps: BillingDeps,
-  stripe: Stripe,
-  orgId: string,
-): Promise<string> {
+async function ensureCustomerRow(deps: BillingDeps, stripe: Stripe, orgId: string) {
   const [existing] = await withOrg(deps.db, orgId, (tx) =>
     tx
-      .select({
-        id: billingSubscriptions.stripeCustomerId,
-        subscription: billingSubscriptions.stripeSubscriptionId,
-        status: billingSubscriptions.status,
-      })
+      .select({ id: billingSubscriptions.stripeCustomerId })
       .from(billingSubscriptions)
       .where(eq(billingSubscriptions.orgId, orgId)),
   );
-  if (existing?.subscription && !ended(existing.status)) {
-    throw new BillingError('subscription_exists');
-  }
-  if (existing) return existing.id;
+  if (existing) return;
   const customer = await stripe.customers.create({ metadata: { orgId } });
   // A concurrent checkout may have stored one first: keep that one.
-  return withOrg(deps.db, orgId, async (tx) => {
-    await tx
+  await withOrg(deps.db, orgId, (tx) =>
+    tx
       .insert(billingSubscriptions)
       .values({ orgId, stripeCustomerId: customer.id })
-      .onConflictDoNothing({ target: billingSubscriptions.orgId });
-    const [row] = await tx
-      .select({ id: billingSubscriptions.stripeCustomerId })
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.orgId, orgId));
-    return row?.id ?? customer.id;
-  });
+      .onConflictDoNothing({ target: billingSubscriptions.orgId }),
+  );
+}
+
+/** The stored Checkout session as Stripe has it now; null when Stripe no longer knows it. */
+async function pendingSession(stripe: Stripe, id: string) {
+  try {
+    return await stripe.checkout.sessions.retrieve(id, { expand: ['subscription'] }, UNDER_LOCK);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'resource_missing') return null;
+    throw error;
+  }
+}
+
+/** A completed session whose subscription may still bill (unknown counts as live). */
+function completedLive(session: Stripe.Checkout.Session): boolean {
+  const sub = session.subscription;
+  if (!sub) return false;
+  return typeof sub === 'string' ? true : !ended(sub.status);
 }
 
 const audit = (
@@ -162,7 +189,12 @@ const audit = (
 ) =>
   recordAudit(tx, { orgId, actorUserId, action, targetType: 'billing', targetId: orgId, metadata });
 
-/** A Stripe Checkout page for the Team plan (owners only). Returns its URL. */
+/**
+ * A Stripe Checkout page for the Team plan (owners only). Returns its URL. One Checkout per
+ * workspace at a time: while the last session is open, its URL is returned again; a session paid
+ * whose subscription has not ended, or a stored subscription that has not ended, refuses (a
+ * second one would bill twice; owners manage it in the portal).
+ */
 export async function startCheckout(
   deps: BillingDeps,
   actor: BillingActor,
@@ -171,21 +203,42 @@ export async function startCheckout(
   const config = enabled(deps);
   assertOwner(actor);
   const stripe = stripeOf(deps);
-  const customer = await customerForCheckout(deps, stripe, actor.orgId);
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer,
-    line_items: [{ price: config.priceTeam, quantity: 1 }],
-    client_reference_id: actor.orgId,
-    subscription_data: { metadata: { orgId: actor.orgId } },
-    success_url: urls.successUrl,
-    cancel_url: urls.cancelUrl,
+  await ensureCustomerRow(deps, stripe, actor.orgId);
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    const row = await lockedRow(tx, actor.orgId);
+    if (!row) throw new BillingError('no_customer');
+    if (row.stripeSubscriptionId && !ended(row.status)) {
+      throw new BillingError('subscription_exists');
+    }
+    if (row.pendingCheckoutSessionId) {
+      const pending = await pendingSession(stripe, row.pendingCheckoutSessionId);
+      if (pending?.status === 'open' && pending.url) return pending.url;
+      if (pending?.status === 'complete' && completedLive(pending)) {
+        throw new BillingError('subscription_exists');
+      }
+    }
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: 'subscription',
+        customer: row.stripeCustomerId,
+        line_items: [{ price: config.priceTeam, quantity: 1 }],
+        client_reference_id: actor.orgId,
+        metadata: { orgId: actor.orgId },
+        subscription_data: { metadata: { orgId: actor.orgId } },
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
+        success_url: urls.successUrl,
+        cancel_url: urls.cancelUrl,
+      },
+      UNDER_LOCK,
+    );
+    if (!session.url) throw new BillingError('no_checkout_url');
+    await tx
+      .update(billingSubscriptions)
+      .set({ pendingCheckoutSessionId: session.id })
+      .where(eq(billingSubscriptions.orgId, actor.orgId));
+    await audit(tx, actor.orgId, actor.userId, 'billing.checkout_started', { plan: 'team' });
+    return session.url;
   });
-  if (!session.url) throw new BillingError('no_customer');
-  await withOrg(deps.db, actor.orgId, (tx) =>
-    audit(tx, actor.orgId, actor.userId, 'billing.checkout_started', { plan: 'team' }),
-  );
-  return session.url;
 }
 
 /** Stripe's customer portal (payment method, invoices, cancellation). Owners only. */
@@ -226,123 +279,170 @@ async function firstDelivery(tx: Tx, event: Stripe.Event): Promise<boolean> {
   return inserted.length > 0;
 }
 
-/** The workspace's row, locked until the transaction ends (events of one workspace serialize). */
-const lockedRow = async (tx: Tx, orgId: string) =>
-  (
-    await tx
-      .select()
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.orgId, orgId))
-      .for('update')
-  )[0];
+/** Forgets processed event ids older than 30 days; runs after every webhook delivery. */
+export async function purgeStripeEvents(db: Db, now = new Date()): Promise<number> {
+  const before = new Date(now.getTime() - STRIPE_EVENT_RETENTION_MS);
+  const purged = await db
+    .delete(stripeEvents)
+    .where(lt(stripeEvents.receivedAt, before))
+    .returning({ id: stripeEvents.id });
+  return purged.length;
+}
+
+/** Logs a fixed code (no ids, no payload) and ignores the event. */
+const ignore = (code: string): WebhookOutcome => {
+  console.warn(`[billing] ${code}`);
+  return 'ignored';
+};
+
+type BillingRow = typeof billingSubscriptions.$inferSelect;
 
 /**
  * Whether an event of `subscriptionId` may change the workspace: it must be the stored
  * subscription, unless none is stored or the stored one has ended (the workspace subscribed
- * again). Any other subscription (a second Checkout, a stale one) is logged and ignored.
+ * again). Any other subscription (a second Checkout, a stale one) is ignored, logged, and
+ * recorded in the audit log so a double charge is visible; it is never canceled automatically.
  */
-function belongsToWorkspace(
-  row: { stripeSubscriptionId: string | null; status: string | null } | undefined,
+async function belongsToWorkspace(
+  tx: Tx,
+  row: BillingRow,
   subscriptionId: string,
-): boolean {
-  if (!row?.stripeSubscriptionId || row.stripeSubscriptionId === subscriptionId) return true;
+  event: Stripe.Event,
+): Promise<boolean> {
+  if (!row.stripeSubscriptionId || row.stripeSubscriptionId === subscriptionId) return true;
   if (ended(row.status)) return true;
-  console.warn('[billing] webhook_foreign_subscription');
+  ignore('webhook_foreign_subscription');
+  await audit(tx, row.orgId, null, 'billing.foreign_subscription', {
+    subscription: subscriptionId,
+    event: event.type,
+  });
   return false;
 }
 
-/** A completed Checkout: stores the customer and the (pending) subscription it created. */
-async function applyCheckout(
-  tx: Tx,
-  session: Stripe.Checkout.Session,
-  orgId: string,
-): Promise<WebhookOutcome> {
-  const customer = idOf(session.customer);
-  if (!customer) return 'ignored';
-  const subscription = idOf(session.subscription);
-  const row = await lockedRow(tx, orgId);
-  if (!row) {
-    await tx
-      .insert(billingSubscriptions)
-      .values({ orgId, stripeCustomerId: customer, stripeSubscriptionId: subscription });
-    return 'processed';
-  }
-  if (!subscription || row.stripeSubscriptionId === subscription) {
-    await tx
-      .update(billingSubscriptions)
-      .set({ stripeCustomerId: customer })
-      .where(eq(billingSubscriptions.orgId, orgId));
-    return 'processed';
-  }
-  if (!belongsToWorkspace(row, subscription)) return 'ignored';
-  // A new subscription replaces an ended one: pending until its own events arrive.
-  await tx
-    .update(billingSubscriptions)
-    .set({
-      stripeCustomerId: customer,
-      stripeSubscriptionId: subscription,
-      plan: null,
-      status: null,
-      currentPeriodEnd: null,
-      cancelAtPeriodEnd: false,
-    })
-    .where(eq(billingSubscriptions.orgId, orgId));
-  return 'processed';
-}
-
-/**
- * Applies one subscription event of the workspace's subscription, unless a newer one was applied
- * already. Stripe's `created` has one-second resolution: on a tie the order is unknown, so the
- * subscription is re-read from Stripe and its current state applied.
- */
-async function applySubscription(
+/** Writes a subscription's state (never its customer: that is ours, set at Checkout). */
+async function writeSubscription(
   tx: Tx,
   config: BillingConfig,
-  stripe: Stripe,
-  event: Stripe.Event,
-  sub: Stripe.Subscription,
   orgId: string,
-): Promise<WebhookOutcome> {
-  const row = await lockedRow(tx, orgId);
-  if (!belongsToWorkspace(row, sub.id)) return 'ignored';
-  const created = new Date(event.created * 1000);
-  const last = row?.lastEventAt?.getTime();
-  if (last !== undefined && last > created.getTime()) return 'processed';
-  let state = sub;
-  let status: string = event.type === 'customer.subscription.deleted' ? 'canceled' : sub.status;
-  if (last === created.getTime()) {
-    state = await stripe.subscriptions.retrieve(sub.id);
-    status = state.status;
-  }
-  const item = state.items?.data?.[0];
+  sub: Stripe.Subscription,
+  status: string,
+  eventAt: Date,
+  extra: { pendingCheckoutSessionId?: null } = {},
+): Promise<void> {
+  const item = sub.items?.data?.[0];
   const values = {
-    stripeCustomerId: idOf(state.customer) ?? row?.stripeCustomerId ?? '',
-    stripeSubscriptionId: state.id,
+    stripeSubscriptionId: sub.id,
     plan: item?.price?.id === config.priceTeam ? 'team' : null,
     status,
     currentPeriodEnd: item?.current_period_end ? new Date(item.current_period_end * 1000) : null,
-    cancelAtPeriodEnd: state.cancel_at_period_end,
-    lastEventAt: created,
+    cancelAtPeriodEnd: sub.cancel_at_period_end,
+    lastEventAt: eventAt,
+    ...extra,
   };
-  await tx
-    .insert(billingSubscriptions)
-    .values({ orgId, ...values })
-    .onConflictDoUpdate({ target: billingSubscriptions.orgId, set: values });
+  await tx.update(billingSubscriptions).set(values).where(eq(billingSubscriptions.orgId, orgId));
   await audit(tx, orgId, null, 'billing.subscription_changed', {
     status: values.status,
     plan: values.plan,
   });
+}
+
+interface WebhookContext {
+  config: BillingConfig;
+  stripe: Stripe;
+  event: Stripe.Event;
+  orgId: string;
+}
+
+/**
+ * A completed Checkout, accepted only from a subscription-mode session of the customer this
+ * workspace's Checkout created. A new subscription replacing an ended one is read from Stripe and
+ * stored as it really is (never left "pending"), unless the event is older than what was applied.
+ */
+async function applyCheckout(
+  tx: Tx,
+  { config, stripe, event, orgId }: WebhookContext,
+  session: Stripe.Checkout.Session,
+): Promise<WebhookOutcome> {
+  if (session.mode !== 'subscription') return ignore('webhook_checkout_not_subscription');
+  const row = await lockedRow(tx, orgId);
+  if (!row || idOf(session.customer) !== row.stripeCustomerId) {
+    return ignore('webhook_foreign_customer');
+  }
+  const subscription = idOf(session.subscription);
+  const clearPending =
+    row.pendingCheckoutSessionId === session.id ? { pendingCheckoutSessionId: null } : {};
+  if (!subscription || row.stripeSubscriptionId === subscription) {
+    await tx
+      .update(billingSubscriptions)
+      .set(clearPending)
+      .where(eq(billingSubscriptions.orgId, orgId));
+    return 'processed';
+  }
+  if (!(await belongsToWorkspace(tx, row, subscription, event))) return 'ignored';
+  const created = new Date(event.created * 1000);
+  if (row.lastEventAt && created.getTime() <= row.lastEventAt.getTime()) {
+    return ignore('webhook_stale_checkout');
+  }
+  // Under the row lock (see UNDER_LOCK).
+  const sub = await stripe.subscriptions.retrieve(subscription, {}, UNDER_LOCK);
+  if (idOf(sub.customer) !== row.stripeCustomerId) return ignore('webhook_foreign_customer');
+  await writeSubscription(tx, config, orgId, sub, sub.status, created, clearPending);
   return 'processed';
 }
 
+/**
+ * Applies one event of the workspace's subscription (its own customer only), unless a newer one
+ * was applied already. Stripe's `created` has one-second resolution: on a tie the order is
+ * unknown, so the subscription is re-read from Stripe and its current state applied.
+ */
+async function applySubscription(
+  tx: Tx,
+  { config, stripe, event, orgId }: WebhookContext,
+  sub: Stripe.Subscription,
+): Promise<WebhookOutcome> {
+  const row = await lockedRow(tx, orgId);
+  if (!row || idOf(sub.customer) !== row.stripeCustomerId) {
+    return ignore('webhook_foreign_customer');
+  }
+  if (!(await belongsToWorkspace(tx, row, sub.id, event))) return 'ignored';
+  const created = new Date(event.created * 1000);
+  const last = row.lastEventAt?.getTime();
+  if (last !== undefined && last > created.getTime()) return 'processed';
+  let state = sub;
+  let status: string = event.type === 'customer.subscription.deleted' ? 'canceled' : sub.status;
+  if (last === created.getTime()) {
+    // Under the row lock, so a concurrent delivery waits for this one (see UNDER_LOCK).
+    state = await stripe.subscriptions.retrieve(sub.id, {}, UNDER_LOCK);
+    status = state.status;
+  }
+  await writeSubscription(tx, config, orgId, state, status, created);
+  return 'processed';
+}
+
+/**
+ * A subscription naming a workspace that no longer exists must not keep billing: unless Stripe
+ * says it has ended (or this is its deletion), it is canceled.
+ */
+async function cancelOrphan(stripe: Stripe, event: Stripe.Event, sub: Stripe.Subscription) {
+  if (event.type === 'customer.subscription.deleted' || ended(sub.status)) return;
+  const current = await stripe.subscriptions.retrieve(sub.id, {}, UNDER_LOCK);
+  if (!ended(current.status)) await stripe.subscriptions.cancel(sub.id, {}, UNDER_LOCK);
+}
+
 export type WebhookOutcome = 'processed' | 'duplicate' | 'ignored';
+
+const SUBSCRIPTION_EVENTS: readonly string[] = [
+  'customer.subscription.created',
+  'customer.subscription.updated',
+  'customer.subscription.deleted',
+];
 
 /**
  * A Stripe webhook: signature checked (raw body + `Stripe-Signature`, Stripe's default
  * tolerance), each event applied once, in a transaction with its dedup record so a failure
  * leaves it for Stripe's retry. The workspace comes from the ids we set at checkout
  * (`client_reference_id`, subscription metadata), never from anything a browser sends, and only
- * the workspace's stored subscription changes it.
+ * its own customer's events, for its stored subscription, change it.
  */
 export async function handleStripeWebhook(
   deps: BillingDeps,
@@ -358,48 +458,60 @@ export async function handleStripeWebhook(
   } catch {
     throw new WebhookSignatureError('invalid signature');
   }
+  const outcome = await applyEvent(deps.db, config, stripe, event);
+  try {
+    await purgeStripeEvents(deps.db);
+  } catch (error) {
+    // The event is applied; the purge runs again on the next delivery.
+    console.error(
+      `[billing] stripe_events_purge_failed ${error instanceof Error ? error.name : 'UnknownError'}`,
+    );
+  }
+  return outcome;
+}
 
+async function applyEvent(
+  db: Db,
+  config: BillingConfig,
+  stripe: Stripe,
+  event: Stripe.Event,
+): Promise<WebhookOutcome> {
   let orgId: string | null = null;
   if (event.type === 'checkout.session.completed') {
     orgId = event.data.object.client_reference_id ?? null;
-  } else if (
-    event.type === 'customer.subscription.created' ||
-    event.type === 'customer.subscription.updated' ||
-    event.type === 'customer.subscription.deleted'
-  ) {
-    orgId = event.data.object.metadata?.orgId ?? null;
+  } else if (SUBSCRIPTION_EVENTS.includes(event.type)) {
+    orgId = (event.data.object as Stripe.Subscription).metadata?.orgId ?? null;
   }
 
   if (!orgId) {
-    await deps.db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       await firstDelivery(tx, event);
     });
     return 'ignored';
   }
-  const target = orgId;
-  return withOrg(deps.db, target, async (tx) => {
+  const ctx: WebhookContext = { config, stripe, event, orgId };
+  return withOrg(db, orgId, async (tx) => {
     if (!(await firstDelivery(tx, event))) return 'duplicate';
-    // A deleted workspace's late events change nothing.
-    if (!(await orgExists(tx, target))) return 'ignored';
     if (event.type === 'checkout.session.completed') {
-      return applyCheckout(tx, event.data.object, target);
+      // A deleted workspace's late Checkout changes nothing (its subscription's own events
+      // cancel it below).
+      if (!(await orgExists(tx, ctx.orgId))) return 'ignored';
+      return applyCheckout(tx, ctx, event.data.object);
     }
-    return applySubscription(
-      tx,
-      config,
-      stripe,
-      event,
-      event.data.object as Stripe.Subscription,
-      target,
-    );
+    const sub = event.data.object as Stripe.Subscription;
+    if (!(await orgExists(tx, ctx.orgId))) {
+      await cancelOrphan(stripe, event, sub);
+      return 'ignored';
+    }
+    return applySubscription(tx, ctx, sub);
   });
 }
 
 /**
- * Stops billing a workspace that is being deleted (before its rows are purged): every
- * subscription of its customer that has not ended is canceled, not only the stored one (a second
- * Checkout or a webhook still in flight may have created another). A failure stops the deletion:
- * a workspace is never deleted while Stripe keeps charging for it.
+ * Stops billing a workspace that is being deleted (before its rows are purged): its customer's
+ * open Checkout sessions are expired, then every subscription that has not ended is canceled, not
+ * only the stored one (a second Checkout or a webhook still in flight may have created another).
+ * A failure stops the deletion: a workspace is never deleted while Stripe keeps charging for it.
  */
 export async function cancelSubscriptionForOrg(deps: BillingDeps, orgId: string): Promise<void> {
   if (!deps.billing) return;
@@ -411,6 +523,15 @@ export async function cancelSubscriptionForOrg(deps: BillingDeps, orgId: string)
   );
   if (!row) return;
   const stripe = stripeOf(deps);
+  const open: string[] = [];
+  for await (const session of stripe.checkout.sessions.list({
+    customer: row.customer,
+    status: 'open',
+    limit: 100,
+  })) {
+    open.push(session.id);
+  }
+  for (const id of open) await stripe.checkout.sessions.expire(id);
   const live: string[] = [];
   for await (const sub of stripe.subscriptions.list({
     customer: row.customer,

@@ -19,7 +19,14 @@ export async function startStripeMock(): Promise<{ url: string; stop: () => Prom
 /** A webhook delivery as Stripe sends it: the JSON body and its `Stripe-Signature` header. */
 export async function signedEvent(
   secret: string,
-  event: { id: string; type: string; created: number; object: Record<string, unknown> },
+  event: {
+    id: string;
+    type: string;
+    created: number;
+    object: Record<string, unknown>;
+    /** When the delivery was signed (unix seconds); now by default. */
+    signedAt?: number;
+  },
 ): Promise<{ payload: string; signature: string }> {
   const payload = JSON.stringify({
     id: event.id,
@@ -30,6 +37,10 @@ export async function signedEvent(
     livemode: false,
     data: { object: event.object },
   });
-  const signature = await Stripe.webhooks.generateTestHeaderStringAsync({ payload, secret });
+  const signature = await Stripe.webhooks.generateTestHeaderStringAsync({
+    payload,
+    secret,
+    ...(event.signedAt ? { timestamp: event.signedAt } : {}),
+  });
   return { payload, signature };
 }

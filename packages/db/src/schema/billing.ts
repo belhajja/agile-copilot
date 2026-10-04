@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, tenantPolicy, updatedAt } from './tenant';
 
 /**
@@ -19,6 +19,8 @@ export const billingSubscriptions = pgTable(
     cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
     /** `created` of the last subscription event applied: older events arriving late are ignored. */
     lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+    /** The workspace's last Checkout session: reused while open, so one Checkout at a time. */
+    pendingCheckoutSessionId: text('pending_checkout_session_id'),
     createdAt,
     updatedAt,
   },
@@ -32,8 +34,13 @@ export const billingSubscriptions = pgTable(
  * Stripe event ids already processed (webhooks are delivered at least once). Not tenant data: an
  * id and a type, nothing else.
  */
-export const stripeEvents = pgTable('stripe_events', {
-  id: text('id').primaryKey(),
-  type: text('type').notNull(),
-  receivedAt: createdAt,
-});
+export const stripeEvents = pgTable(
+  'stripe_events',
+  {
+    id: text('id').primaryKey(),
+    type: text('type').notNull(),
+    receivedAt: createdAt,
+  },
+  // Ids older than 30 days are forgotten (purgeStripeEvents, on every webhook).
+  (t) => [index('stripe_events_created_at_idx').on(t.receivedAt)],
+);
