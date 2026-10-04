@@ -44,13 +44,15 @@ export async function ensureStatusMappings(
 ) {
   const values = [...new Set(statusIds)].map((id) => {
     const status = statuses.get(id) ?? { id, name: id, categoryKey: 'undefined' as const };
+    // Statuses Jira doesn't describe (or puts in no category) start as "to do" until a person decides.
+    const unknown = status.categoryKey === 'undefined';
     return {
       orgId,
       boardId,
       jiraStatusId: id,
       statusName: status.name,
       jiraCategory: status.categoryKey,
-      ...suggestStatusMapping(status),
+      ...(unknown ? { category: 'todo' as const, blocked: false } : suggestStatusMapping(status)),
       source: 'auto' as const,
     };
   });

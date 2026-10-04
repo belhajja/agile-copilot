@@ -58,6 +58,10 @@ const toBoardView = (b: typeof jiraBoards.$inferSelect): BoardView => ({
   lastSyncedAt: b.lastSyncedAt,
 });
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
+const CATEGORIES = new Set(['todo', 'in_progress', 'done']);
+
 /** Maps an error to a stable code (reported to deps.onError for logging). */
 export function failureOf(deps: SyncDeps, e: unknown): SyncFailure {
   const code = e instanceof SyncError ? e.code : mapJiraError(e).code;
@@ -70,6 +74,7 @@ export async function listBoards(
   orgId: string,
   connectionId: string,
 ): Promise<BoardView[]> {
+  if (!isUuid(connectionId)) return [];
   const rows = await withOrg(deps.db, orgId, (tx) =>
     tx
       .select()
@@ -89,6 +94,7 @@ export async function listSelectedBoards(deps: SyncDeps, orgId: string): Promise
 }
 
 export async function getBoard(deps: SyncDeps, orgId: string, boardId: string) {
+  if (!isUuid(boardId)) return null;
   const [row] = await withOrg(deps.db, orgId, (tx) =>
     tx.select().from(jiraBoards).where(eq(jiraBoards.id, boardId)),
   );
@@ -106,6 +112,7 @@ export async function discoverBoards(
   connectionId: string,
 ): Promise<{ ok: true; boards: BoardView[] } | SyncFailure> {
   assertCanManage(actor);
+  if (!isUuid(connectionId)) return { ok: false, code: 'not_found' };
   const found: { info: JiraBoardInfo; config: JiraBoardConfig }[] = [];
   let statuses: JiraStatusInfo[];
   try {
@@ -126,6 +133,16 @@ export async function discoverBoards(
       .from(jiraConnections)
       .where(eq(jiraConnections.id, connectionId));
     if (!conn) return { ok: false, code: 'not_found' } as const;
+    // A listing that came back empty (e.g. the token lost browse permission) must not wipe the
+    // selection and mappings of boards we already know.
+    if (found.length === 0) {
+      const [known] = await tx
+        .select({ id: jiraBoards.id })
+        .from(jiraBoards)
+        .where(eq(jiraBoards.connectionId, connectionId))
+        .limit(1);
+      if (known) return { ok: false, code: 'no_boards' } as const;
+    }
     for (const { info, config } of found) {
       const [board] = await tx
         .insert(jiraBoards)
@@ -196,6 +213,8 @@ export async function setBoardSelection(
   boardIds: string[],
 ): Promise<{ ok: true; selected: number } | SyncFailure> {
   assertCanManage(actor);
+  if (!isUuid(connectionId)) return { ok: false, code: 'not_found' };
+  const ids = boardIds.filter(isUuid);
   return withOrg(deps.db, actor.orgId, async (tx) => {
     const [conn] = await tx
       .select({ id: jiraConnections.id })
@@ -207,12 +226,12 @@ export async function setBoardSelection(
       .set({ selected: false })
       .where(eq(jiraBoards.connectionId, connectionId));
     const selected =
-      boardIds.length === 0
+      ids.length === 0
         ? []
         : await tx
             .update(jiraBoards)
             .set({ selected: true })
-            .where(and(eq(jiraBoards.connectionId, connectionId), inArray(jiraBoards.id, boardIds)))
+            .where(and(eq(jiraBoards.connectionId, connectionId), inArray(jiraBoards.id, ids)))
             .returning({ id: jiraBoards.id });
     await recordAudit(tx, {
       orgId: actor.orgId,
@@ -231,6 +250,7 @@ export async function listStatusMappings(
   orgId: string,
   boardId: string,
 ): Promise<StatusMappingView[]> {
+  if (!isUuid(boardId)) return [];
   const rows = await withOrg(deps.db, orgId, (tx) =>
     tx
       .select()
@@ -256,9 +276,13 @@ export async function saveStatusMappings(
   entries: { jiraStatusId: string; category: 'todo' | 'in_progress' | 'done'; blocked: boolean }[],
 ): Promise<{ ok: true; updated: number } | SyncFailure> {
   assertCanManage(actor);
+  if (!isUuid(boardId)) return { ok: false, code: 'not_found' };
+  if (entries.some((e) => !CATEGORIES.has(e.category))) return { ok: false, code: 'invalid_input' };
+  // One entry per status, the last one wins.
+  const unique = [...new Map(entries.map((e) => [e.jiraStatusId, e])).values()];
   return withOrg(deps.db, actor.orgId, async (tx) => {
     let updated = 0;
-    for (const e of entries) {
+    for (const e of unique) {
       const rows = await tx
         .update(jiraStatusMappings)
         .set({
