@@ -513,6 +513,10 @@ describe('SSO (OIDC) and the password policy', () => {
   });
 
   it('never makes password or session requests wait for an IdP that does not answer', async () => {
+    // A request that waited for discovery would take its whole timeout (4 s). The bound sits well
+    // below that and far above a scrypt sign-in on a loaded machine (containers starting beside
+    // it), so it tells the two apart without timing a password hash to the millisecond.
+    const NO_WAIT_MS = SSO_DISCOVERY_TIMEOUT_MS - 1_000;
     const hole = await startBlackhole();
     try {
       const holder = createAuthHolder({
@@ -527,12 +531,12 @@ describe('SSO (OIDC) and the password policy', () => {
         }),
       );
       expect(signIn.value.response.user.email).toBe('root@example.com');
-      expect(signIn.ms).toBeLessThan(1_000);
+      expect(signIn.ms).toBeLessThan(NO_WAIT_MS);
       const session = await elapsed(() =>
         holder.get().api.getSession({ headers: cookieHeader(signIn.value.headers) }),
       );
       expect(session.value?.user.email).toBe('root@example.com');
-      expect(session.ms).toBeLessThan(1_000);
+      expect(session.ms).toBeLessThan(NO_WAIT_MS);
       // Non-break-glass passwords are still refused right away, not after a discovery timeout.
       const refused = await elapsed(() =>
         holder
@@ -541,7 +545,7 @@ describe('SSO (OIDC) and the password policy', () => {
           .catch((e: unknown) => e),
       );
       expect(refused.value).toMatchObject({ body: { code: 'INVALID_EMAIL_OR_PASSWORD' } });
-      expect(refused.ms).toBeLessThan(1_000);
+      expect(refused.ms).toBeLessThan(NO_WAIT_MS);
       // Discovery gives up after its timeout; SSO stays off.
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const ready = await elapsed(() => holder.ssoReady());
