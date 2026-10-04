@@ -104,7 +104,15 @@ describe('mcp-atlassian backend through the double', () => {
     expect(transitionsFromMcp([{ id: 21, name: 'In Progress', to_status: 'In Progress' }])).toEqual(
       { transitions: [{ id: '21', name: 'In Progress', to: 'In Progress' }] },
     );
-    expect(transitionsFromMcp('not json')).toEqual({ transitions: [] });
+    // A `{ transitions }` wrapper is read too; anything else is a Jira-side failure, not "none".
+    expect(transitionsFromMcp({ transitions: [{ id: '31', name: 'Done' }] })).toEqual({
+      transitions: [{ id: '31', name: 'Done', to: null }],
+    });
+    for (const raw of ['not json', null, { message: 'x' }, { transitions: 'x' }]) {
+      expect(() => transitionsFromMcp(raw)).toThrow(
+        expect.objectContaining({ code: 'jira_error' }),
+      );
+    }
   });
 
   it('returns the same search shape as the REST backend', async () => {

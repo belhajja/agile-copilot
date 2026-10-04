@@ -109,11 +109,14 @@ export function searchFromMcp(raw: unknown, limit: number) {
 /**
  * mcp-atlassian's `jira_get_transitions` result (a bare list, numeric ids, and against Jira no
  * target status) → the REST backend's `{ transitions: [{ id, name, to }] }`, with string ids the
- * model can send back as `jira_transition_issue` input.
+ * model can send back as `jira_transition_issue` input. A `{ transitions: [...] }` wrapper is read
+ * too; any other result is a failure (`jira_error`), never "no transitions".
  */
 export function transitionsFromMcp(raw: unknown) {
+  const list = Array.isArray(raw) ? raw : obj(raw).transitions;
+  if (!Array.isArray(list)) throw new JiraToolError('jira_error');
   return {
-    transitions: (Array.isArray(raw) ? raw : []).map((v) => {
+    transitions: list.map((v) => {
       const t = obj(v);
       return {
         id: typeof t.id === 'number' ? String(t.id) : s(t.id),

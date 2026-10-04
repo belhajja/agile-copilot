@@ -13,7 +13,13 @@ import {
   mcpAtlassianHeaders,
 } from './mcp-backend';
 import { createRestJiraBackend } from './rest-backend';
-import { ANCHOR, EXPECTED_WRITES, exercise, outbound } from './testing/scenario';
+import {
+  ANCHOR,
+  EXPECTED_WRITES,
+  exercise,
+  outbound,
+  SCENARIO_DESCRIPTION,
+} from './testing/scenario';
 
 // The mock Jira runs in this process; the containers reach it through Testcontainers' SSH port
 // forwarder under a hostname (mcp-atlassian refuses IP-literal Jira URLs even when allowlisted).
@@ -49,7 +55,12 @@ const SAMPLES: { [N in JiraToolName]: unknown } = {
   jira_transition_issue: { issueKey: 'DEMO-2', transitionId: '21', comment: 'Started' },
   jira_assign_issue: { issueKey: 'DEMO-2', assignee: 'alex' },
   jira_create_issue: { projectKey: 'DEMO', summary: 'Follow up', issueType: 'Task' },
-  jira_update_issue: { issueKey: 'DEMO-3', summary: 'Renamed', labels: ['risk'] },
+  jira_update_issue: {
+    issueKey: 'DEMO-3',
+    summary: 'Renamed',
+    description: 'Needs a *review*',
+    labels: ['risk'],
+  },
 };
 
 const mockJira = () =>
@@ -106,14 +117,31 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
     });
 
   beforeAll(async () => {
-    [jira, viaImage, viaRest] = await Promise.all([mockJira(), mockJira(), mockJira()]);
-    await TestContainers.exposeHostPorts(portOf(jira), portOf(viaImage));
-    [shared, readOnly] = await Promise.all([
-      // The read-write instance also enables the backend-only assignee lookup.
-      start({ ENABLED_TOOLS: MCP_ATLASSIAN_ENABLED_TOOLS.join(',') }),
-      // The read-only twin: the catalog, with READ_ONLY_MODE removing every write.
-      start({ ENABLED_TOOLS: JIRA_TOOL_NAMES.join(','), READ_ONLY_MODE: 'true' }),
+    await Promise.all([
+      mockJira().then((m) => {
+        jira = m;
+      }),
+      mockJira().then((m) => {
+        viaImage = m;
+      }),
+      mockJira().then((m) => {
+        viaRest = m;
+      }),
     ]);
+    await TestContainers.exposeHostPorts(portOf(jira), portOf(viaImage));
+    // Each container is kept as soon as it runs, and both starts are awaited: if one fails,
+    // afterAll still stops the other.
+    const started = await Promise.allSettled([
+      // The read-write instance also enables the backend-only assignee lookup.
+      start({ ENABLED_TOOLS: MCP_ATLASSIAN_ENABLED_TOOLS.join(',') }).then((c) => {
+        shared = c;
+      }),
+      // The read-only twin: the catalog, with READ_ONLY_MODE removing every write.
+      start({ ENABLED_TOOLS: JIRA_TOOL_NAMES.join(','), READ_ONLY_MODE: 'true' }).then((c) => {
+        readOnly = c;
+      }),
+    ]);
+    for (const r of started) if (r.status === 'rejected') throw r.reason;
   });
   afterAll(async () => {
     await Promise.all([
@@ -216,8 +244,18 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
     expect(image.transitions).toEqual({
       transitions: rest.transitions.transitions.map((t) => ({ ...t, to: null })),
     });
-    // The same request bodies (labels included: mcp-atlassian drops fields Jira does not list).
-    expect(viaImage.writes.map((w) => w.body)).toEqual(viaRest.writes.map((w) => w.body));
+    // The same request bodies (labels included: mcp-atlassian drops fields Jira does not list),
+    // except the description: mcp-atlassian converts the model's Markdown to Jira wiki markup on
+    // Data Center, while the REST backend sends it as written.
+    const imageBodies = viaImage.writes.map((w) => w.body);
+    const restBodies = viaRest.writes.map((w) => w.body);
+    expect(imageBodies.slice(0, -1)).toEqual(restBodies.slice(0, -1));
+    expect(restBodies.at(-1)).toEqual({
+      fields: { labels: ['risk'], description: SCENARIO_DESCRIPTION },
+    });
+    expect(imageBodies.at(-1)).toEqual({
+      fields: { labels: ['risk'], description: '*Risk:* the API team is late' },
+    });
     // Both Jiras end in the same state where the agent can see it.
     for (const key of ['DEMO-1', 'DEMO-2', 'DEMO-3']) {
       const read = async (m: MockJira) =>
@@ -332,6 +370,10 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       'POST /rest/api/2/issue',
       'PUT /rest/api/2/issue/DEMO-3',
     ]);
+    // Markdown emphasis becomes wiki markup on the way (the REST backend sends it as written).
+    expect(jira.writes.at(-1)?.body).toEqual({
+      fields: { summary: 'Renamed', labels: ['risk'], description: 'Needs a _review_' },
+    });
     expect(jira.writes.every((w) => w.authorization === 'Bearer good-pat')).toBe(true);
     expect(new Set(jira.requests.map((r) => r.authorization))).toEqual(
       new Set(['Bearer good-pat']),

@@ -4,6 +4,8 @@ import { type JiraToolName, parseJiraToolInput } from '../catalog';
 
 // One scenario shared by the backend tests: reads, then every kind of write (each exactly once).
 // The assignee is an exact display name: backends never assign on a fuzzy match.
+/** Markdown, as the model writes it (mcp-atlassian converts it to wiki markup; REST does not). */
+export const SCENARIO_DESCRIPTION = '**Risk:** the API team is late';
 export const ANCHOR = new Date('2026-10-04T00:00:00Z');
 export const outbound = { allowedPrivateHosts: ['127.0.0.1'] };
 export const run = <N extends JiraToolName>(b: JiraToolBackend, name: N, input: unknown) => {
@@ -38,7 +40,11 @@ export async function exercise(backend: JiraToolBackend, jira: MockJira) {
     summary: 'Follow up',
     issueType: 'Task',
   });
-  await run(backend, 'jira_update_issue', { issueKey: 'DEMO-3', labels: ['risk'] });
+  await run(backend, 'jira_update_issue', {
+    issueKey: 'DEMO-3',
+    labels: ['risk'],
+    description: SCENARIO_DESCRIPTION,
+  });
   return {
     found,
     issue,
