@@ -11,7 +11,9 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { ItemGroup } from '@/components/ui/item';
+import { pickCode } from '@/lib/error-code';
 import { connectionDeps, requireActor, services } from '@/server/context';
+import { JIRA_ERROR_CODES } from './error-codes';
 import { JiraConnectionForm } from './jira-connection-form';
 import { JiraConnectionItem } from './jira-connection-item';
 
@@ -27,7 +29,7 @@ export default async function JiraSettingsPage({
   const canManage = canManageConnections(actor.roles);
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto grid w-full max-w-4xl gap-6">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground">{t('description')}</p>
@@ -39,9 +41,7 @@ export default async function JiraSettingsPage({
       )}
       {error && (
         <Alert variant="destructive">
-          <AlertDescription>
-            {t.has(`errors.${error}`) ? t(`errors.${error}`) : t('errors.unknown')}
-          </AlertDescription>
+          <AlertDescription>{t(`errors.${pickCode(error, JIRA_ERROR_CODES)}`)}</AlertDescription>
         </Alert>
       )}
       {connections.length === 0 ? (

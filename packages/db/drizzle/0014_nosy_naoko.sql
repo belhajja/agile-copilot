@@ -1,0 +1,1 @@
+ALTER TABLE "skill_runs" ALTER COLUMN "output_kind" SET DATA TYPE "public"."skill_output" USING "output_kind"::"public"."skill_output";

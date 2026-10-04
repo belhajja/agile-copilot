@@ -1,3 +1,4 @@
+import { fetchNoRedirect } from '@agile/net';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAzure } from '@ai-sdk/azure';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -16,39 +17,38 @@ export type LlmConfig =
 
 const AZURE_RESOURCE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
-/** fetch that never follows redirects (a user-supplied URL must not bounce us to internal hosts). */
-const noRedirectFetch: typeof fetch = async (input, init) => {
-  const res = await fetch(input, { ...init, redirect: 'manual' });
-  if (res.status >= 300 && res.status < 400) {
-    await res.body?.cancel();
-    throw Object.assign(new TypeError('Redirects are not allowed'), {
-      name: 'RedirectBlockedError',
-    });
-  }
-  return res;
-};
-
 /** Builds a model from a tenant's own key at call time (keys are never read from process.env). */
-export function createLanguageModel(cfg: LlmConfig): LanguageModel {
+export function createLanguageModel(
+  cfg: LlmConfig,
+  opts: {
+    /** Fetch for the user-supplied OpenAI-compatible URL (pass createOutboundFetch to pin DNS). */
+    fetch?: typeof fetch;
+  } = {},
+): LanguageModel {
+  // Fixed vendor hosts: a redirect would carry the tenant's key to wherever it points.
+  const fetch = fetchNoRedirect;
   switch (cfg.provider) {
     case 'anthropic':
-      return createAnthropic({ apiKey: cfg.apiKey })(cfg.model);
+      return createAnthropic({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'openai':
-      return createOpenAI({ apiKey: cfg.apiKey })(cfg.model);
+      return createOpenAI({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'google':
-      return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(cfg.model);
+      return createGoogleGenerativeAI({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'mistral':
-      return createMistral({ apiKey: cfg.apiKey })(cfg.model);
+      return createMistral({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'azure':
       if (!AZURE_RESOURCE_NAME.test(cfg.resourceName))
         throw new TypeError('Invalid Azure resource name');
-      return createAzure({ apiKey: cfg.apiKey, resourceName: cfg.resourceName })(cfg.model);
+      return createAzure({ apiKey: cfg.apiKey, resourceName: cfg.resourceName, fetch })(cfg.model);
     case 'openai_compatible':
       return createOpenAICompatible({
         name: 'openai_compatible',
         baseURL: cfg.baseUrl,
         apiKey: cfg.apiKey || 'not-needed',
-        fetch: noRedirectFetch,
+        // Ask for token usage in streamed answers (the agent's cost meter needs it).
+        includeUsage: true,
+        // A user-supplied URL must not bounce us to internal hosts.
+        fetch: opts.fetch ?? fetchNoRedirect,
       })(cfg.model);
   }
 }

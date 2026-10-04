@@ -1,34 +1,17 @@
 import { sql } from 'drizzle-orm';
 import {
-  type AnyPgColumn,
   boolean,
   index,
   integer,
   jsonb,
   pgEnum,
-  pgPolicy,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-
-/** Rows are visible/writable only when app.current_org_id (set by withOrg) matches. */
-const tenantPolicy = (table: string, orgId: AnyPgColumn) =>
-  pgPolicy(`${table}_tenant_isolation`, {
-    as: 'permissive',
-    for: 'all',
-    to: 'public',
-    using: sql`${orgId} = current_setting('app.current_org_id', true)`,
-    withCheck: sql`${orgId} = current_setting('app.current_org_id', true)`,
-  });
-
-const createdAt = timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
-const updatedAt = timestamp('updated_at', { withTimezone: true })
-  .notNull()
-  .defaultNow()
-  .$onUpdate(() => new Date());
+import { createdAt, tenantPolicy, updatedAt } from './tenant';
 
 export const jiraDeployment = pgEnum('jira_deployment', ['cloud', 'datacenter']);
 export const jiraAuthType = pgEnum('jira_auth_type', ['basic', 'oauth', 'pat']);
@@ -95,6 +78,11 @@ export const llmConnections = pgTable(
     keyHint: text('key_hint'),
     secret: text('secret').notNull(),
     isDefault: boolean('is_default').notNull().default(false),
+    /** The "cheap model" for background skill runs (at most one per workspace; else the default). */
+    isBackground: boolean('is_background').notNull().default(false),
+    /** Optional prices per million tokens, in millionths of a currency unit (cost meter). */
+    inputPriceMicros: integer('input_price_micros'),
+    outputPriceMicros: integer('output_price_micros'),
     status: connectionStatus('status').notNull().default('untested'),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
@@ -105,6 +93,7 @@ export const llmConnections = pgTable(
   (t) => [
     index('llm_connections_org_idx').on(t.orgId),
     uniqueIndex('llm_connections_one_default_uq').on(t.orgId).where(sql`${t.isDefault}`),
+    uniqueIndex('llm_connections_one_background_uq').on(t.orgId).where(sql`${t.isBackground}`),
     tenantPolicy('llm_connections', t.orgId),
   ],
 );
@@ -123,6 +112,8 @@ export const auditLog = pgTable(
   },
   (t) => [
     index('audit_log_org_created_idx').on(t.orgId, t.createdAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('audit_log_actor_idx').on(t.actorUserId),
     tenantPolicy('audit_log', t.orgId),
   ],
 );

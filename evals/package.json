@@ -1,0 +1,21 @@
+{
+  "name": "@agile/evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_UPDATE=1 pnpm dlx promptfoo@0.123.1 eval -c promptfooconfig.yaml --no-cache --no-progress-bar --no-write",
+    "eval:live": "PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_UPDATE=1 PROMPTFOO_PASS_RATE_THRESHOLD=${PROMPTFOO_PASS_RATE_THRESHOLD:-90} pnpm dlx promptfoo@0.123.1 eval -c promptfooconfig.live.yaml --no-cache --no-progress-bar --no-write",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@agile/agent": "workspace:*",
+    "@agile/connections": "workspace:*",
+    "@agile/db": "workspace:*",
+    "@agile/llm": "workspace:*",
+    "@agile/skills": "workspace:*",
+    "@agile/sync": "workspace:*",
+    "ai": "7.0.127",
+    "drizzle-orm": "0.45.3",
+    "tsx": "4.23.15"
+  }
+}

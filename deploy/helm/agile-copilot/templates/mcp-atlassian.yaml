@@ -1,0 +1,71 @@
+{{- if .Values.mcpAtlassian.enabled }}
+{{- range $instance := list "mcp-atlassian" "mcp-atlassian-readonly" }}
+{{- $readonly := eq $instance "mcp-atlassian-readonly" }}
+---
+# One shared instance per deployment: each request carries its own Jira URL and token. Never set
+# JIRA_URL, Jira tokens or ALLOW_GLOBAL_CRED_FALLBACK.{{ if $readonly }} Read tools only, for skill runs.{{ end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agile.fullname" $ }}-{{ $instance }}
+  labels: {{- include "agile.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $instance }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "agile.selector" (dict "root" $ "component" $instance) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "agile.selector" (dict "root" $ "component" $instance) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "agile.fullname" $ }}
+      automountServiceAccountToken: false
+      # The image's own user (uid 1000, named `app`), given by number so runAsNonRoot can check it.
+      securityContext: {{- toYaml (mergeOverwrite (deepCopy $.Values.podSecurityContext) $.Values.mcpAtlassian.podSecurityContext) | nindent 8 }}
+      containers:
+        - name: mcp-atlassian
+          image: {{ $.Values.mcpAtlassian.image | quote }}
+          securityContext: {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8000 }
+          env:
+            - { name: TRANSPORT, value: streamable-http }
+            - { name: PORT, value: "8000" }
+            - { name: TOOLSETS, value: all }
+            # Read-only root filesystem: no bytecode cache next to the sources.
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+            - name: ENABLED_TOOLS
+              value: {{ ternary $.Values.mcpAtlassian.readonlyEnabledTools $.Values.mcpAtlassian.enabledTools $readonly | quote }}
+            {{- if $readonly }}
+            - { name: READ_ONLY_MODE, value: "true" }
+            {{- end }}
+            - { name: ATLASSIAN_OAUTH_ENABLE, value: "true" }
+            - { name: MCP_ALLOWED_URL_DOMAINS, value: {{ $.Values.config.mcpAllowedUrlDomains | quote }} }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources: {{- toYaml $.Values.mcpAtlassian.resources | nindent 12 }}
+          # fastmcp keeps a version cache under HOME (~/.local/share).
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/app }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agile.fullname" $ }}-{{ $instance }}
+  labels: {{- include "agile.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "agile.selector" (dict "root" $ "component" $instance) | nindent 4 }}
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+{{- end }}
+{{- end }}

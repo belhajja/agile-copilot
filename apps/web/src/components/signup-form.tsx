@@ -10,9 +10,17 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/c
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/lib/auth-client';
 import { useAuthErrorMessage } from '@/lib/auth-error';
+import { loginPath } from '@/lib/next-path';
 import { cn } from '@/lib/utils';
 
-export function SignupForm({ className, ...props }: ComponentProps<'div'>) {
+export function SignupForm({
+  className,
+  next,
+  ...props
+}: ComponentProps<'div'> & {
+  /** Safe in-app path to open after signing up (an invitation link); `/` means onboarding. */
+  next: string;
+}) {
   const t = useTranslations('auth');
   const errorMessage = useAuthErrorMessage();
   const router = useRouter();
@@ -33,7 +41,7 @@ export function SignupForm({ className, ...props }: ComponentProps<'div'>) {
     });
     setPending(false);
     if (error) return setError(errorMessage(error));
-    router.push('/onboarding');
+    router.push(next === '/' ? '/onboarding' : next);
   }
 
   return (
@@ -94,7 +102,7 @@ export function SignupForm({ className, ...props }: ComponentProps<'div'>) {
                   {t('signUp')}
                 </Button>
                 <FieldDescription className="text-center">
-                  {t('haveAccount')} <Link href="/login">{t('signInLink')}</Link>
+                  {t('haveAccount')} <Link href={loginPath(next)}>{t('signInLink')}</Link>
                 </FieldDescription>
               </Field>
             </FieldGroup>

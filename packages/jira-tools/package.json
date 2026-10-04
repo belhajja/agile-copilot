@@ -1,0 +1,24 @@
+{
+  "name": "@agile/jira-tools",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./catalog": "./src/catalog.ts",
+    "./testing": "./src/testing/mock-mcp-atlassian.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/jira": "workspace:*",
+    "@agile/net": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@agile/config": "workspace:*",
+    "testcontainers": "12.2.0",
+    "yaml": "2.9.1"
+  }
+}

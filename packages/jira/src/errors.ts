@@ -1,14 +1,22 @@
+import { isBlockedAddressError } from '@agile/net';
 import { isApiError, isNetworkError } from 'jira.js';
 import type { JiraFailure } from './types';
 
 const NETWORK_CODES =
-  /^(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ERR_NETWORK|UND_ERR_\w+)$/;
+  /^(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ERR_NETWORK|ECONNABORTED|UND_ERR_\w+)$/;
 
 const readField = (e: unknown, key: string): unknown =>
   typeof e === 'object' && e !== null ? (e as Record<string, unknown>)[key] : undefined;
 
 /** Maps jira.js v6 (fetch) and v5 (axios) errors to stable codes. Never echoes raw error text. */
 export function mapJiraError(e: unknown): JiraFailure {
+  if (isBlockedAddressError(e)) {
+    return {
+      ok: false,
+      code: 'blocked_url',
+      message: 'This Jira host now points to a private or reserved address.',
+    };
+  }
   const status = isApiError(e)
     ? e.status
     : (readField(e, 'status') ?? readField(readField(e, 'response'), 'status'));
@@ -43,7 +51,7 @@ export function mapJiraError(e: unknown): JiraFailure {
   if (name === 'SchemaMismatchError' || name === 'SyntaxError') {
     return { ok: false, code: 'not_jira', message: 'This URL did not answer like Jira.' };
   }
-  if (name === 'ZodError')
+  if (name === 'ZodError' || name === 'InvalidCredentialsError')
     return { ok: false, code: 'invalid_input', message: 'Some connection details are invalid.' };
   return { ok: false, code: 'unknown', message: 'Unexpected error while contacting Jira.' };
 }

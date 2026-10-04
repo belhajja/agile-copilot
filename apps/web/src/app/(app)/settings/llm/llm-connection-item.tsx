@@ -1,6 +1,7 @@
 import type { LlmConnectionView } from '@agile/connections';
 import { Bot } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
+import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,11 +12,15 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+import { allowedCode } from '@/lib/error-code';
 import {
   deleteLlmConnectionAction,
   retestLlmConnectionAction,
   setDefaultLlmConnectionAction,
 } from './actions';
+import { BackgroundModelButton } from './background-model-button';
+import { LLM_ERROR_CODES } from './error-codes';
+import { LlmPriceForm } from './llm-price-form';
 
 export async function LlmConnectionItem({
   c,
@@ -42,6 +47,7 @@ export async function LlmConnectionItem({
             {status}
           </Badge>
           {c.isDefault && <Badge variant="outline">{t('default')}</Badge>}
+          {c.isBackground && <Badge variant="outline">{t('background')}</Badge>}
         </ItemTitle>
         <ItemDescription>
           {t(`providers.${c.provider}`)} · {c.model}
@@ -49,8 +55,15 @@ export async function LlmConnectionItem({
         </ItemDescription>
         {c.lastError && (
           <p className="text-sm text-destructive">
-            {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
+            {t(`errors.${allowedCode(c.lastError, LLM_ERROR_CODES) ?? 'unknown'}`)}
           </p>
+        )}
+        {canManage && (
+          <LlmPriceForm
+            id={c.id}
+            inputMicros={c.inputPriceMicros}
+            outputMicros={c.outputPriceMicros}
+          />
         )}
       </ItemContent>
       {canManage && (
@@ -62,16 +75,22 @@ export async function LlmConnectionItem({
               </Button>
             </form>
           )}
+          <BackgroundModelButton id={c.id} isBackground={c.isBackground} />
           <form action={retestLlmConnectionAction.bind(null, c.id)}>
             <Button variant="outline" size="sm">
               {t('retest')}
             </Button>
           </form>
-          <form action={deleteLlmConnectionAction.bind(null, c.id)}>
-            <Button variant="ghost" size="sm">
-              {t('delete')}
-            </Button>
-          </form>
+          <ConfirmDeleteButton
+            onConfirm={deleteLlmConnectionAction.bind(null, c.id)}
+            labels={{
+              trigger: t('delete'),
+              title: t('deleteTitle'),
+              description: t('deleteDescription', { label: c.label }),
+              confirm: t('delete'),
+              cancel: t('cancel'),
+            }}
+          />
         </ItemActions>
       )}
     </Item>

@@ -1,0 +1,147 @@
+# Agile Copilot Helm values. Secrets never go here: create one Kubernetes Secret yourself (kubectl,
+# External Secrets, Sealed Secrets, …) and name it in `secrets.existingSecret`.
+
+# Images built from apps/web/Dockerfile (targets: runner, worker, migrate). Pin by digest in
+# production (`digest: sha256:…`; the image is then `repository:tag@digest`, and the digest decides).
+image:
+  web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0", digest: "" }
+  worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0", digest: "" }
+  migrate: { repository: ghcr.io/example/agile-copilot-migrate, tag: "0.5.0", digest: "" }
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Non-secret settings (see .env.example for each one).
+config:
+  deploymentMode: selfhost # selfhost | saas (saas enables Stripe billing when configured)
+  betterAuthUrl: https://agile.example.com
+  allowedPrivateHosts: ""
+  syncIntervalMinutes: 15 # 5, 10, 15, 30 or 60
+  # Skill runs (schedules, alerts, "Run now") per workspace and rolling 24 hours; 0 disables runs.
+  skillRunsDailyLimit: 50
+  # Single sign-on (empty issuer = off). The client secret is in the Secret (OIDC_CLIENT_SECRET).
+  oidc:
+    provider: keycloak # keycloak | oidc
+    issuer: ""
+    clientId: ""
+    displayName: SSO
+  passwordLogin: all # all | admin_only (needs SSO and breakGlassEmails)
+  breakGlassEmails: ""
+  atlassianOAuthClientId: ""
+  # mcp-atlassian: Data Center hosts that resolve to private addresses (also list them in
+  # networkPolicy.jiraPrivateCidrs). Once set, it is an allowlist for every Data Center host.
+  mcpAllowedUrlDomains: ""
+  # External MCP clients: requests per person per minute (all of a person's tokens together).
+  mcpRateLimitPerMinute: 60
+  # Proxies in front of the web pods that append the client address to X-Forwarded-For (used by
+  # the per-address limit of /api/mcp before authentication). Empty: 1 when `ingress.enabled`
+  # (the ingress controller), else 0 (the header is not trusted). Set 2 for a CDN or external
+  # load balancer in front of the ingress. Never more than the proxies really there: each extra
+  # hop lets clients choose the address they are counted under.
+  trustedProxyHops: ""
+  langfuseBaseUrl: https://cloud.langfuse.com
+  # Stripe price of the Team plan (saas; set together with the Stripe keys in the Secret).
+  stripePriceTeam: ""
+
+secrets:
+  # Required. Keys: DATABASE_URL (app role), DATABASE_OWNER_URL (migrations only),
+  # BETTER_AUTH_SECRET, ENCRYPTION_KEYS. Optional: OIDC_CLIENT_SECRET,
+  # ATLASSIAN_OAUTH_CLIENT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+  # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY.
+  # The web app gets all of them but DATABASE_OWNER_URL. The worker gets only what it uses:
+  # DATABASE_URL, BETTER_AUTH_SECRET, ENCRYPTION_KEYS, ATLASSIAN_OAUTH_CLIENT_SECRET and the
+  # Langfuse keys (never the OIDC or Stripe secrets). Only the migration Job gets DATABASE_OWNER_URL.
+  existingSecret: ""
+
+web:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 1Gi }
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+# The migration Job (a pre-install/pre-upgrade hook). Helm waits for hooks up to its --timeout
+# (default 5m): keep the deadline below it, or install/upgrade with a longer --timeout (e.g.
+# `--timeout 10m` with a deadline of 540). A failed migration is not retried (backoffLimit 0).
+migrate:
+  activeDeadlineSeconds: 240
+
+# The shared mcp-atlassian (assistant's live Jira tools) and its read-only twin (skill runs).
+# Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
+mcpAtlassian:
+  enabled: true
+  image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+  enabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+  readonlyEnabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+  # The image runs as its user `app`, uid/gid 1000 (`docker run … id`). The kubelet cannot check a
+  # user name against runAsNonRoot, so the number is set here (over podSecurityContext).
+  podSecurityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: agile.example.com
+  tlsSecretName: ""
+  annotations: {}
+
+# NetworkPolicies mirror the compose networks: ingress to every pod of the release is denied by
+# default (migration Job included); only web reaches mcp-atlassian; web and worker reach the
+# read-only twin; nothing connects to the worker; the mcp-atlassian pods reach cluster DNS and
+# public IPv4 addresses only (not Postgres, not the cluster), plus the CIDRs of self-hosted Jira
+# listed in `jiraPrivateCidrs`. Web and worker egress is open: Postgres, DNS, the identity
+# provider, Jira, LLM providers, Stripe, Langfuse, and user-supplied SMTP and webhook hosts (any
+# port); the app checks those destinations itself (DNS-pinned, private addresses only via
+# ALLOWED_PRIVATE_HOSTS).
+networkPolicy:
+  enabled: true
+  # Who may open the web app. Empty = every pod in the cluster (NOTES.txt warns). ingress-nginx:
+  #   webIngressFrom:
+  #     - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+  #       podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
+  webIngressFrom: []
+  # Where mcp-atlassian may resolve names (port 53): the cluster DNS pods, plus `cidrs` for a
+  # node-local cache (NodeLocal DNSCache usually listens on 169.254.20.10/32).
+  dns:
+    peers:
+      - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+        podSelector: { matchLabels: { k8s-app: kube-dns } }
+    cidrs: []
+  # Never reachable from mcp-atlassian: private, CGNAT, link-local, "this network", IETF protocol
+  # assignments, benchmarking, multicast and reserved ranges. Your pod and service CIDRs must be
+  # inside these (add them here if the cluster uses other ranges), or mcp-atlassian reaches them.
+  # Only IPv4 is allowed out: IPv6 destinations are denied.
+  privateCidrs:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 224.0.0.0/4
+    - 240.0.0.0/4
+  jiraPrivateCidrs: []
+
+# The app images (apps/web/Dockerfile) run as uid/gid 10001; numeric, so runAsNonRoot can check it.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile: { type: RuntimeDefault }
+# Read-only root filesystems: each pod mounts emptyDirs where its image writes (/tmp; the Next.js
+# cache; HOME for migrate and mcp-atlassian).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }

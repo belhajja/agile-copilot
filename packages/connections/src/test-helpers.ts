@@ -10,7 +10,13 @@ export const owner = (orgId = 'org_a'): Actor => ({
   userId: `user_${orgId}`,
   roles: ['owner'],
 });
-export const member = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_m', roles: ['member'] });
+/** The non-admin roles: neither manages connections (connections.manage is owner/admin). */
+export const viewer = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_v', roles: ['viewer'] });
+export const manager = (orgId = 'org_a'): Actor => ({
+  orgId,
+  userId: 'user_mgr',
+  roles: ['manager'],
+});
 
 export const okJira =
   (displayName = 'Pat') =>

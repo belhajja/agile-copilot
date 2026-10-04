@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agile.fullname" . }}-web
+  labels: {{- include "agile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels: {{- include "agile.selector" (dict "root" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "agile.selector" (dict "root" . "component" "web") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "agile.fullname" . }}
+      automountServiceAccountToken: false
+      # On SIGTERM the server stops accepting requests, lets running ones (exports, chat streams)
+      # finish and flushes traces (at most 10 s) before it exits.
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: web
+          image: {{ include "agile.image" .Values.image.web | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            {{- include "agile.appEnv" . | nindent 12 }}
+            {{- include "agile.webEnv" . | nindent 12 }}
+            {{- if .Values.mcpAtlassian.enabled }}
+            # The internal service only: the app sends users' Jira credentials to this URL.
+            - { name: MCP_ATLASSIAN_URL, value: {{ printf "http://%s-mcp-atlassian:8000/mcp" (include "agile.fullname" .) | quote }} }
+            {{- end }}
+          # /healthz touches neither the database nor the identity provider: /login and /api/auth
+          # start IdP discovery, and an IdP outage must not take every web pod out of the Service
+          # (password sign-in keeps working).
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: next-cache, mountPath: /app/apps/web/.next/cache }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: next-cache, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agile.fullname" . }}-web
+  labels: {{- include "agile.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "agile.selector" (dict "root" . "component" "web") | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http }

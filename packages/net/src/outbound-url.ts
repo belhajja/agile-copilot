@@ -1,6 +1,6 @@
-// Known limitation: DNS can change between this check and the actual connection (DNS rebinding).
-// Pinning the resolved IP at connect time is planned for Phase 3. Callers must also not follow
-// redirects to unchecked targets (see @agile/jira probe).
+// DNS can change between this check and the connection (DNS rebinding): requests to user-supplied
+// hosts go through createOutboundFetch / createPinnedAgents (pinned.ts), which re-apply this rule
+// to the very address they connect to. Callers must also never follow redirects.
 import { lookup } from 'node:dns/promises';
 import ipaddr from 'ipaddr.js';
 
@@ -21,10 +21,25 @@ export type OutboundUrlCheck =
 const defaultResolver: Resolver = async (host) =>
   (await lookup(host, { all: true })).map((a) => a.address);
 
+/** Lower-case, no IPv6 brackets, no trailing dot ("jira.corp.test." is the same host). */
+export const normalizeHost = (hostname: string) =>
+  hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+
 const ALWAYS_BLOCKED = new Set(['metadata.google.internal', 'metadata']);
 
-const matchesHost = (host: string, allowed: readonly string[]) =>
+/** Cloud metadata hosts: refused even when allowlisted. */
+export const isAlwaysBlockedHost = (host: string) => ALWAYS_BLOCKED.has(host);
+
+/** The host (or a parent domain) is on the operator's private-host allowlist. */
+export const isAllowlistedHost = (host: string, allowed: readonly string[]) =>
   allowed.some((d) => host === d || host.endsWith(`.${d}`));
+
+/** A globally routable unicast address (not private, loopback, link-local, reserved…). */
+export const isPublicAddress = (address: string): boolean =>
+  ipaddr.isValid(address) && ipaddr.process(address).range() === 'unicast';
 
 /**
  * Guards server-side requests to user-supplied URLs (SSRF): only http(s), no embedded
@@ -46,11 +61,11 @@ export async function checkOutboundUrl(
   if (url.username || url.password)
     return { ok: false, code: 'credentials', reason: 'URLs must not contain credentials' };
 
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (ALWAYS_BLOCKED.has(host)) {
+  const host = normalizeHost(url.hostname);
+  if (isAlwaysBlockedHost(host)) {
     return { ok: false, code: 'blocked_host', reason: `Host ${host} is blocked`, host };
   }
-  if (matchesHost(host, opts.allowedPrivateHosts)) return { ok: true, url };
+  if (isAllowlistedHost(host, opts.allowedPrivateHosts)) return { ok: true, url };
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return {
       ok: false,

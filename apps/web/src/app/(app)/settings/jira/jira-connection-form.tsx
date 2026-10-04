@@ -18,7 +18,9 @@ import {
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import { createJiraConnectionAction, type FormState } from './actions';
+import { JIRA_ERROR_CODES } from './error-codes';
 
 type Kind = 'cloud_basic' | 'datacenter_pat';
 
@@ -37,14 +39,16 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
     }
   }, [state, t]);
 
+  const blockedReason =
+    state.status === 'error' && state.code === 'blocked_url'
+      ? allowedCode(state.reason, BLOCKED_REASONS)
+      : null;
   const errorText =
     state.status !== 'error'
       ? null
-      : state.code === 'blocked_url' && state.reason && t.has(`errors.blocked.${state.reason}`)
-        ? t(`errors.blocked.${state.reason}`, { host: state.host ?? '' })
-        : t.has(`errors.${state.code}`)
-          ? t(`errors.${state.code}`)
-          : t('errors.unknown');
+      : blockedReason
+        ? t(`errors.blocked.${blockedReason}`, { host: state.host ?? '' })
+        : t(`errors.${allowedCode(state.code, JIRA_ERROR_CODES) ?? 'unknown'}`);
 
   return (
     <Card>

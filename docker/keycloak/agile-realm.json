@@ -1,0 +1,53 @@
+{
+  "realm": "agile",
+  "enabled": true,
+  "displayName": "Agile Copilot (development)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "clients": [
+    {
+      "clientId": "agile-copilot",
+      "name": "Agile Copilot",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-only-client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/api/auth/callback/keycloak",
+        "http://localhost:3200/api/auth/callback/keycloak"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Martin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "alice-dev-password", "temporary": false }]
+    },
+    {
+      "username": "eve",
+      "email": "eve@example.com",
+      "firstName": "Eve",
+      "lastName": "Unverified",
+      "enabled": true,
+      "emailVerified": false,
+      "credentials": [{ "type": "password", "value": "eve-dev-password", "temporary": false }]
+    }
+  ]
+}

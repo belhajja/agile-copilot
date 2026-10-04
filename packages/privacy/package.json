@@ -1,0 +1,21 @@
+{
+  "name": "@agile/privacy",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/auth": "workspace:*",
+    "@agile/db": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "pg-boss": "12.36.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.0"
+  }
+}

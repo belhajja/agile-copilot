@@ -3,6 +3,7 @@ export { type AuditAction, recordAudit } from './audit';
 export { ForbiddenError } from './errors';
 export {
   type ConnectionDeps,
+  clearSyncError,
   createJiraConnection,
   deleteJiraConnection,
   type JiraConnectionView,
@@ -24,9 +25,14 @@ export {
   type LlmConnectionView,
   type LlmDeps,
   type LlmServiceFailure,
+  type LoadedLlm,
   listLlmConnections,
+  loadBackgroundLlm,
+  loadDefaultLlm,
   loadDefaultLlmConfig,
   retestLlmConnection,
+  setBackgroundLlmConnection,
   setDefaultLlmConnection,
+  setLlmConnectionPrices,
 } from './llm-connections';
 export { getOrgDek } from './vault';

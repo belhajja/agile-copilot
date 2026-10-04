@@ -2,7 +2,13 @@
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**", "!**/drizzle", "!apps/web/src/components/ui", "!**/next-env.d.ts"]
+    "includes": [
+      "**",
+      "!**/drizzle",
+      "!apps/web/src/components/ui",
+      "!apps/web/src/components/ai-elements",
+      "!**/next-env.d.ts"
+    ]
   },
   "formatter": { "indentStyle": "space", "lineWidth": 100 },
   "linter": { "rules": { "recommended": true } },

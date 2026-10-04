@@ -9,7 +9,7 @@ import {
   type ProbeFailureCode,
   probeModel,
 } from '@agile/llm';
-import { type BlockedUrlReason, checkOutboundUrl } from '@agile/net';
+import { type BlockedUrlReason, checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { desc, eq, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
@@ -29,6 +29,11 @@ export interface LlmConnectionView {
   azureResourceName: string | null;
   keyHint: string | null;
   isDefault: boolean;
+  /** Used for background skill runs (the "cheap model"); none set = the default model. */
+  isBackground: boolean;
+  /** Price per million tokens in millionths of a currency unit (null = not set). */
+  inputPriceMicros: number | null;
+  outputPriceMicros: number | null;
   status: 'untested' | 'ok' | 'error';
   lastError: string | null;
   lastCheckedAt: Date | null;
@@ -58,6 +63,9 @@ const toView = (r: typeof llmConnections.$inferSelect): LlmConnectionView => ({
   azureResourceName: r.azureResourceName,
   keyHint: r.keyHint,
   isDefault: r.isDefault,
+  isBackground: r.isBackground,
+  inputPriceMicros: r.inputPriceMicros,
+  outputPriceMicros: r.outputPriceMicros,
   status: r.status,
   lastError: r.lastError,
   lastCheckedAt: r.lastCheckedAt,
@@ -114,7 +122,18 @@ async function probe(
   if (deps.probe) return deps.probe(config);
   let model: ReturnType<typeof createLanguageModel>;
   try {
-    model = createLanguageModel(config);
+    // Only the OpenAI-compatible provider has a user-supplied URL to pin.
+    model = createLanguageModel(
+      config,
+      config.provider === 'openai_compatible'
+        ? {
+            fetch: createOutboundFetch({
+              allowedPrivateHosts: deps.allowedPrivateHosts,
+              resolve: deps.resolve,
+            }),
+          }
+        : {},
+    );
   } catch (e) {
     if (config.provider === 'azure' && e instanceof TypeError)
       return { ok: false, code: 'provider_error', message: 'Invalid Azure resource name.' };
@@ -271,17 +290,113 @@ export async function deleteLlmConnection(
 ): Promise<{ ok: true } | LlmServiceFailure> {
   assertCanManage(actor);
   return withOrg(deps.db, actor.orgId, async (tx) => {
-    const deleted = await tx
+    await lockOrgDefaults(tx, actor.orgId);
+    const [deleted] = await tx
       .delete(llmConnections)
       .where(eq(llmConnections.id, id))
-      .returning({ id: llmConnections.id });
-    if (deleted.length === 0) return notFound;
+      .returning({ id: llmConnections.id, isDefault: llmConnections.isDefault });
+    if (!deleted) return notFound;
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,
       action: 'llm_connection.deleted',
       targetType: 'llm_connection',
       targetId: id,
+    });
+    if (deleted.isDefault) {
+      // Keep the workspace usable: the most recently added remaining connection becomes the default.
+      const [next] = await tx
+        .select({ id: llmConnections.id })
+        .from(llmConnections)
+        .orderBy(desc(llmConnections.createdAt), desc(llmConnections.id))
+        .limit(1);
+      if (next) {
+        await tx
+          .update(llmConnections)
+          .set({ isDefault: true })
+          .where(eq(llmConnections.id, next.id));
+        await recordAudit(tx, {
+          orgId: actor.orgId,
+          actorUserId: actor.userId,
+          action: 'llm_connection.default_changed',
+          targetType: 'llm_connection',
+          targetId: next.id,
+          metadata: { reason: 'previous_default_deleted' },
+        });
+      }
+    }
+    return { ok: true } as const;
+  });
+}
+
+/** A model with what the agent needs around it: the row id (usage) and prices (cost). */
+export interface LoadedLlm {
+  id: string;
+  config: LlmConfig;
+  prices: { inputMicros: number | null; outputMicros: number | null };
+}
+
+async function loadLlmWhere(
+  deps: LlmDeps,
+  orgId: string,
+  flag: typeof llmConnections.isDefault | typeof llmConnections.isBackground,
+): Promise<LoadedLlm | null> {
+  return withOrg(deps.db, orgId, async (tx) => {
+    const [row] = await tx.select().from(llmConnections).where(eq(flag, true)).limit(1);
+    if (!row) return null;
+    return {
+      id: row.id,
+      config: await readConfig(tx, deps, orgId, row),
+      prices: { inputMicros: row.inputPriceMicros, outputMicros: row.outputPriceMicros },
+    };
+  });
+}
+
+/** The default model (chat). */
+export function loadDefaultLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
+  return loadLlmWhere(deps, orgId, llmConnections.isDefault);
+}
+
+/** The model for background skill runs: the "cheap model" when one is set, else the default. */
+export async function loadBackgroundLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
+  return (
+    (await loadLlmWhere(deps, orgId, llmConnections.isBackground)) ??
+    loadLlmWhere(deps, orgId, llmConnections.isDefault)
+  );
+}
+
+/**
+ * Picks the model for background skill runs, or clears the choice (`id: null` -> the default
+ * model). Workspace owners/admins only.
+ */
+export async function setBackgroundLlmConnection(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string | null,
+): Promise<{ ok: true } | LlmServiceFailure> {
+  assertCanManage(actor);
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    await lockOrgDefaults(tx, actor.orgId);
+    if (id !== null) {
+      const [target] = await tx
+        .select({ id: llmConnections.id })
+        .from(llmConnections)
+        .where(eq(llmConnections.id, id));
+      if (!target) return notFound;
+    }
+    await tx
+      .update(llmConnections)
+      .set({ isBackground: false })
+      .where(eq(llmConnections.isBackground, true));
+    if (id !== null) {
+      await tx.update(llmConnections).set({ isBackground: true }).where(eq(llmConnections.id, id));
+    }
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.background_changed',
+      targetType: 'llm_connection',
+      targetId: id ?? 'default',
     });
     return { ok: true } as const;
   });
@@ -291,12 +406,39 @@ export async function loadDefaultLlmConfig(
   deps: LlmDeps,
   orgId: string,
 ): Promise<LlmConfig | null> {
-  return withOrg(deps.db, orgId, async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(llmConnections)
-      .where(eq(llmConnections.isDefault, true))
-      .limit(1);
-    return row ? readConfig(tx, deps, orgId, row) : null;
+  return (await loadDefaultLlm(deps, orgId))?.config ?? null;
+}
+
+const MAX_PRICE_MICROS = 1_000_000_000; // 1,000 currency units per million tokens
+
+/** Sets (or clears, with null) a connection's prices per million tokens. Owners/admins only. */
+export async function setLlmConnectionPrices(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+  prices: { inputMicros: number | null; outputMicros: number | null },
+): Promise<{ ok: true } | LlmServiceFailure | { ok: false; code: 'invalid_price' }> {
+  assertCanManage(actor);
+  const valid = (v: number | null) =>
+    v === null || (Number.isInteger(v) && v >= 0 && v <= MAX_PRICE_MICROS);
+  if (!valid(prices.inputMicros) || !valid(prices.outputMicros)) {
+    return { ok: false, code: 'invalid_price' };
+  }
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    const updated = await tx
+      .update(llmConnections)
+      .set({ inputPriceMicros: prices.inputMicros, outputPriceMicros: prices.outputMicros })
+      .where(eq(llmConnections.id, id))
+      .returning({ id: llmConnections.id });
+    if (updated.length === 0) return notFound;
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.prices_changed',
+      targetType: 'llm_connection',
+      targetId: id,
+      metadata: { inputMicros: prices.inputMicros, outputMicros: prices.outputMicros },
+    });
+    return { ok: true } as const;
   });
 }

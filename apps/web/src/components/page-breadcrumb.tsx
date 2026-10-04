@@ -11,15 +11,45 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 
-const TRAILS: Record<string, ('dashboard' | 'settings' | 'jira' | 'llm')[]> = {
+type Crumb =
+  | 'dashboard'
+  | 'settings'
+  | 'jira'
+  | 'llm'
+  | 'usage'
+  | 'boards'
+  | 'board'
+  | 'agent'
+  | 'skills'
+  | 'skill'
+  | 'delivery'
+  | 'account'
+  | 'billing';
+
+const TRAILS: Record<string, Crumb[]> = {
   '/': ['dashboard'],
   '/settings/jira': ['settings', 'jira'],
   '/settings/llm': ['settings', 'llm'],
+  '/settings/usage': ['settings', 'usage'],
+  '/settings/delivery': ['settings', 'delivery'],
+  '/settings/account': ['account'],
+  '/settings/billing': ['settings', 'billing'],
+  '/skills': ['skills'],
 };
+
+/** Exact pages first, then the dynamic ones (/settings/jira/<id>, /boards/<id>). */
+function trailFor(pathname: string): Crumb[] {
+  if (TRAILS[pathname]) return TRAILS[pathname];
+  if (pathname.startsWith('/settings/jira/')) return ['settings', 'jira', 'boards'];
+  if (pathname.startsWith('/boards/')) return ['dashboard', 'board'];
+  if (pathname === '/agent' || pathname.startsWith('/agent/')) return ['agent'];
+  if (pathname.startsWith('/skills/')) return ['skills', 'skill'];
+  return [];
+}
 
 export function PageBreadcrumb() {
   const t = useTranslations('nav');
-  const trail = TRAILS[usePathname()] ?? [];
+  const trail = trailFor(usePathname());
   return (
     <Breadcrumb>
       <BreadcrumbList>

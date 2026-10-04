@@ -1,0 +1,1 @@
+ALTER TABLE "skill_runs" ALTER COLUMN "owner_user_id" SET NOT NULL;

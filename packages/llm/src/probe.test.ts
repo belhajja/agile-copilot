@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { BlockedAddressError } from '@agile/net';
 import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
@@ -88,6 +89,23 @@ describe('probeModel', () => {
   it('never includes the provider response body in the message', async () => {
     const r = await probeModel(failingModel(apiError(500, 'internal secret-ish detail')));
     expect(r.ok === false && r.message).not.toContain('secret-ish');
+  });
+
+  it('reports a blocked (rebound) address as blocked_url, not unreachable', async () => {
+    const blocked = new BlockedAddressError('llm.example');
+    const wrapped = new APICallError({
+      message: 'Cannot connect to API',
+      url: 'https://llm.example/v1',
+      requestBodyValues: {},
+      cause: new TypeError('fetch failed', { cause: blocked }),
+      isRetryable: false,
+    });
+    for (const error of [blocked, new TypeError('fetch failed', { cause: blocked }), wrapped]) {
+      expect(await probeModel(failingModel(error))).toMatchObject({
+        ok: false,
+        code: 'blocked_url',
+      });
+    }
   });
 
   it('works end-to-end against an OpenAI-compatible server', async () => {

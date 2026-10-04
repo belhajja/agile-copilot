@@ -3,9 +3,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run by hand to measure the agent on real providers (evals-live).
+  workflow_dispatch:
+# Read-only token for every job: nothing here writes to the repository, issues or packages.
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -19,8 +25,67 @@ jobs:
       - run: pnpm test
       - name: Production build (no env needed)
         run: pnpm --filter @agile/web build
+      - name: Worker production deploy (what the worker image ships)
+        run: pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
+  helm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # check.sh downloads helm v4.3.0 and kubeconform v0.8.0 and verifies their sha256.
+      - name: Lint, render and validate the Helm chart
+        run: |
+          sh deploy/helm/check.sh
+          echo "$HELM_TOOLS_DIR" >> "$GITHUB_PATH"
+        env:
+          HELM_TOOLS_DIR: ${{ runner.temp }}/helm-tools
+      - name: Rendered-chart tests (network policies, security contexts, env)
+        run: pnpm vitest run packages/jira-tools/src/helm.test.ts
+        env:
+          HELM_REQUIRED: "1"
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Deterministic mock model; plumbing checks only. No secret is passed to this job.
+      # promptfoo is not a workspace dependency: the script fetches the pinned 0.123.1 (`pnpm dlx`).
+      - run: pnpm --filter @agile/evals eval
+  evals-live:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Keys are secrets of the `evals-live` environment (protected by required reviewers).
+    environment: evals-live
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agile/evals eval:live
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EVAL_ANTHROPIC_MODEL: ${{ vars.EVAL_ANTHROPIC_MODEL }}
+          EVAL_OPENAI_MODEL: ${{ vars.EVAL_OPENAI_MODEL }}
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine

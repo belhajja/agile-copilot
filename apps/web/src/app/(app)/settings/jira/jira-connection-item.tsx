@@ -1,6 +1,8 @@
 import type { JiraConnectionView } from '@agile/connections';
-import { Cloud, Server } from 'lucide-react';
+import { Cloud, LayoutGrid, Server } from 'lucide-react';
+import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
+import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,7 +13,9 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+import { allowedCode } from '@/lib/error-code';
 import { deleteJiraConnectionAction, retestJiraConnectionAction } from './actions';
+import { JIRA_ERROR_CODES } from './error-codes';
 
 export async function JiraConnectionItem({
   c,
@@ -45,24 +49,37 @@ export async function JiraConnectionItem({
         </ItemDescription>
         {c.lastError && (
           <p className="text-sm text-destructive">
-            {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
+            {t(`errors.${allowedCode(c.lastError, JIRA_ERROR_CODES) ?? 'unknown'}`)}
           </p>
         )}
       </ItemContent>
-      {canManage && (
-        <ItemActions>
+      <ItemActions className="flex-wrap">
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/settings/jira/${c.id}`}>
+            <LayoutGrid />
+            {t('boards')}
+          </Link>
+        </Button>
+        {canManage && (
           <form action={retestJiraConnectionAction.bind(null, c.id)}>
             <Button variant="outline" size="sm">
               {t('retest')}
             </Button>
           </form>
-          <form action={deleteJiraConnectionAction.bind(null, c.id)}>
-            <Button variant="ghost" size="sm">
-              {t('delete')}
-            </Button>
-          </form>
-        </ItemActions>
-      )}
+        )}
+        {canManage && (
+          <ConfirmDeleteButton
+            onConfirm={deleteJiraConnectionAction.bind(null, c.id)}
+            labels={{
+              trigger: t('delete'),
+              title: t('deleteTitle'),
+              description: t('deleteDescription', { name: c.name }),
+              confirm: t('delete'),
+              cancel: t('cancel'),
+            }}
+          />
+        )}
+      </ItemActions>
     </Item>
   );
 }

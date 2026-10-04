@@ -1,0 +1,31 @@
+{
+  "name": "@agile/automation",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./codes": "./src/codes.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/agent": "workspace:*",
+    "@agile/auth": "workspace:*",
+    "@agile/connections": "workspace:*",
+    "@agile/dashboards": "workspace:*",
+    "@agile/db": "workspace:*",
+    "@agile/metrics": "workspace:*",
+    "@agile/notify": "workspace:*",
+    "@agile/skills": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "pg-boss": "12.36.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@agile/jira-tools": "workspace:*",
+    "@agile/llm": "workspace:*",
+    "@agile/sync": "workspace:*",
+    "@testcontainers/postgresql": "12.2.0"
+  }
+}

@@ -6,12 +6,14 @@ import {
   listAccessibleJiraSites,
   normalizeBaseUrl,
 } from '@agile/jira';
+import { withDeadline } from '@agile/net';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Actor } from './actor';
 import { assertCanManage } from './actor';
 import { recordAudit } from './audit';
 import {
   type ConnectionDeps,
+  clearSyncError,
   createJiraConnection,
   readSecret,
   type ServiceFailure,
@@ -29,21 +31,6 @@ export class OAuthTimeoutError extends Error {
   override name = 'OAuthTimeoutError';
   constructor() {
     super('Atlassian token request timed out');
-  }
-}
-
-/** arctic's token requests carry no AbortSignal, so enforce a deadline ourselves. */
-async function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new OAuthTimeoutError()), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -71,7 +58,12 @@ export async function completeJiraOAuth(
   let tokens: Awaited<ReturnType<AtlassianOAuthClient['validateAuthorizationCode']>>;
   let sites: Awaited<ReturnType<typeof listAccessibleJiraSites>>;
   try {
-    tokens = await withDeadline(deps.oauth.validateAuthorizationCode(code), ms);
+    // arctic's token requests take no AbortSignal, so enforce a deadline around them.
+    tokens = await withDeadline(
+      deps.oauth.validateAuthorizationCode(code),
+      ms,
+      () => new OAuthTimeoutError(),
+    );
     sites = await (deps.listSites ?? listAccessibleJiraSites)(tokens.accessToken());
   } catch {
     return { ok: false, code: 'oauth_failed' };
@@ -152,6 +144,7 @@ async function reconnect(
         updatedAt: new Date(),
       })
       .where(eq(jiraConnections.id, row.id));
+    await clearSyncError(tx, row.id);
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,
@@ -218,6 +211,7 @@ export async function getFreshJiraCredentials(
       const tokens = await withDeadline(
         deps.oauth.refreshAccessToken(secret.oauth.refreshToken),
         deps.oauthTimeoutMs ?? DEADLINE_MS,
+        () => new OAuthTimeoutError(),
       );
       accessToken = tokens.accessToken();
       rotated = {

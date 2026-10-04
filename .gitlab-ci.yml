@@ -32,6 +32,61 @@ check:
     - pnpm typecheck
     - pnpm test
     - pnpm --filter @agile/web build
+    # The worker image is built from this production deploy (see apps/web/Dockerfile, target worker).
+    - pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
+
+# The Helm chart: lint, render and validate against the Kubernetes schemas, then the rendered-chart
+# tests. check.sh downloads helm v4.3.0 and kubeconform v0.8.0 and verifies their sha256.
+helm:
+  stage: check
+  variables:
+    HELM_TOOLS_DIR: /tmp/helm-tools
+    HELM_REQUIRED: "1"
+  script:
+    - sh deploy/helm/check.sh
+    - PATH="$HELM_TOOLS_DIR:$PATH" pnpm vitest run packages/jira-tools/src/helm.test.ts
+
+# Agent evals (promptfoo): the real agent, tools, approvals and data envelopes against a scripted,
+# deterministic mock model on the demo Jira data. Every test must pass. These are plumbing checks
+# (tools offered, numbers flowing back from the metrics engine, approvals, envelopes), not a model
+# quality measure. No secret is configured or read here: no provider key, no Jira credential.
+evals:
+  stage: check
+  services:
+    - name: docker:28-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+  script:
+    # promptfoo is not a dependency of the workspace: the script fetches the pinned 0.123.1 itself
+    # (`pnpm dlx`, ~1.7 GB), only in the evals jobs.
+    - pnpm --filter @agile/evals eval
+
+# The same evals against real providers: manual and opt-in, on protected branches only. The keys are
+# CI/CD variables that are masked, protected (so only protected branches and tags get them) and
+# scoped to the `evals-live` environment (Settings > CI/CD > Variables > Environments), never set
+# for all environments. Needs ANTHROPIC_API_KEY, OPENAI_API_KEY, EVAL_ANTHROPIC_MODEL and
+# EVAL_OPENAI_MODEL; passes at 90% of tests (stochastic models).
+evals-live:
+  stage: check
+  environment:
+    name: evals-live
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED == "true"
+      when: manual
+      allow_failure: true
+  services:
+    - name: docker:28-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+  script:
+    # Fetches the pinned promptfoo itself (`pnpm dlx`), as the evals job does.
+    - pnpm --filter @agile/evals eval:live
 
 e2e:
   stage: e2e

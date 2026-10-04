@@ -7,10 +7,14 @@
     "mocks": "tsx mocks/serve.ts"
   },
   "devDependencies": {
+    "@agile/auth": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/jira": "workspace:*",
+    "@agile/jira-tools": "workspace:*",
     "@agile/llm": "workspace:*",
+    "@agile/notify": "workspace:*",
     "@playwright/test": "1.63.0",
+    "drizzle-orm": "0.45.3",
     "tsx": "^4.20.0"
   }
 }

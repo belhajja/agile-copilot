@@ -14,5 +14,68 @@ services:
       test: ["CMD-SHELL", "pg_isready -U agile -d agile"]
       interval: 2s
       retries: 30
+  # Shared mcp-atlassian for the agent's live Jira tools (Data Center PAT and Cloud OAuth: the
+  # credentials travel with each request). Start it with `docker compose up -d mcp-atlassian` and run
+  # the app with MCP_ATLASSIAN_URL=http://127.0.0.1:4060/mcp. Published on loopback only.
+  # It cannot reach a Jira on your machine by IP; for local work without a real Jira use the double
+  # started by `pnpm --filter @agile/e2e mocks` (MCP_ATLASSIAN_URL=http://127.0.0.1:4050/mcp).
+  # Never set JIRA_URL, Jira tokens or ALLOW_GLOBAL_CRED_FALLBACK here.
+  mcp-atlassian:
+    # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
+    image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+    environment:
+      TRANSPORT: streamable-http
+      PORT: "8000"
+      TOOLSETS: all
+      # MCP_ATLASSIAN_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested): the catalog
+      # plus jira_search_assignable_users, which the backend uses to resolve assignees.
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+      ATLASSIAN_OAUTH_ENABLE: "true"
+      # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
+      # allowlist for every Data Center host, public ones included: list them all.
+      MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    ports: ["127.0.0.1:4060:8000"]
+    # Its own network: it cannot reach the dev Postgres (the app reaches it through the port).
+    networks: [mcp]
+  # Same image, read tools only (READ_ONLY_MODE): skill runs and previews read Jira through it
+  # (MCP_ATLASSIAN_READONLY_URL=http://127.0.0.1:4061/mcp). Loopback only, its own network.
+  mcp-atlassian-readonly:
+    image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+    environment:
+      TRANSPORT: streamable-http
+      PORT: "8000"
+      TOOLSETS: all
+      # MCP_ATLASSIAN_READONLY_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested).
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+      READ_ONLY_MODE: "true"
+      ATLASSIAN_OAUTH_ENABLE: "true"
+      MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
+    ports: ["127.0.0.1:4061:8000"]
+    networks: [mcp-readonly]
+  # Development mail catcher for skill emails: add an SMTP channel (Settings → Delivery) with host
+  # 127.0.0.1, port 1025, no encryption (ALLOWED_PRIVATE_HOSTS must list 127.0.0.1), then read the
+  # mail at http://127.0.0.1:8025. Pinned like MAILPIT_IMAGE in packages/notify (tested).
+  mailpit:
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+  # Development identity provider (SSO). Opt-in: `docker compose --profile sso up -d keycloak`,
+  # then set OIDC_ISSUER=http://localhost:4100/realms/agile, OIDC_CLIENT_ID=agile-copilot and
+  # OIDC_CLIENT_SECRET=dev-only-client-secret (users alice / alice-dev-password and
+  # eve / eve-dev-password; console admin / admin). Development only: never use this realm or
+  # these passwords anywhere else. Published on loopback only.
+  keycloak:
+    # Pinned by digest; must equal KEYCLOAK_IMAGE in packages/auth/src/testing/keycloak.ts (tested).
+    image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    profiles: [sso]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      - ./docker/keycloak/agile-realm.json:/opt/keycloak/data/import/agile-realm.json:ro
+    ports: ["127.0.0.1:4100:8080"]
+networks:
+  mcp: {}
+  mcp-readonly: {}
 volumes:
   pgdata:

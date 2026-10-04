@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
 import { updateInitialEnv } from '@next/env';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { securityHeaders } from './src/csp';
 
 const repoRoot = path.join(import.meta.dirname, '../..');
 
@@ -22,22 +23,27 @@ if (existsSync(rootEnvFile)) {
   updateInitialEnv(missing);
 }
 
+/** The names of the repo's own packages (`packages/*`), all TypeScript sources. */
+function workspacePackages(): string[] {
+  const dir = path.join(repoRoot, 'packages');
+  return readdirSync(dir, { withFileTypes: true })
+    .map((d) => path.join(dir, d.name, 'package.json'))
+    .filter((file) => existsSync(file))
+    .map((file) => (JSON.parse(readFileSync(file, 'utf8')) as { name: string }).name)
+    .sort();
+}
+
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: repoRoot,
-  transpilePackages: [
-    '@agile/auth',
-    '@agile/config',
-    '@agile/connections',
-    '@agile/crypto',
-    '@agile/db',
-    '@agile/jira',
-    '@agile/llm',
-    '@agile/net',
-  ],
-  serverExternalPackages: ['postgres'],
+  // Every workspace package: they ship TypeScript sources and import one another.
+  transpilePackages: workspacePackages(),
+  // Node-only clients (database, queue, SMTP, email rendering): loaded at runtime, not bundled.
+  serverExternalPackages: ['postgres', 'pg-boss', 'nodemailer', '@react-email/render'],
+  // No other origin for images or connections (see src/csp.ts).
+  headers: async () => securityHeaders(),
 };
 
 export default withNextIntl(config);
