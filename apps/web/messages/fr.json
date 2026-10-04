@@ -51,7 +51,9 @@
     "signOut": "Se déconnecter",
     "switchLanguage": "English",
     "workspaces": "Espaces",
-    "addWorkspace": "Nouvel espace"
+    "addWorkspace": "Nouvel espace",
+    "boards": "Tableaux",
+    "board": "Tableau"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -119,7 +121,8 @@
     "oauthConnected": "{count, plural, one {# site Jira connecté.} other {# sites Jira connectés.}}",
     "deleteTitle": "Supprimer cette connexion Jira ?",
     "deleteDescription": "{name} sera déconnecté et tout ce qui en a été synchronisé sera supprimé. Cette action est irréversible.",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "boards": "Tableaux"
   },
   "llm": {
     "title": "Modèle d'IA",
@@ -179,5 +182,75 @@
     "deleteTitle": "Supprimer ce modèle d'IA ?",
     "deleteDescription": "La clé de {label} sera supprimée. S'il s'agissait du modèle par défaut, le modèle ajouté le plus récemment le remplace.",
     "cancel": "Annuler"
+  },
+  "boards": {
+    "description": "Choisissez les tableaux à synchroniser et la correspondance de leurs statuts avec À faire, En cours et Terminé.",
+    "load": "Charger les tableaux depuis Jira",
+    "refresh": "Actualiser les tableaux",
+    "empty": "Aucun tableau chargé.",
+    "emptyHint": "Chargez les tableaux visibles par cette connexion dans Jira.",
+    "selectionTitle": "Tableaux à synchroniser",
+    "selectionDescription": "Les tableaux sélectionnés sont synchronisés toutes les quelques minutes et ont leurs tableaux de bord.",
+    "saveSelection": "Enregistrer la sélection",
+    "selectionSaved": "Sélection des tableaux enregistrée.",
+    "estimates": {
+      "points": "Points d'effort",
+      "count": "Nombre de tickets"
+    },
+    "types": {
+      "scrum": "Scrum",
+      "kanban": "Kanban",
+      "simple": "Simple"
+    },
+    "mappingTitle": "{board} : correspondance des statuts",
+    "mappingDescription": "Proposée à partir des catégories de statut Jira. Indiquez les statuts en cours où le travail attend (bloqué, en attente de revue) pour que l'efficacité du flux les compte comme de l'attente.",
+    "mappingColumns": {
+      "status": "Statut Jira",
+      "jiraCategory": "Catégorie Jira",
+      "mapsTo": "Compte comme",
+      "waiting": "Attente"
+    },
+    "categories": {
+      "todo": "À faire",
+      "in_progress": "En cours",
+      "done": "Terminé"
+    },
+    "jiraCategories": {
+      "new": "À faire",
+      "indeterminate": "En cours",
+      "done": "Terminé",
+      "undefined": "Inconnue"
+    },
+    "saveMapping": "Enregistrer la correspondance",
+    "mappingSaved": "Correspondance des statuts enregistrée.",
+    "sync": {
+      "now": "Synchroniser",
+      "idle": "Jamais synchronisé",
+      "queued": "Synchronisation en file…",
+      "running": "Synchronisation…",
+      "ok": "Synchronisé {when}",
+      "error": "La dernière synchronisation a échoué",
+      "requested": "Synchronisation lancée.",
+      "alreadyQueued": "Une synchronisation est déjà prévue."
+    },
+    "errors": {
+      "invalid_input": "Vérifiez la sélection et réessayez.",
+      "forbidden_role": "Seuls les propriétaires et administrateurs de l'espace peuvent modifier ceci.",
+      "not_found": "Introuvable. Rechargez la page.",
+      "no_boards": "Sélectionnez d'abord au moins un tableau.",
+      "already_running": "Une synchronisation est déjà en cours.",
+      "blocked_url": "Cette adresse Jira n'est plus autorisée. Contactez votre administrateur.",
+      "unauthorized": "Jira a refusé les identifiants enregistrés. Mettez à jour la connexion.",
+      "forbidden": "Jira refuse l'accès à ces tableaux.",
+      "not_jira": "Jira n'a pas répondu comme prévu.",
+      "wrong_deployment": "Le type de Jira ne correspond plus à ce site.",
+      "rate_limited": "Jira est occupé. La prochaine synchronisation réessaiera.",
+      "unreachable": "Impossible de joindre Jira.",
+      "oauth_expired": "L'accès Atlassian a expiré. Reconnectez-vous avec Atlassian.",
+      "oauth_unavailable": "La connexion Atlassian n'est pas configurée sur ce serveur.",
+      "unknown": "Une erreur s'est produite.",
+      "jira_paging": "Jira a renvoyé plus de résultats que prévu. Réessayez plus tard.",
+      "abandoned": "La synchronisation précédente a été interrompue. Réessayez."
+    }
   }
 }

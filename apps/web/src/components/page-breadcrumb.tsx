@@ -11,15 +11,25 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 
-const TRAILS: Record<string, ('dashboard' | 'settings' | 'jira' | 'llm')[]> = {
+type Crumb = 'dashboard' | 'settings' | 'jira' | 'llm' | 'boards' | 'board';
+
+const TRAILS: Record<string, Crumb[]> = {
   '/': ['dashboard'],
   '/settings/jira': ['settings', 'jira'],
   '/settings/llm': ['settings', 'llm'],
 };
 
+/** Exact pages first, then the dynamic ones (/settings/jira/<id>, /boards/<id>). */
+function trailFor(pathname: string): Crumb[] {
+  if (TRAILS[pathname]) return TRAILS[pathname];
+  if (pathname.startsWith('/settings/jira/')) return ['settings', 'jira', 'boards'];
+  if (pathname.startsWith('/boards/')) return ['dashboard', 'board'];
+  return [];
+}
+
 export function PageBreadcrumb() {
   const t = useTranslations('nav');
-  const trail = TRAILS[usePathname()] ?? [];
+  const trail = trailFor(usePathname());
   return (
     <Breadcrumb>
       <BreadcrumbList>

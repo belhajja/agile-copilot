@@ -1,5 +1,6 @@
 import type { JiraConnectionView } from '@agile/connections';
-import { Cloud, Server } from 'lucide-react';
+import { Cloud, LayoutGrid, Server } from 'lucide-react';
+import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { Badge } from '@/components/ui/badge';
@@ -50,13 +51,21 @@ export async function JiraConnectionItem({
           </p>
         )}
       </ItemContent>
-      {canManage && (
-        <ItemActions>
+      <ItemActions className="flex-wrap">
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/settings/jira/${c.id}`}>
+            <LayoutGrid />
+            {t('boards')}
+          </Link>
+        </Button>
+        {canManage && (
           <form action={retestJiraConnectionAction.bind(null, c.id)}>
             <Button variant="outline" size="sm">
               {t('retest')}
             </Button>
           </form>
+        )}
+        {canManage && (
           <ConfirmDeleteButton
             onConfirm={deleteJiraConnectionAction.bind(null, c.id)}
             labels={{
@@ -67,8 +76,8 @@ export async function JiraConnectionItem({
               cancel: t('cancel'),
             }}
           />
-        </ItemActions>
-      )}
+        )}
+      </ItemActions>
     </Item>
   );
 }

@@ -51,7 +51,9 @@
     "signOut": "Log out",
     "switchLanguage": "Français",
     "workspaces": "Workspaces",
-    "addWorkspace": "New workspace"
+    "addWorkspace": "New workspace",
+    "boards": "Boards",
+    "board": "Board"
   },
   "dashboard": {
     "title": "Get started",
@@ -119,7 +121,8 @@
     "oauthConnected": "{count, plural, one {# Jira site connected.} other {# Jira sites connected.}}",
     "deleteTitle": "Remove this Jira connection?",
     "deleteDescription": "{name} will be disconnected and everything synced from it deleted. This cannot be undone.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "boards": "Boards"
   },
   "llm": {
     "title": "AI model",
@@ -179,5 +182,75 @@
     "deleteTitle": "Remove this AI model?",
     "deleteDescription": "The key for {label} will be deleted. If it was the default, the most recently added model becomes the default.",
     "cancel": "Cancel"
+  },
+  "boards": {
+    "description": "Choose the boards to sync and how their statuses map to To do, In progress and Done.",
+    "load": "Load boards from Jira",
+    "refresh": "Refresh boards",
+    "empty": "No boards loaded yet.",
+    "emptyHint": "Load the boards this connection can see in Jira.",
+    "selectionTitle": "Boards to sync",
+    "selectionDescription": "Selected boards are synced every few minutes and get dashboards.",
+    "saveSelection": "Save selection",
+    "selectionSaved": "Board selection saved.",
+    "estimates": {
+      "points": "Story points",
+      "count": "Issue count"
+    },
+    "types": {
+      "scrum": "Scrum",
+      "kanban": "Kanban",
+      "simple": "Simple"
+    },
+    "mappingTitle": "{board}: status mapping",
+    "mappingDescription": "Suggested from Jira's status categories. Mark in-progress statuses where work waits (blocked, waiting for review) so flow efficiency counts them as waiting time.",
+    "mappingColumns": {
+      "status": "Jira status",
+      "jiraCategory": "Jira category",
+      "mapsTo": "Counts as",
+      "waiting": "Waiting"
+    },
+    "categories": {
+      "todo": "To do",
+      "in_progress": "In progress",
+      "done": "Done"
+    },
+    "jiraCategories": {
+      "new": "To Do",
+      "indeterminate": "In Progress",
+      "done": "Done",
+      "undefined": "Unknown"
+    },
+    "saveMapping": "Save mapping",
+    "mappingSaved": "Status mapping saved.",
+    "sync": {
+      "now": "Sync now",
+      "idle": "Never synced",
+      "queued": "Sync queued…",
+      "running": "Syncing…",
+      "ok": "Synced {when}",
+      "error": "Last sync failed",
+      "requested": "Sync started.",
+      "alreadyQueued": "A sync is already on its way."
+    },
+    "errors": {
+      "invalid_input": "Check the selection and try again.",
+      "forbidden_role": "Only workspace owners and admins can change this.",
+      "not_found": "Not found. Reload the page.",
+      "no_boards": "Select at least one board first.",
+      "already_running": "A sync is already running.",
+      "blocked_url": "This Jira address is not allowed any more. Ask your administrator.",
+      "unauthorized": "Jira rejected the stored credentials. Update the connection.",
+      "forbidden": "Jira refused access to these boards.",
+      "not_jira": "Jira did not answer as expected.",
+      "wrong_deployment": "The Jira type no longer matches this site.",
+      "rate_limited": "Jira is busy. The next sync will retry.",
+      "unreachable": "Could not reach Jira.",
+      "oauth_expired": "Atlassian access expired. Reconnect with Atlassian.",
+      "oauth_unavailable": "Atlassian sign-in is not configured on this server.",
+      "unknown": "Something went wrong.",
+      "jira_paging": "Jira returned more results than expected. Try again later.",
+      "abandoned": "The previous sync was interrupted. Try again."
+    }
   }
 }

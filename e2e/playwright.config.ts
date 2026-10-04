@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+// Migrations run as the owner; the worker starts before globalSetup, so it migrates first.
+const ownerUrl =
+  process.env.DATABASE_OWNER_URL ?? 'postgres://agile:agile_dev_password@localhost:5433/agile';
+
 const env = {
   // CI points this at its Postgres service; locally it's the dev compose DB on 5433.
   DATABASE_URL:
@@ -19,6 +23,20 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3200', trace: 'retain-on-failure' },
   webServer: [
     { command: 'pnpm mocks', port: 4010, reuseExistingServer: !process.env.CI },
+    {
+      // The sync worker (pg-boss); its /health answers once it is connected and scheduled.
+      // Playwright starts web servers before globalSetup, so the schema is migrated here first.
+      command: 'pnpm --filter @agile/db migrate && pnpm --filter @agile/worker start',
+      url: 'http://127.0.0.1:4030/health',
+      env: {
+        ...env,
+        DATABASE_OWNER_URL: ownerUrl,
+        WORKER_HEALTH_PORT: '4030',
+        SYNC_INTERVAL_MINUTES: '60',
+      },
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
     {
       command: 'pnpm --filter @agile/web exec next dev --port 3200',
       url: 'http://localhost:3200/login',

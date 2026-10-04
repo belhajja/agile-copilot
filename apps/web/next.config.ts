@@ -36,8 +36,10 @@ const config: NextConfig = {
     '@agile/jira',
     '@agile/llm',
     '@agile/net',
+    '@agile/sync',
   ],
-  serverExternalPackages: ['postgres'],
+  // Node-only database clients: loaded at runtime instead of being bundled.
+  serverExternalPackages: ['postgres', 'pg-boss'],
 };
 
 export default withNextIntl(config);
