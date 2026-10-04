@@ -93,7 +93,8 @@ export const member = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
-    role: text('role').default('member').notNull(),
+    // Hand-set (the generator writes better-auth's 'member', which the 0021 CHECK refuses).
+    role: text('role').default('viewer').notNull(),
     createdAt: timestamp('created_at').notNull(),
   },
   (table) => [

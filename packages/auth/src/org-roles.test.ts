@@ -123,6 +123,22 @@ describe('organisation endpoints under the four roles', () => {
     ).rejects.toMatchObject({ body: { code: 'ROLE_NOT_ALLOWED' } });
   });
 
+  it('a member row written without a role gets the least privileged role the CHECK allows', async () => {
+    const extraH = await signUp('defaulted@example.com');
+    const extra = await auth.api.getSession({ headers: extraH });
+    const [row] = await conn.db
+      .insert(memberTable)
+      .values({
+        id: 'defaulted-member',
+        organizationId,
+        userId: extra?.user.id ?? '',
+        createdAt: new Date(),
+      })
+      .returning();
+    expect(row?.role).toBe('viewer');
+    await conn.db.delete(memberTable).where(eq(memberTable.id, 'defaulted-member'));
+  });
+
   it('refuses a server-side add with a role that is not exactly one of the four', async () => {
     const extraH = await signUp('extra@example.com');
     const extra = await auth.api.getSession({ headers: extraH });

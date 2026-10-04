@@ -1,6 +1,7 @@
 export * from './agent';
 export * from './app';
 export * from './auth';
+export * from './auth-limits';
 export * from './billing';
 export * from './dashboards';
 export * from './jira-data';
