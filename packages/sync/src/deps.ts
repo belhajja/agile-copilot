@@ -15,8 +15,13 @@ export interface SyncDeps extends ConnectionDeps {
   createSource?: (creds: JiraCredentialsInput, opts: DataSourceOptions) => JiraDataSource;
   retry?: RetryOptions;
   now?: () => Date;
-  /** Aborts a running sync between pages and boards (pg-boss job signal, worker shutdown). */
+  /**
+   * Aborts a running sync (pg-boss job signal, worker shutdown): Jira requests in flight and
+   * Retry-After waits end at once; the run stops with `interrupted`.
+   */
   signal?: AbortSignal;
+  /** The run's own deadline (default `RUN_DEADLINE_MS`); tests shorten it. */
+  runDeadlineMs?: number;
   /** Called with every failure the sync turns into a stored code (log `e.name`, never `e.message`). */
   onError?: (error: unknown, code: SyncFailureCode) => void;
 }
@@ -30,6 +35,8 @@ export type SyncFailureCode =
   | 'oauth_expired'
   | 'oauth_unavailable'
   | 'interrupted'
+  | 'timed_out'
+  | 'workspace_busy'
   | 'board_query_rejected'
   | 'board_not_found';
 
@@ -60,6 +67,12 @@ export const SYNC_FAILURE_CODES: Readonly<Record<SyncFailureCode, CodeBehaviour>
   unreachable: code(false, true, true),
   // The worker stopped mid-run (deploy, crash handler): the lease is released, a retry takes over.
   interrupted: code(false, true, true),
+  // The run outlived its deadline (a very slow or hostile Jira): boards already read keep their
+  // progress; the next scheduled sync tries again (no pg-boss retry: it would only repeat the wait).
+  timed_out: code(false, true),
+  // Another connection of the workspace is syncing (one at a time per workspace, F2): pg-boss
+  // retries the job later. Never stored: the state is not touched.
+  workspace_busy: code(false, true, true),
   board_query_rejected: code(false, false),
   board_not_found: code(false, false),
   jira_paging: code(false, false),

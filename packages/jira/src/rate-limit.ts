@@ -7,6 +7,11 @@ export interface RetryOptions {
   maxWaitMs?: number;
   /** Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Ends the wait between attempts at once and stops further attempts (the sync job's signal):
+   * a Retry-After of a minute must not outlive the job that asked for it.
+   */
+  signal?: AbortSignal;
 }
 
 const RETRYABLE = new Set([429, 503]);
@@ -31,7 +36,21 @@ export function errorRetryAfterMs(e: unknown): number | undefined {
   return typeof value === 'string' ? parseRetryAfter(value) : undefined;
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Waits `ms`, or rejects with the signal's reason as soon as it aborts (the timer is cleared). */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 /**
  * Runs `fn`, retrying on 429/503: waits for Retry-After when Jira sends it (Jira Cloud does on
@@ -43,13 +62,16 @@ export async function withRateLimitRetry<T>(
 ): Promise<T> {
   const maxRetries = opts.maxRetries ?? 5;
   const maxWait = opts.maxWaitMs ?? 60_000;
-  const sleep = opts.sleep ?? defaultSleep;
+  const signal = opts.signal;
+  const sleep = opts.sleep ?? ((ms: number) => abortableSleep(ms, signal));
   for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
     try {
       return await fn();
     } catch (e) {
       const status = errorStatus(e);
       if (status === undefined || !RETRYABLE.has(status) || attempt >= maxRetries) throw e;
+      signal?.throwIfAborted();
       await sleep(Math.min(errorRetryAfterMs(e) ?? 1000 * 2 ** attempt, maxWait));
     }
   }

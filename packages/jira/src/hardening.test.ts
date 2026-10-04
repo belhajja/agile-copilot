@@ -423,3 +423,71 @@ describe('OAuth gateway path', () => {
     }
   });
 });
+
+/**
+ * A slow-drip server (the F2 tarpit): headers at once, then one byte of body every 100 ms, for
+ * ever. Each byte resets a socket idle timer, so only a total deadline ends the request.
+ */
+async function tarpit() {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.write('{"isLast":false,"values":[');
+    const drip = setInterval(() => res.write(' '), 100);
+    res.on('close', () => clearInterval(drip));
+  });
+  servers.push(server);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+describe('per-request deadline and the caller’s signal (F2)', () => {
+  for (const [flavour, creds] of [
+    ['Cloud', cloudCreds],
+    ['Data Center', dcCreds],
+  ] as const) {
+    it(`${flavour}: a body that drips for ever ends at the request deadline`, async () => {
+      const source = createJiraDataSource(creds(await tarpit()), {
+        timeoutMs: 400,
+        retry: noWait,
+      });
+      const started = Date.now();
+      await expect(source.listBoards()).rejects.toBeDefined();
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
+
+    it(`${flavour}: the caller's signal ends a request in flight`, async () => {
+      const ac = new AbortController();
+      const source = createJiraDataSource(creds(await tarpit()), {
+        timeoutMs: 30_000,
+        retry: noWait,
+        signal: ac.signal,
+      });
+      setTimeout(() => ac.abort(), 200);
+      const started = Date.now();
+      await expect(source.listBoards()).rejects.toBeDefined();
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
+  }
+
+  it('the caller’s signal ends a Retry-After wait at once (no setTimeout left running)', async () => {
+    let hits = 0;
+    const server = createServer((_req, res) => {
+      hits++;
+      res.writeHead(429, { 'retry-after': '60', 'content-type': 'application/json' });
+      res.end('{}');
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    for (const creds of [cloudCreds(url), dcCreds(url)]) {
+      const ac = new AbortController();
+      // The real sleep: the wait must be cut short by the signal, not by an injected no-op.
+      const source = createJiraDataSource(creds, { signal: ac.signal });
+      setTimeout(() => ac.abort(), 200);
+      const started = Date.now();
+      await expect(source.listStatuses()).rejects.toBeDefined();
+      expect(Date.now() - started).toBeLessThan(2_000);
+    }
+    expect(hits).toBe(2); // one request each, no retry after the abort
+  });
+});

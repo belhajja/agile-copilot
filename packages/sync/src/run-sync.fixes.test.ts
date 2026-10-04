@@ -290,7 +290,12 @@ describe('Phase 2 fix wave: interruption, DNS, per-board progress, discovery, te
           .map(([c]) => c)
           .sort(),
       );
-      expect([...RETRYABLE_CODES].sort()).toEqual(['interrupted', 'rate_limited', 'unreachable']);
+      expect([...RETRYABLE_CODES].sort()).toEqual([
+        'interrupted',
+        'rate_limited',
+        'unreachable',
+        'workspace_busy',
+      ]);
     });
   });
 

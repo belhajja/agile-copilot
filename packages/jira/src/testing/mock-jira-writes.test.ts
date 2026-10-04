@@ -26,7 +26,10 @@ describe('mock Jira: issue detail and writes', () => {
       // Every read of the clock is one second later, so each write moves `updated` forward.
       now: (() => {
         let t = Date.parse('2026-10-04T08:00:00Z');
-        return () => new Date((t += 1000));
+        return () => {
+          t += 1000;
+          return new Date(t);
+        };
       })(),
     });
   });

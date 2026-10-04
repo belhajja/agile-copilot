@@ -70,6 +70,8 @@ export async function openDataSource(
   return (deps.createSource ?? createJiraDataSource)(input, {
     atlassianApiBase: deps.atlassianApiBase,
     retry: deps.retry,
+    // The run's signal (job, worker stop, run deadline) also ends requests and waits in flight.
+    signal: deps.signal,
     // resolveCredentials checked the URL; pin every connection to an address passing the same rule.
     outbound: { allowedPrivateHosts: deps.allowedPrivateHosts, resolve: deps.resolve },
   });

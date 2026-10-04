@@ -11,7 +11,7 @@ import {
   startSyncQueue,
   startSyncWorker,
 } from './queue';
-import { member, owner, startSyncHarness } from './test-harness';
+import { manager, owner, startSyncHarness, viewer } from './test-harness';
 
 async function waitFor<T>(
   read: () => Promise<T>,
@@ -47,9 +47,11 @@ describe('sync queue (pg-boss, as app_user)', () => {
       ok: false,
       code: 'no_boards',
     });
-    await expect(
-      requestSync({ db: h.db, boss: producer }, member(), connectionId),
-    ).rejects.toThrow();
+    for (const actor of [viewer(), manager()]) {
+      await expect(
+        requestSync({ db: h.db, boss: producer }, actor, connectionId),
+      ).rejects.toThrow();
+    }
     expect(await requestSync({ db: h.db, boss: producer }, owner('org_b'), connectionId)).toEqual({
       ok: false,
       code: 'not_found',

@@ -1,7 +1,7 @@
 import { createOutboundFetch, type OutboundPolicy } from '@agile/net';
 import { createAgileClient, createCloudClient } from 'jira.js';
 import { AgileClient, Version2Client } from 'jira-js-v5';
-import { createNoRedirectClient, MAX_RESPONSE_BYTES } from './no-redirect-client';
+import { createNoRedirectClient, MAX_RESPONSE_BYTES, requestSignal } from './no-redirect-client';
 import { offsetPager, type PaginationLimits, tokenPager } from './pagination';
 import { pinnedRequestConfig } from './pinned-config';
 import { type RetryOptions, withRateLimitRetry } from './rate-limit';
@@ -48,8 +48,13 @@ export interface DataSourceOptions {
   atlassianApiBase?: string;
   /** Issues per search page (default 100). */
   pageSize?: number;
-  /** Per-request deadline (default 30 s). */
+  /** Per-request deadline (default 30 s): connect, headers and the whole body. */
   timeoutMs?: number;
+  /**
+   * Ends requests in flight and Retry-After waits at once (the sync job's signal: worker stop,
+   * pg-boss expiry, the run's own deadline).
+   */
+  signal?: AbortSignal;
   /** Largest accepted response body (default 20 MB). */
   maxResponseBytes?: number;
   /** Per-call caps against a server that never stops paging (defaults 1000 pages, 200,000 items). */
@@ -150,6 +155,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
           }),
       schemaValidation: 'lenient',
       timeoutMs: opts.timeoutMs,
+      signal: opts.signal,
       maxResponseBytes: opts.maxResponseBytes,
       // OAuth calls go to Atlassian's fixed gateway; API-token calls go to the user-supplied host.
       fetch: c.kind === 'cloud_basic' ? pinnedFetch : undefined,
@@ -157,7 +163,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
     return { jira: createCloudClient(client), agile: createAgileClient(client) };
   };
   const call = <T>(fn: (k: Awaited<ReturnType<typeof clients>>) => Promise<T>) =>
-    withRateLimitRetry(async () => fn(await clients()), opts.retry);
+    withRateLimitRetry(async () => fn(await clients()), { ...opts.retry, signal: opts.signal });
   const pageSize = opts.pageSize ?? 100;
 
   return {
@@ -248,6 +254,9 @@ function dataCenter(
       baseRequestConfig: {
         maxRedirects: 0,
         timeout: opts.timeoutMs ?? 30_000,
+        // axios's `timeout` is a socket idle timer: a body dripping one byte at a time resets it
+        // for ever. This signal is the real deadline of the attempt (clients() runs per attempt).
+        signal: requestSignal(opts.timeoutMs, opts.signal),
         maxContentLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
         maxBodyLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
         ...pinned,
@@ -256,14 +265,17 @@ function dataCenter(
     return { v2: new Version2Client(config), agile: new AgileClient(config) };
   };
   const call = <T>(fn: (k: Awaited<ReturnType<typeof clients>>) => Promise<T>) =>
-    withRateLimitRetry(async () => {
-      const k = await clients();
-      try {
-        return await fn(k);
-      } catch (e) {
-        throw sanitizeDataCenterError(e);
-      }
-    }, opts.retry);
+    withRateLimitRetry(
+      async () => {
+        const k = await clients();
+        try {
+          return await fn(k);
+        } catch (e) {
+          throw sanitizeDataCenterError(e);
+        }
+      },
+      { ...opts.retry, signal: opts.signal },
+    );
   const pageSize = opts.pageSize ?? 100;
 
   return {

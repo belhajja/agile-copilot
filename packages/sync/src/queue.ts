@@ -15,6 +15,24 @@ import { runSync, type SyncJob, type SyncOutcome } from './run-sync';
 
 export const SYNC_QUEUE = 'jira-sync';
 export const SYNC_TICK_QUEUE = 'jira-sync-tick';
+/**
+ * pg-boss expires a sync job after this long (its signal aborts the run). Above the run's own
+ * deadline (`RUN_DEADLINE_MS`, 25 min), so a run normally ends on its deadline and records it.
+ */
+export const SYNC_JOB_EXPIRE_SECONDS = 30 * 60;
+/**
+ * Sync jobs one worker process runs at once. At most one of them per workspace (F2): one tenant
+ * with many connections (or a slow Jira) cannot hold every slot.
+ */
+export const SYNC_WORKER_CONCURRENCY = 4;
+
+/** Options of the sync queue, also applied to a queue an earlier release created. */
+const SYNC_QUEUE_OPTIONS = {
+  retryLimit: 2,
+  retryDelay: 60,
+  retryBackoff: true,
+  expireInSeconds: SYNC_JOB_EXPIRE_SECONDS,
+};
 
 /** What a queued job may carry: ids only, validated again by the worker (the queue is untrusted input). */
 export const syncJobSchema = z.object({
@@ -54,20 +72,16 @@ export async function startSyncQueue(
   const boss = new PgBoss({
     connectionString,
     createSchema: false,
-    max: opts.role === 'worker' ? 4 : 2,
+    max: opts.role === 'worker' ? 6 : 2,
     ...(opts.role === 'producer' ? { supervise: false, schedule: false } : {}),
   });
   // pg-boss emits 'error' for background failures; an unhandled 'error' event would crash the process.
   boss.on('error', opts.onError ?? logErrorName);
   await boss.start();
   // One queued-or-active sync per connection (singletonKey = connection id).
-  await boss.createQueue(SYNC_QUEUE, {
-    policy: 'exclusive',
-    retryLimit: 2,
-    retryDelay: 60,
-    retryBackoff: true,
-    expireInSeconds: 3600,
-  });
+  await boss.createQueue(SYNC_QUEUE, { policy: 'exclusive', ...SYNC_QUEUE_OPTIONS });
+  // createQueue leaves an existing queue as it was created (e.g. the earlier 1 h expiry).
+  await boss.updateQueue(SYNC_QUEUE, SYNC_QUEUE_OPTIONS);
   await boss.createQueue(SYNC_TICK_QUEUE, {
     policy: 'exclusive',
     retryLimit: 0,
@@ -76,9 +90,10 @@ export async function startSyncQueue(
   return boss;
 }
 
-// Payloads carry ids only (never credentials); the worker re-reads everything under RLS.
+// Payloads carry ids only (never credentials); the worker re-reads everything under RLS. The
+// workspace is the job's group: the worker runs one job per group at a time.
 const send = (boss: PgBoss, job: SyncJob) =>
-  boss.send(SYNC_QUEUE, { ...job }, { singletonKey: job.connectionId });
+  boss.send(SYNC_QUEUE, { ...job }, { singletonKey: job.connectionId, group: { id: job.orgId } });
 
 /** "Sync now": queues a sync unless one is already queued or running. */
 export async function requestSync(
@@ -221,7 +236,14 @@ export async function startSyncWorker(
 ): Promise<void> {
   await boss.work<SyncJob>(
     SYNC_QUEUE,
-    { batchSize: 1, localConcurrency: opts.concurrency ?? 2 },
+    {
+      batchSize: 1,
+      localConcurrency: opts.concurrency ?? SYNC_WORKER_CONCURRENCY,
+      // One active job per workspace in this process: a job of a busy workspace stays queued
+      // (pg-boss skips its group, or puts it back untouched) and other workspaces take the slots.
+      // Strict per process; across worker replicas runSync's workspace lease is the backstop.
+      localGroupConcurrency: 1,
+    },
     async ([job]) => {
       if (!job) return;
       return handleSyncJob(deps, job.data, { ...opts, signal: job.signal });

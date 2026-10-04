@@ -16,9 +16,10 @@ export const owner = (orgId = 'org_a'): Actor => ({
   userId: `user_${orgId}`,
   roles: ['owner'],
 });
-/** A workspace member without privileges (Phase 5: the viewer role). */
-export const member = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_m', roles: ['viewer'] });
-export const viewer = member;
+/** A workspace viewer: reads dashboards, changes nothing. */
+export const viewer = (orgId = 'org_a'): Actor => ({ orgId, userId: 'user_m', roles: ['viewer'] });
+/** @deprecated The retired `member` role is gone: other packages' tests still import this alias. */
+export const member = viewer;
 export const manager = (orgId = 'org_a'): Actor => ({
   orgId,
   userId: 'user_mgr',

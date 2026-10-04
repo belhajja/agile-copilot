@@ -7,7 +7,7 @@ import {
   saveStatusMappings,
   setBoardSelection,
 } from './boards';
-import { member, owner, startSyncHarness } from './test-harness';
+import { manager, owner, startSyncHarness, viewer } from './test-harness';
 
 describe('boards and status mapping', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
@@ -124,9 +124,11 @@ describe('boards and status mapping', () => {
       ok: false,
       code: 'not_found',
     });
-    await expect(discoverBoards(h.deps, member(), connectionId)).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    for (const actor of [viewer(), manager()]) {
+      await expect(discoverBoards(h.deps, actor, connectionId)).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    }
   });
 
   it('reports Jira failures as codes', async () => {

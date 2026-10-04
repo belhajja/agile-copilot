@@ -57,9 +57,13 @@ export async function createSkillQueues(boss: PgBoss): Promise<void> {
   });
 }
 
-// Payloads carry ids only; keyed by run id. `claimRun` still lets only one job run it.
-const send = (boss: PgBoss, job: SkillJob) =>
-  boss.send(SKILL_RUN_QUEUE, { ...job }, { singletonKey: job.runId });
+/**
+ * Queues one run. Payloads carry ids only; keyed by run id (`claimRun` still lets only one job run
+ * it). The workspace is the job's group: a worker runs one run per workspace at a time (F2).
+ */
+export const sendSkillRun = (boss: PgBoss, job: SkillJob) =>
+  boss.send(SKILL_RUN_QUEUE, { ...job }, { singletonKey: job.runId, group: { id: job.orgId } });
+const send = sendSkillRun;
 
 /**
  * "Run now": the owner runs one of their enabled scheduled or alert skills once, outside its
@@ -200,7 +204,13 @@ export async function startSkillWorker(
   await createSkillQueues(boss);
   await boss.work<SkillJob>(
     SKILL_RUN_QUEUE,
-    { batchSize: 1, localConcurrency: opts.concurrency ?? 2 },
+    {
+      batchSize: 1,
+      localConcurrency: opts.concurrency ?? 2,
+      // One run per workspace at a time in this process (F2): a workspace's other runs stay
+      // queued (pg-boss skips their group, or puts a job back untouched; runs are never retried).
+      localGroupConcurrency: 1,
+    },
     async ([job]) => {
       if (!job) return;
       const signals = [opts.signal, job.signal].filter((s): s is AbortSignal => s !== undefined);

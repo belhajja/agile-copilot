@@ -47,6 +47,27 @@ describe('withRateLimitRetry', () => {
     expect(capped.waited).toEqual([60_000]);
   });
 
+  it('stops waiting the moment the signal aborts, and never calls again once aborted', async () => {
+    const ac = new AbortController();
+    let calls = 0;
+    setTimeout(() => ac.abort(), 50);
+    const started = Date.now();
+    await expect(
+      withRateLimitRetry(
+        async () => {
+          calls++;
+          throw new JiraHttpError(429, 60_000);
+        },
+        { signal: ac.signal },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(calls).toBe(1);
+    await expect(
+      withRateLimitRetry(async () => 'never', { signal: AbortSignal.abort() }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('does not retry other failures', async () => {
     const { waited, sleep } = sleeps();
     await expect(

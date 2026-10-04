@@ -14,8 +14,10 @@ export interface NoRedirectClientConfig {
    * a field Atlassian added or renamed does not stop a whole sync.
    */
   schemaValidation?: 'strict' | 'lenient';
-  /** Per-request deadline (default 30 s). */
+  /** Per-request deadline (default 30 s), for the whole exchange: connect, headers and body. */
   timeoutMs?: number;
+  /** Ends every request in flight (the sync job's signal), on top of the deadline. */
+  signal?: AbortSignal;
   /** Largest accepted response body (default 20 MB). */
   maxResponseBytes?: number;
   /** Redirect-refusing fetch to use (default fetchNoRedirect; createOutboundFetch pins DNS too). */
@@ -78,6 +80,12 @@ export class InvalidCredentialsError extends Error {
   }
 }
 
+/** The deadline of one HTTP request (default 30 s), ended early by `signal` when given. */
+export function requestSignal(timeoutMs: number | undefined, signal?: AbortSignal): AbortSignal {
+  const deadline = AbortSignal.timeout(timeoutMs ?? 30_000);
+  return signal ? AbortSignal.any([deadline, signal]) : deadline;
+}
+
 /** Retry-After is either delta-seconds or an HTTP date. */
 export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
   if (!value) return undefined;
@@ -134,7 +142,8 @@ export function createNoRedirectClient(config: NoRedirectClientConfig): Client {
         method: options.method ?? 'GET',
         headers,
         body: hasBody ? JSON.stringify(options.body) : undefined,
-        signal: AbortSignal.timeout(config.timeoutMs ?? 30_000),
+        // One deadline for headers and body: fetch's signal also ends a body that drips for ever.
+        signal: requestSignal(config.timeoutMs, config.signal),
       });
       if (!res.ok) {
         await res.body?.cancel();

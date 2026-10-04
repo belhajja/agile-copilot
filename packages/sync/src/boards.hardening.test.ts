@@ -17,7 +17,7 @@ import {
 } from './boards';
 import type { SyncDeps } from './deps';
 import { runSync } from './run-sync';
-import { member, owner, startSyncHarness } from './test-harness';
+import { manager, owner, startSyncHarness, viewer } from './test-harness';
 
 describe('boards hardening', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
@@ -108,12 +108,15 @@ describe('boards hardening', () => {
   });
 
   it('only lets owners and admins change selection and mappings', async () => {
-    await expect(setBoardSelection(h.deps, member(), connectionId, [])).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
-    await expect(
-      saveStatusMappings(h.deps, member(), boardIds[0] ?? '', []),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    // Viewers and managers (who may use live Jira) cannot change what the workspace syncs.
+    for (const actor of [viewer(), manager()]) {
+      await expect(setBoardSelection(h.deps, actor, connectionId, [])).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+      await expect(saveStatusMappings(h.deps, actor, boardIds[0] ?? '', [])).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    }
   });
 
   it('validates ids and categories before touching the database', async () => {

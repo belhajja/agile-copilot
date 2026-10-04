@@ -21,10 +21,13 @@ describe('handleSyncJob', () => {
     expect(String(onError.mock.calls.flat()[0]?.name)).toBe('InvalidSyncJobError');
   });
 
-  it.each(['rate_limited', 'unreachable'] as const)('throws for retryable %s', async (code) => {
-    vi.mocked(runSync).mockResolvedValue({ ok: false, code });
-    await expect(handleSyncJob(deps, job)).rejects.toBeInstanceOf(RetryableSyncError);
-  });
+  it.each(['rate_limited', 'unreachable', 'interrupted', 'workspace_busy'] as const)(
+    'throws for retryable %s',
+    async (code) => {
+      vi.mocked(runSync).mockResolvedValue({ ok: false, code });
+      await expect(handleSyncJob(deps, job)).rejects.toBeInstanceOf(RetryableSyncError);
+    },
+  );
 
   it.each([
     'unauthorized',
@@ -35,6 +38,7 @@ describe('handleSyncJob', () => {
     'jira_paging',
     'already_running',
     'not_found',
+    'timed_out',
   ] as const)('completes normally for permanent %s', async (code) => {
     vi.mocked(runSync).mockResolvedValue({ ok: false, code });
     await expect(handleSyncJob(deps, job)).resolves.toEqual({ ok: false, code });
