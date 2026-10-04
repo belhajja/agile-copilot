@@ -47,9 +47,9 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
-    depends_on:
-      migrate: { condition: service_completed_successfully }
-      mcp-atlassian: { condition: service_healthy }
+    # Not on mcp-atlassian: the dashboards keep working when the assistant's sidecar is down (its
+    # Jira tools then answer "unavailable").
+    depends_on: { migrate: { condition: service_completed_successfully } }
   worker:
     build: { context: ., dockerfile: apps/web/Dockerfile, target: worker }
     restart: unless-stopped
@@ -86,6 +86,7 @@ services:
     # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       TRANSPORT: streamable-http
       PORT: "8000"
@@ -94,8 +95,8 @@ services:
       # plus jira_search_assignable_users, which the backend uses to resolve assignees.
       ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
       ATLASSIAN_OAUTH_ENABLE: "true"
-      # Set when a Data Center host resolves to a private address. Empty = unset. Once set, it is an
-      # allowlist: list every Jira host the assistant may reach, public ones included.
+      # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
+      # allowlist for every Data Center host, public ones included: list them all.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
     healthcheck: &mcp-atlassian-health
       # busybox wget ships with the image
@@ -109,6 +110,7 @@ services:
   mcp-atlassian-readonly:
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       TRANSPORT: streamable-http
       PORT: "8000"

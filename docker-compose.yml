@@ -31,7 +31,8 @@ services:
       # plus jira_search_assignable_users, which the backend uses to resolve assignees.
       ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
       ATLASSIAN_OAUTH_ENABLE: "true"
-      # Empty = unset. Once set it is an allowlist for every Jira host, public ones included.
+      # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
+      # allowlist for every Data Center host, public ones included: list them all.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
     ports: ["127.0.0.1:4060:8000"]
 volumes:

@@ -9,6 +9,7 @@ type Service = {
   environment?: Record<string, string>;
   ports?: string[];
   depends_on?: Record<string, { condition?: string }>;
+  mem_limit?: string;
 };
 const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
 // `merge: true` resolves `<<: *anchor` like Docker Compose does.
@@ -90,12 +91,17 @@ describe('docker-compose.selfhost.yml', () => {
     expect(all['mcp-atlassian-readonly']?.environment?.READ_ONLY_MODE).toBe('true');
     for (const [, s] of Object.entries(all).filter(([, s]) => isMcpAtlassian(s))) {
       expect(s.ports).toBeUndefined();
+      // A modest cap: a runaway sidecar must not starve the app and Postgres.
+      expect(s.mem_limit).toBe('512m');
     }
   });
 
-  it('points the web app at the internal service and waits for it', () => {
+  it('points the web app at the internal service without depending on it', () => {
     expect(all.web?.environment?.MCP_ATLASSIAN_URL).toBe('http://mcp-atlassian:8000/mcp');
-    expect(all.web?.depends_on?.['mcp-atlassian']?.condition).toBe('service_healthy');
+    // P3-R23: the dashboards keep working when the agent sidecar is down or cannot be pulled.
+    for (const name of ['web', 'worker']) {
+      expect(Object.keys(all[name]?.depends_on ?? {})).toEqual(['migrate']);
+    }
   });
 
   it('never gives the web app or the worker the owner credentials', () => {
