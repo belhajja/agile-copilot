@@ -1,0 +1,14 @@
+{
+  "name": "@agile/metrics",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "pure-rand": "8.4.2"
+  }
+}
