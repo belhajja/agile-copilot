@@ -30,6 +30,12 @@ export const agentConversations = pgTable(
     orgId: text('org_id').notNull(),
     userId: text('user_id').notNull(),
     title: text('title').notNull().default(''),
+    /**
+     * The chat turn holding the conversation (a lease): set when a turn starts, cleared when its
+     * reply is stored. A second turn is refused while it is set and younger than the lease.
+     */
+    turnId: uuid('turn_id'),
+    turnStartedAt: timestamp('turn_started_at', { withTimezone: true }),
     createdAt,
     updatedAt,
   },
