@@ -24,3 +24,20 @@ export async function purgeOrgTenantRows(tx: Tx, orgId: string): Promise<string[
   }
   return tables.map((t) => t.name);
 }
+
+/**
+ * Deletes one organisation's background jobs, queued, active or finished (pg-boss keeps finished
+ * jobs for a while; every payload carries the organisation id as `orgId`). No-op before pg-boss
+ * has created its tables. Scheduled ticks carry no data and are not per workspace: they read the
+ * list of organisations, so a deleted one is never planned again.
+ */
+export async function purgeOrgJobs(tx: Tx, orgId: string): Promise<number> {
+  const [found] = (await tx.execute(
+    sql`select to_regclass('pgboss.job') is not null as present`,
+  )) as unknown as { present: boolean }[];
+  if (!found?.present) return 0;
+  const deleted = (await tx.execute(
+    sql`delete from pgboss.job where data->>'orgId' = ${orgId} returning id`,
+  )) as unknown as unknown[];
+  return deleted.length;
+}

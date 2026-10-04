@@ -6,7 +6,8 @@ import {
   getMemberRoles,
   type SsoConfig,
 } from '@agile/auth';
-import { type ServerEnv, serverEnv } from '@agile/config';
+import { cancelSubscriptionForOrg } from '@agile/billing';
+import { billingConfigOf, type ServerEnv, serverEnv } from '@agile/config';
 import type { Actor, LlmDeps } from '@agile/connections';
 import { type Keyring, parseKeyring } from '@agile/crypto';
 import { createDb, type Db } from '@agile/db';
@@ -48,6 +49,10 @@ export function services(): Services {
       sso: ssoConfigOf(env),
       passwordLogin: env.PASSWORD_LOGIN,
       breakGlassEmails: env.BREAK_GLASS_EMAILS,
+      // SaaS: a deleted workspace is never billed again (no-op when billing is off). A Stripe
+      // failure keeps the workspace.
+      beforeWorkspaceDeleted: (orgId) =>
+        cancelSubscriptionForOrg({ db, billing: billingConfigOf(env) }, orgId),
     });
     g.__agileServices = {
       env,
@@ -95,6 +100,14 @@ async function actorOf(session: Session): Promise<SessionActor | null> {
  */
 export async function currentActor(requestHeaders: Headers): Promise<SessionActor | null> {
   return actorOf(await services().auth.api.getSession({ headers: requestHeaders }));
+}
+
+/**
+ * For Route Handlers open to anyone signed in, with or without a workspace (the personal data
+ * export): the session from the request's own headers, or null (the route answers 401).
+ */
+export async function currentSession(requestHeaders: Headers) {
+  return services().auth.api.getSession({ headers: requestHeaders });
 }
 
 export async function requireActor(): Promise<SessionActor> {

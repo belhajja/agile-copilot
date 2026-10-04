@@ -1,3 +1,9 @@
+export {
+  type DeleteAccountResult,
+  deleteAccount,
+  EXPORT_PAGE_SIZE,
+  exportUserData,
+} from './gdpr';
 export { RETENTION_CRON, RETENTION_QUEUE, startRetentionWorker } from './queue';
 export {
   applyRetention,

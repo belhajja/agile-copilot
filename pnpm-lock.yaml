@@ -38,6 +38,9 @@ importers:
       '@agile/automation':
         specifier: workspace:*
         version: link:../../packages/automation
+      '@agile/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@agile/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -71,6 +74,9 @@ importers:
       '@agile/notify':
         specifier: workspace:*
         version: link:../../packages/notify
+      '@agile/privacy':
+        specifier: workspace:*
+        version: link:../../packages/privacy
       '@agile/skills':
         specifier: workspace:*
         version: link:../../packages/skills

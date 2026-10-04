@@ -1,5 +1,12 @@
 import * as schema from '@agile/db';
-import { type Db, purgeOrgTenantRows, recordAudit, withOrg } from '@agile/db';
+import {
+  type Db,
+  deletedOrganizations,
+  purgeOrgJobs,
+  purgeOrgTenantRows,
+  recordAudit,
+  withOrg,
+} from '@agile/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
@@ -42,6 +49,11 @@ export interface AuthOptions {
   passwordLogin?: PasswordLogin;
   /** Platform admin accounts that sign in with a password (break-glass when the IdP is down). */
   breakGlassEmails?: readonly string[];
+  /**
+   * Runs first when a workspace is deleted, before anything is purged (SaaS: cancel its Stripe
+   * subscriptions and expire its open Checkout sessions). Throwing keeps the workspace.
+   */
+  beforeWorkspaceDeleted?: (orgId: string) => Promise<void>;
 }
 
 /**
@@ -51,7 +63,15 @@ export interface AuthOptions {
  * `ssoProvider: false` keeps every SSO policy but leaves the provider out (IdP not reachable).
  */
 export function createAuth(
-  { db, secret, baseURL, sso, passwordLogin = 'all', breakGlassEmails = [] }: AuthOptions,
+  {
+    db,
+    secret,
+    baseURL,
+    sso,
+    passwordLogin = 'all',
+    breakGlassEmails = [],
+    beforeWorkspaceDeleted = async () => {},
+  }: AuthOptions,
   { ssoProvider = true }: { ssoProvider?: boolean } = {},
 ) {
   const policy = { passwordLogin, breakGlassEmails };
@@ -176,9 +196,13 @@ export function createAuth(
           // Before, not after: if the purge fails the workspace is kept, so its encrypted secrets
           // are never left behind without an owner.
           beforeDeleteOrganization: async ({ organization: org, user }) => {
+            // External state first (H2): if billing cannot be stopped, nothing is deleted, so a
+            // workspace is never gone while still billed.
+            await beforeWorkspaceDeleted(org.id);
             await withOrg(db, org.id, async (tx) => {
-              // audit_log is append-only (app_user cannot delete from it) and holds no secrets; it is
-              // kept as the record of the deletion. Retention purges arrive with Phase 5.
+              // audit_log is append-only for the app role and holds no secrets: it is kept as the
+              // record of the deletion, and the retention job purges it 90 days later
+              // (deleted_organizations, purge_audit_log).
               await recordAudit(tx, {
                 orgId: org.id,
                 actorUserId: user.id,
@@ -187,6 +211,16 @@ export function createAuth(
                 targetId: org.id,
               });
               await purgeOrgTenantRows(tx, org.id);
+              // Its queued, running and finished jobs: none can run for it again.
+              await purgeOrgJobs(tx, org.id);
+              // The record and the organisation row go together (retention skips ids that still
+              // exist in organization); members and invitations cascade. better-auth's own delete
+              // that follows finds nothing left.
+              await tx
+                .insert(deletedOrganizations)
+                .values({ deletedOrgId: org.id })
+                .onConflictDoNothing();
+              await tx.delete(schema.organization).where(eq(schema.organization.id, org.id));
             });
           },
         },

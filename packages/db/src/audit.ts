@@ -44,6 +44,7 @@ export type AuditAction =
   | 'billing.subscription_changed'
   | 'billing.foreign_subscription'
   | 'workspace.settings_changed'
+  | 'user.deleted'
   | 'mcp.token_created'
   | 'mcp.token_revoked'
   | 'mcp.tool_called';

@@ -874,5 +874,18 @@
     "version": "Version {version}",
     "current": "Current",
     "restore": "Restore"
+  },
+  "account": {
+    "dataTitle": "Your data",
+    "dataHint": "Download everything Agile Copilot holds about you: profile, workspaces, conversations, usage and your actions in the audit log.",
+    "export": "Download my data (JSON)",
+    "deleteTitle": "Delete my account",
+    "deleteDescription": "Deletes your account, your conversations and your other private data in every workspace. Workspace spend and audit records keep an anonymous id. This cannot be undone.",
+    "deleteConfirmLabel": "Type {email} to confirm",
+    "deleteHint": "If you are a workspace's only owner, give the owner role to someone else or delete that workspace first.",
+    "deleteButton": "Delete my account",
+    "deleteMismatch": "Type your e-mail address exactly to confirm.",
+    "deleteReauth": "For your security, sign out and sign in again, then delete your account within 10 minutes.",
+    "deleteSoleOwner": "You are the only owner of: {workspaces}. Give the owner role to someone else or delete the workspace first."
   }
 }

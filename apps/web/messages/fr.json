@@ -874,5 +874,18 @@
     "version": "Version {version}",
     "current": "Actuelle",
     "restore": "Restaurer"
+  },
+  "account": {
+    "dataTitle": "Vos données",
+    "dataHint": "Téléchargez tout ce qu'Agile Copilot conserve sur vous : profil, espaces, conversations, consommation et vos actions dans le journal d'audit.",
+    "export": "Télécharger mes données (JSON)",
+    "deleteTitle": "Supprimer mon compte",
+    "deleteDescription": "Supprime votre compte, vos conversations et vos autres données privées dans tous les espaces. Les dépenses et le journal d'audit des espaces conservent un identifiant anonyme. Action irréversible.",
+    "deleteConfirmLabel": "Saisissez {email} pour confirmer",
+    "deleteHint": "Si vous êtes le seul propriétaire d'un espace, donnez ce rôle à quelqu'un d'autre ou supprimez d'abord cet espace.",
+    "deleteButton": "Supprimer mon compte",
+    "deleteMismatch": "Saisissez exactement votre adresse e-mail pour confirmer.",
+    "deleteReauth": "Par sécurité, déconnectez-vous puis reconnectez-vous, et supprimez votre compte dans les 10 minutes.",
+    "deleteSoleOwner": "Vous êtes le seul propriétaire de : {workspaces}. Donnez ce rôle à quelqu'un d'autre ou supprimez d'abord l'espace."
   }
 }
