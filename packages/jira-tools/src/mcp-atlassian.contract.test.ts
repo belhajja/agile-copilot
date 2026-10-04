@@ -21,7 +21,7 @@ import {
   SCENARIO_COMMENT,
   SCENARIO_DESCRIPTION,
 } from './testing/scenario';
-import { WIKI_CASES } from './testing/wiki-cases';
+import { generatedMarkdown, pathologicalMarkdown, WIKI_CASES } from './testing/wiki-cases';
 import { markdownToJiraWiki } from './wiki';
 
 // The mock Jira runs in this process; the containers reach it through Testcontainers' SSH port
@@ -300,21 +300,35 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
   });
 
   it('converts Markdown exactly like the image’s own converter (REST backend parity)', async () => {
-    // mcp-atlassian's JiraPreprocessor.markdown_to_jira, run inside the running image.
+    // mcp-atlassian's JiraPreprocessor.markdown_to_jira, run inside the running image, in one
+    // exec: the fixed cases, the scenario texts, 300 seeded strings over the markup alphabet and
+    // 2k-character versions of the inputs that were quadratic. The data goes in on stdin.
+    const corpus = [
+      ...WIKI_CASES.map(([md]) => md),
+      SCENARIO_COMMENT,
+      SCENARIO_DESCRIPTION,
+      ...generatedMarkdown(300),
+      ...Object.values(pathologicalMarkdown(2_000)),
+    ];
     const script = [
       'import json, sys',
       'from mcp_atlassian.preprocessing.jira import JiraPreprocessor',
       'p = JiraPreprocessor(base_url="")',
-      'print(json.dumps([p.markdown_to_jira(c) for c in json.loads(sys.argv[1])]))',
+      'print(json.dumps([p.markdown_to_jira(c) for c in json.load(sys.stdin)]))',
     ].join('\n');
-    const corpus = [...WIKI_CASES.map(([md]) => md), SCENARIO_COMMENT, SCENARIO_DESCRIPTION];
-    const r = await shared.exec(['python', '-c', script, JSON.stringify(corpus)]);
-    expect(r.exitCode).toBe(0);
+    await shared.copyContentToContainer([
+      { content: JSON.stringify(corpus), target: '/tmp/md-corpus.json', mode: 0o644 },
+    ]);
+    const r = await shared.exec(['sh', '-c', 'python -c "$0" < /tmp/md-corpus.json', script]);
+    expect({ exitCode: r.exitCode, stderr: r.stderr }).toEqual({ exitCode: 0, stderr: '' });
     const theirs = JSON.parse(r.stdout) as string[];
-    expect(corpus.map((md, i) => ({ md, wiki: theirs[i] }))).toEqual(
-      corpus.map((md) => ({ md, wiki: markdownToJiraWiki(md) })),
-    );
-  });
+    expect(theirs).toHaveLength(corpus.length);
+    const differences = corpus.flatMap((md, i) => {
+      const ours = markdownToJiraWiki(md);
+      return ours === theirs[i] ? [] : [{ md, theirs: theirs[i], ours }];
+    });
+    expect(differences).toEqual([]);
+  }, 120_000);
 
   it('pins the raw search result: a count, and unassigned issues without an id', async () => {
     const { isError, text } = await rawCall(dcCreds(jira), 'jira_search', {
