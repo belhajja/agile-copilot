@@ -3,7 +3,7 @@ import type { WorkerEnv } from '@agile/config';
 import { parseKeyring } from '@agile/crypto';
 import { createDb } from '@agile/db';
 import { createAtlassianOAuth } from '@agile/jira';
-import { startRetentionWorker } from '@agile/privacy';
+import { RETENTION_QUEUE, startRetentionWorker } from '@agile/privacy';
 import { SYNC_QUEUE, type SyncDeps, startSyncQueue, startSyncWorker } from '@agile/sync';
 import { sql } from 'drizzle-orm';
 import { startHealthServer } from './health';
@@ -94,22 +94,29 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
       started,
       {
         db,
-        // Workspace id and error name only.
-        onError: (error, orgId) =>
-          log('warn', 'retention_failed', { orgId, error: errorName(error) }),
+        // Step, workspace id and error name only.
+        onError: (error, step, orgId) =>
+          log('warn', 'retention_failed', { step, orgId: orgId ?? null, error: errorName(error) }),
       },
       {
         // A stopping worker ends the run between workspaces (the next run picks up the rest).
         signal: shutdown.signal,
-        onDone: (result) => log('info', 'retention_finished', { ...result }),
+        onDone: ({ failed, ...counts }) =>
+          log('info', 'retention_finished', {
+            ...counts,
+            failedWorkspaces: failed.workspaces,
+            failedDeletedOrgs: failed.deletedOrgs,
+            failedGlobal: failed.global,
+          }),
       },
     );
-    // Ready = the database answers and both job queues are reachable through pg-boss.
+    // Ready = the database answers and the job queues are reachable through pg-boss.
     health = await startHealthServer(env.WORKER_HEALTH_PORT, env.WORKER_HEALTH_HOST, async () => {
       await db.execute(sql`select 1`);
       return (
         (await started.getQueue(SYNC_QUEUE)) !== null &&
-        (await started.getQueue(SKILL_RUN_QUEUE)) !== null
+        (await started.getQueue(SKILL_RUN_QUEUE)) !== null &&
+        (await started.getQueue(RETENTION_QUEUE)) !== null
       );
     });
     log('info', 'worker_started', {

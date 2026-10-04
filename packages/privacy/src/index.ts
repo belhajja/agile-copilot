@@ -3,9 +3,13 @@ export {
   applyRetention,
   BUILDER_CALLS_RETENTION_DAYS,
   DELETED_ORG_AUDIT_DAYS,
+  EXPIRED_AUTH_GRACE_DAYS,
+  RETENTION_BATCH_SIZE,
   type RetentionResult,
   type RetentionRunResult,
+  type RetentionStep,
   runRetention,
+  SYNC_RUNS_RETENTION_DAYS,
 } from './retention';
 export {
   DEFAULT_SETTINGS,

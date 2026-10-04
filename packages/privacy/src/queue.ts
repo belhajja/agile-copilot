@@ -1,6 +1,6 @@
 import type { Db } from '@agile/db';
 import type { PgBoss } from 'pg-boss';
-import { type RetentionRunResult, runRetention } from './retention';
+import { type RetentionRunResult, type RetentionStep, runRetention } from './retention';
 
 export const RETENTION_QUEUE = 'privacy-retention';
 /** Daily, at night UTC. */
@@ -9,11 +9,11 @@ export const RETENTION_CRON = '30 3 * * *';
 /**
  * Registers the daily retention job on the worker's pg-boss (one run at a time; a re-run is
  * harmless: every delete is by age). Worker shutdown (`signal`) or job expiry ends the run
- * between workspaces.
+ * between batches.
  */
 export async function startRetentionWorker(
   boss: PgBoss,
-  deps: { db: Db; onError?: (error: unknown, orgId: string) => void },
+  deps: { db: Db; onError?: (error: unknown, step: RetentionStep, orgId?: string) => void },
   opts: { signal?: AbortSignal; onDone?: (result: RetentionRunResult) => void } = {},
 ): Promise<void> {
   await boss.createQueue(RETENTION_QUEUE, {

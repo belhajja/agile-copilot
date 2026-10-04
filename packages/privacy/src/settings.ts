@@ -42,7 +42,9 @@ export const settingsPatchSchema = z
     externalMcpEnabled: z.boolean(),
   })
   .partial()
-  .strict();
+  .strict()
+  // An empty patch changes nothing and would only write a meaningless audit entry.
+  .refine((patch) => Object.keys(patch).length > 0);
 
 export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
 
@@ -59,20 +61,25 @@ export class SettingsError extends Error {
   }
 }
 
+const toSettings = (row: typeof orgSettings.$inferSelect): WorkspaceSettings => ({
+  conversationRetentionDays: row.conversationRetentionDays,
+  usageRetentionDays: row.usageRetentionDays,
+  auditRetentionDays: row.auditRetentionDays,
+  externalMcpEnabled: row.externalMcpEnabled,
+});
+
 export async function getWorkspaceSettings(db: Db, orgId: string): Promise<WorkspaceSettings> {
   const [row] = await withOrg(db, orgId, (tx) =>
     tx.select().from(orgSettings).where(eq(orgSettings.orgId, orgId)),
   );
-  if (!row) return { ...DEFAULT_SETTINGS };
-  return {
-    conversationRetentionDays: row.conversationRetentionDays,
-    usageRetentionDays: row.usageRetentionDays,
-    auditRetentionDays: row.auditRetentionDays,
-    externalMcpEnabled: row.externalMcpEnabled,
-  };
+  return row ? toSettings(row) : { ...DEFAULT_SETTINGS };
 }
 
-/** Owners and admins change settings; every change is audited with the old and new values. */
+/**
+ * Owners and admins change settings; every change is audited with the old and new values. The
+ * current values are read and locked in the write transaction (the row is created with the
+ * defaults first), so concurrent saves never lose a change or audit a stale "from".
+ */
 export async function updateWorkspaceSettings(
   db: Db,
   actor: SettingsActor,
@@ -81,16 +88,19 @@ export async function updateWorkspaceSettings(
   if (!can(actor.roles, 'workspace.settings')) throw new SettingsError('forbidden_role');
   const parsed = settingsPatchSchema.safeParse(patch);
   if (!parsed.success) throw new SettingsError('invalid_input');
-  const before = await getWorkspaceSettings(db, actor.orgId);
-  const after = { ...before, ...parsed.data };
-  await withOrg(db, actor.orgId, async (tx) => {
+  return withOrg(db, actor.orgId, async (tx) => {
+    await tx.insert(orgSettings).values({ orgId: actor.orgId }).onConflictDoNothing();
+    const [row] = await tx
+      .select()
+      .from(orgSettings)
+      .where(eq(orgSettings.orgId, actor.orgId))
+      .for('update');
+    const before = row ? toSettings(row) : { ...DEFAULT_SETTINGS };
+    const after = { ...before, ...parsed.data };
     await tx
-      .insert(orgSettings)
-      .values({ orgId: actor.orgId, ...after, updatedBy: actor.userId })
-      .onConflictDoUpdate({
-        target: orgSettings.orgId,
-        set: { ...after, updatedBy: actor.userId },
-      });
+      .update(orgSettings)
+      .set({ ...after, updatedBy: actor.userId })
+      .where(eq(orgSettings.orgId, actor.orgId));
     const changed = Object.fromEntries(
       Object.entries(parsed.data).map(([k, v]) => [
         k,
@@ -105,6 +115,6 @@ export async function updateWorkspaceSettings(
       targetId: actor.orgId,
       metadata: changed,
     });
+    return after;
   });
-  return after;
 }
