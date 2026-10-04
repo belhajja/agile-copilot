@@ -1,3 +1,4 @@
+import { canManageConnections } from '@agile/auth';
 import { completeJiraOAuth } from '@agile/connections';
 import { cookies } from 'next/headers';
 import { type NextRequest, NextResponse } from 'next/server';
@@ -10,6 +11,11 @@ export async function GET(request: NextRequest) {
   const jar = await cookies();
   const stored = jar.get(OAUTH_STATE_COOKIE)?.value ?? '';
   jar.delete({ name: OAUTH_STATE_COOKIE, path: '/api/jira/oauth' });
+  // Roles can change while the user is at Atlassian; check again before exchanging the code.
+  if (!canManageConnections(actor.roles)) {
+    back.searchParams.set('error', 'forbidden_role');
+    return NextResponse.redirect(back);
+  }
 
   // Cookie is `${state}.${orgId}`. arctic's state is base64url (never contains '.'), but org ids are
   // opaque and might, so split on the FIRST '.' only and keep the remainder as the org id.
