@@ -95,8 +95,8 @@ interface Workspace {
 /**
  * Every workspace the person has rows in, member or not (M2: a former member's conversations,
  * skills, runs, usage, tokens or audit entries stay until erased). RLS shows the app one workspace
- * at a time, so this asks `user_org_ids` (SECURITY DEFINER, P5-R37): one indexed probe per
- * personal table, workspace ids only.
+ * at a time, so this asks `user_org_ids` (SECURITY DEFINER, P5-R37/R38): under each workspace's
+ * RLS context in turn, one indexed probe per personal table; workspace ids only.
  */
 async function personOrgIds(q: Query, userId: string): Promise<string[]> {
   const rows = (await q.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
@@ -527,12 +527,9 @@ export type DeleteAccountResult =
  * to manage or delete it. The workspaces' member rows are locked first (L12), so two owners
  * leaving at once cannot both pass that check.
  *
- * Lock order: user row, member rows, then the person's tenant rows workspace by workspace. A
- * workspace deletion running at the same moment (better-auth's hook) takes the workspace's tenant
- * rows first, then its organisation and member rows: the two can deadlock on one workspace. Both
- * are single transactions, so Postgres aborts one of them whole and nothing is half done; the
- * person (or the owner) retries. Residual, documented: aligning the orders means locking the
- * member rows first in the workspace deletion too (packages/auth).
+ * Lock order: user row, then member rows by id, then the person's tenant rows workspace by
+ * workspace. A workspace deletion (the auth hook) also takes its member rows by id before any
+ * tenant row, so the two serialize on the shared member rows instead of deadlocking.
  */
 export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccountResult> {
   // Before any lock (P5-R37): a workspace the person has rows in now is in this list, member or

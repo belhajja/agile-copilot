@@ -202,6 +202,17 @@ export function createAuth(
             // a subscription (back on the free plan); the owner can subscribe again or retry.
             await beforeWorkspaceDeleted(org.id);
             await withOrg(db, org.id, async (tx) => {
+              // Lock order shared with account deletion (@agile/privacy deleteAccount): the
+              // workspace's member rows first, by id, before any tenant row. better-auth's own
+              // order (crud-org.mjs: this hook, then adapter.deleteOrganization deleting member,
+              // invitation, organization in its own transaction) takes them last, after our
+              // purge, and could deadlock with an account deletion holding them.
+              await tx
+                .select({ id: schema.member.id })
+                .from(schema.member)
+                .where(eq(schema.member.organizationId, org.id))
+                .orderBy(asc(schema.member.id))
+                .for('update');
               // audit_log is append-only for the app role and holds no secrets: it is kept as the
               // record of the deletion, and the retention job purges it 90 days later
               // (deleted_organizations, purge_audit_log).

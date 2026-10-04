@@ -250,6 +250,73 @@ describe('auth', () => {
     }
   });
 
+  it('a workspace deletion locks its member rows before it touches any tenant row', async () => {
+    // Same order as account deletion (member rows first), so the two never deadlock.
+    const { headers } = await auth.api.signUpEmail({
+      body: { email: 'orderly@example.com', password: 'correct-horse-1', name: 'Ord' },
+      returnHeaders: true,
+    });
+    const h = cookieHeader(headers);
+    const org = await auth.api.createOrganization({
+      headers: h,
+      body: { name: 'Orderly', slug: 'orderly' },
+    });
+    const orgId = org?.id ?? '';
+    await withOrg(conn.db, orgId, (tx) =>
+      tx.insert(orgDataKeys).values({ orgId, kekVersion: 1, wrappedDek: 'wrapped' }),
+    );
+    const holder = createDb(tdb.ownerUrl, { max: 1 });
+    const watcher = createDb(tdb.ownerUrl, { max: 1 });
+    let release = () => {};
+    const released = new Promise<void>((r) => {
+      release = r;
+    });
+    let locked = () => {};
+    const isLocked = new Promise<void>((r) => {
+      locked = r;
+    });
+    try {
+      // Someone (an account deletion) holds the workspace's member rows.
+      const held = holder.db.transaction(async (tx) => {
+        await tx.execute(sql`select id from member where organization_id = ${orgId} for update`);
+        locked();
+        await released;
+      });
+      await isLocked;
+      const deletion = auth.api.deleteOrganization({ headers: h, body: { organizationId: orgId } });
+      const waiting = async () =>
+        (
+          (await watcher.db.execute(sql`
+            select pid from pg_stat_activity
+            where wait_event_type = 'Lock' and datname = current_database()`)) as unknown as {
+            pid: number;
+          }[]
+        ).map((r) => r.pid);
+      let pids: number[] = [];
+      for (let i = 0; i < 100 && pids.length === 0; i++) {
+        pids = await waiting();
+        if (pids.length === 0) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(pids).toHaveLength(1);
+      // Blocked on the member rows before writing anything: no tenant table touched yet.
+      const touched = (await watcher.db.execute(sql`
+        select c.relname as name from pg_locks l join pg_class c on c.oid = l.relation
+        where l.pid = ${pids[0]} and l.mode = 'RowExclusiveLock'
+          and c.relname in ('org_data_keys', 'audit_log', 'organization')`)) as unknown as {
+        name: string;
+      }[];
+      expect(touched).toEqual([]);
+      release();
+      await held;
+      await deletion;
+      expect(await watcher.db.$count(organization, eq(organization.id, orgId))).toBe(0);
+    } finally {
+      release();
+      await holder.close();
+      await watcher.close();
+    }
+  });
+
   it('returns no roles for a non-member', async () => {
     expect(await getMemberRoles(conn.db, 'org_missing', 'user_missing')).toEqual([]);
     expect(canManageConnections(['member'])).toBe(false);
