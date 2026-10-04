@@ -58,6 +58,22 @@ services:
   mailpit:
     image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
     ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+  # Development identity provider (SSO). Opt-in: `docker compose --profile sso up -d keycloak`,
+  # then set OIDC_ISSUER=http://localhost:4100/realms/agile, OIDC_CLIENT_ID=agile-copilot and
+  # OIDC_CLIENT_SECRET=dev-only-client-secret (users alice / alice-dev-password and
+  # eve / eve-dev-password; console admin / admin). Development only: never use this realm or
+  # these passwords anywhere else. Published on loopback only.
+  keycloak:
+    # Pinned by digest; must equal KEYCLOAK_IMAGE in packages/auth/src/testing/keycloak.ts (tested).
+    image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    profiles: [sso]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      - ./docker/keycloak/agile-realm.json:/opt/keycloak/data/import/agile-realm.json:ro
+    ports: ["127.0.0.1:4100:8080"]
 networks:
   mcp: {}
   mcp-readonly: {}
