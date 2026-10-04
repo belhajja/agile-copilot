@@ -1,4 +1,11 @@
-import { categoryAt, indexIssues, membersAt, valueAt } from './issue';
+import {
+  CLOSE_TOLERANCE_MS,
+  categoryAt,
+  indexIssues,
+  membersAt,
+  membersAtClose,
+  valueAt,
+} from './issue';
 import type { BoardDataset, MetricIssue, MetricSprint, Unit } from './model';
 import { round, sum } from './stats';
 import { eachUtcDay, endOfDayCapped, isoDay } from './time';
@@ -33,7 +40,20 @@ export interface CarryOver {
 }
 
 const ms = (d: Date) => d.getTime();
-const justBefore = (d: Date) => new Date(ms(d) - 1);
+const total = (values: number[]) => round(sum(values), 2);
+
+/** Issues in the sprint at its start, excluding ones already done then (completed elsewhere). */
+function committedIssues(
+  sprint: MetricSprint & { startAt: Date },
+  byId: Map<string, MetricIssue>,
+): MetricIssue[] {
+  return pick(membersAt(sprint, sprint.startAt), byId).filter(
+    (i) => categoryAt(i, sprint.startAt) !== 'done',
+  );
+}
+
+const closeMembers = (s: MetricSprint & { completeAt: Date }, byId: Map<string, MetricIssue>) =>
+  pick(membersAtClose(s), byId);
 
 function pick(ids: Iterable<string>, byId: Map<string, MetricIssue>): MetricIssue[] {
   return [...ids].flatMap((id) => {
@@ -69,18 +89,20 @@ export function velocity(
 ): SprintVelocity[] {
   const unit = opts.unit ?? 'points';
   const byId = indexIssues(ds.issues);
+  const requested = opts.sprints ?? 6;
+  const count = Number.isFinite(requested) ? Math.max(1, Math.floor(requested)) : 6;
   return closedSprints(ds)
-    .slice(-(opts.sprints ?? 6))
+    .slice(-count)
     .map((s) => {
-      const committed = pick(membersAt(s, s.startAt), byId);
-      const done = pick(membersAt(s, justBefore(s.completeAt)), byId).filter(
-        (i) => categoryAt(i, s.completeAt) === 'done',
+      const committed = committedIssues(s, byId);
+      const done = closeMembers(s, byId).filter(
+        (i) => categoryAt(i, s.completeAt) === 'done' && categoryAt(i, s.startAt) !== 'done',
       );
       return {
         sprintId: s.id,
         name: s.name,
-        committed: sum(committed.map((i) => valueAt(i, s.startAt, unit))),
-        completed: sum(done.map((i) => valueAt(i, s.completeAt, unit))),
+        committed: total(committed.map((i) => valueAt(i, s.startAt, unit))),
+        completed: total(done.map((i) => valueAt(i, s.completeAt, unit))),
         committedCount: committed.length,
         completedCount: done.length,
       };
@@ -107,12 +129,15 @@ export function scopeChange(
   sprint: MetricSprint,
   opts: { unit?: Unit; now: Date },
 ): ScopeChange | null {
-  if (!sprint.startAt) return null;
+  if (!sprint.startAt || (sprint.state === 'closed' && !sprint.completeAt)) return null;
   const unit = opts.unit ?? 'points';
   const start = sprint.startAt;
   const end = sprint.completeAt ?? opts.now;
+  // Removals stamped just before close are Jira's close-time cleanup, not scope removed.
+  const removedEnd = sprint.completeAt ? new Date(ms(end) - CLOSE_TOLERANCE_MS) : end;
   const byId = indexIssues(ds.issues);
   const within = (d: Date) => ms(d) > ms(start) && ms(d) < ms(end);
+  const removedWithin = (d: Date) => ms(d) > ms(start) && ms(d) < ms(removedEnd);
   const added = new Map<string, number>();
   const removed = new Map<string, number>();
   for (const m of sprint.members) {
@@ -120,17 +145,17 @@ export function scopeChange(
     if (!issue) continue;
     if (within(m.addedAt) && !added.has(issue.id))
       added.set(issue.id, valueAt(issue, m.addedAt, unit));
-    if (m.removedAt && within(m.removedAt) && !removed.has(issue.id)) {
+    if (m.removedAt && removedWithin(m.removedAt) && !removed.has(issue.id)) {
       removed.set(issue.id, valueAt(issue, m.removedAt, unit));
     }
   }
-  const committed = pick(membersAt(sprint, start), byId);
+  const committed = committedIssues({ ...sprint, startAt: start }, byId);
   return {
     sprintId: sprint.id,
     name: sprint.name,
-    committed: sum(committed.map((i) => valueAt(i, start, unit))),
-    added: sum([...added.values()]),
-    removed: sum([...removed.values()]),
+    committed: total(committed.map((i) => valueAt(i, start, unit))),
+    added: total([...added.values()]),
+    removed: total([...removed.values()]),
     addedCount: added.size,
     removedCount: removed.size,
   };
@@ -140,14 +165,14 @@ export function scopeChange(
 export function carryOver(ds: BoardDataset, sprint: MetricSprint): CarryOver | null {
   if (sprint.state !== 'closed' || !sprint.completeAt) return null;
   const at = sprint.completeAt;
-  const left = pick(membersAt(sprint, justBefore(at)), indexIssues(ds.issues)).filter(
+  const left = closeMembers({ ...sprint, completeAt: at }, indexIssues(ds.issues)).filter(
     (i) => categoryAt(i, at) !== 'done',
   );
   return {
     sprintId: sprint.id,
     name: sprint.name,
     count: left.length,
-    points: sum(left.map((i) => valueAt(i, at, 'points'))),
+    points: total(left.map((i) => valueAt(i, at, 'points'))),
     issueKeys: left.map((i) => i.key).sort(),
   };
 }
@@ -170,18 +195,17 @@ export function sprintBurn(
   ds: BoardDataset,
   sprint: MetricSprint,
   opts: { unit?: Unit; now: Date },
-): BurnRow[] {
-  if (!sprint.startAt) return [];
+): BurnRow[] | null {
+  if (!sprint.startAt || (sprint.state === 'closed' && !sprint.completeAt)) return null;
   const unit = opts.unit ?? 'points';
   const byId = indexIssues(ds.issues);
   const cap = sprint.completeAt ?? opts.now;
   const plannedEnd = sprint.endAt ?? cap;
-  const lastDay = new Date(Math.max(ms(plannedEnd), ms(sprint.completeAt ?? plannedEnd)));
+  const lastDay = new Date(Math.max(ms(plannedEnd), ms(sprint.completeAt ?? cap)));
   const days = eachUtcDay(sprint.startAt, lastDay);
-  const committed = sum(
-    pick(membersAt(sprint, sprint.startAt), byId).map((i) =>
-      valueAt(i, sprint.startAt as Date, unit),
-    ),
+  const start = sprint.startAt;
+  const committed = total(
+    committedIssues({ ...sprint, startAt: start }, byId).map((i) => valueAt(i, start, unit)),
   );
   const plannedDays = Math.max(1, eachUtcDay(sprint.startAt, plannedEnd).length - 1);
   return days.map((day, index) => {
@@ -190,10 +214,13 @@ export function sprintBurn(
       return { day: isoDay(day), remaining: null, ideal, scope: null, completed: null };
     }
     const at = endOfDayCapped(day, cap);
-    const members = pick(membersAt(sprint, at), byId);
+    const members =
+      sprint.completeAt && ms(at) >= ms(sprint.completeAt)
+        ? closeMembers({ ...sprint, completeAt: sprint.completeAt }, byId)
+        : pick(membersAt(sprint, at), byId);
     const done = members.filter((i) => categoryAt(i, at) === 'done');
-    const scope = sum(members.map((i) => valueAt(i, at, unit)));
-    const completed = sum(done.map((i) => valueAt(i, at, unit)));
+    const scope = total(members.map((i) => valueAt(i, at, unit)));
+    const completed = total(done.map((i) => valueAt(i, at, unit)));
     return { day: isoDay(day), remaining: round(scope - completed, 2), ideal, scope, completed };
   });
 }

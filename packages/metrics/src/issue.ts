@@ -67,5 +67,22 @@ export function membersAt(sprint: MetricSprint, at: Date): Set<string> {
   return ids;
 }
 
+/** Membership changes stamped this close to `completeAt` count as happening at close. */
+export const CLOSE_TOLERANCE_MS = 60_000;
+
+/** Ids of the issues in a closed sprint just before it closed (60 s tolerance for removals). */
+export function membersAtClose(sprint: MetricSprint & { completeAt: Date }): Set<string> {
+  const close = t(sprint.completeAt);
+  const ids = new Set<string>();
+  for (const m of sprint.members) {
+    if (
+      t(m.addedAt) < close &&
+      (m.removedAt === null || t(m.removedAt) > close - CLOSE_TOLERANCE_MS)
+    )
+      ids.add(m.issueId);
+  }
+  return ids;
+}
+
 export const indexIssues = (issues: readonly MetricIssue[]) =>
   new Map(issues.map((i) => [i.id, i] as const));
