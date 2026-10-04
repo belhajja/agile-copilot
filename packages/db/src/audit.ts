@@ -43,7 +43,10 @@ export type AuditAction =
   | 'billing.checkout_started'
   | 'billing.subscription_changed'
   | 'billing.foreign_subscription'
-  | 'workspace.settings_changed';
+  | 'workspace.settings_changed'
+  | 'mcp.token_created'
+  | 'mcp.token_revoked'
+  | 'mcp.tool_called';
 
 /** metadata must never contain secrets — pass only non-sensitive descriptors. */
 export async function recordAudit(

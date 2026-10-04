@@ -4,5 +4,6 @@ export * from './auth';
 export * from './billing';
 export * from './dashboards';
 export * from './jira-data';
+export * from './mcp';
 export * from './privacy';
 export * from './skills';

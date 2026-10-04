@@ -613,6 +613,37 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
 
+  packages/mcp-gateway:
+    dependencies:
+      '@agile/analytics-mcp':
+        specifier: workspace:*
+        version: link:../analytics-mcp
+      '@agile/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../db
+      '@agile/privacy':
+        specifier: workspace:*
+        version: link:../privacy
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.0
+        version: 1.32.0(zod@4.6.5)
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@agile/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
+
   packages/metrics:
     dependencies:
       pure-rand:
