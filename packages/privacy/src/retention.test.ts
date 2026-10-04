@@ -14,6 +14,7 @@ import {
   organization,
   personalDataExports,
   session,
+  signInAttempts,
   skillBuilderCalls,
   skillRuns,
   skills,
@@ -31,6 +32,7 @@ import {
   PERSONAL_DATA_EXPORTS_RETENTION_DAYS,
   RETENTION_BATCH_SIZE,
   runRetention,
+  SIGN_IN_ATTEMPTS_RETENTION_DAYS,
   STRIPE_EVENTS_RETENTION_DAYS,
 } from './retention';
 import {
@@ -469,6 +471,7 @@ describe('retention and workspace settings', () => {
       invitations: 0,
       personalDataExports: 0,
       stripeEvents: 0,
+      signInAttempts: 0,
       interrupted: true,
     });
   });
@@ -521,6 +524,7 @@ describe('retention and workspace settings', () => {
       invitations: 0,
       personalDataExports: 0,
       stripeEvents: 0,
+      signInAttempts: 0,
       interrupted: false,
     });
     const remaining = await raw.db.select({ org: auditLog.orgId }).from(auditLog);
@@ -629,6 +633,26 @@ describe('retention and workspace settings', () => {
     expect(
       (await raw.db.select({ id: stripeEvents.id }).from(stripeEvents)).map((r) => r.id),
     ).toEqual(['evt_recent']);
+  });
+
+  it('forgets sign-in attempt windows a day after they started, in batches', async () => {
+    expect(SIGN_IN_ATTEMPTS_RETENTION_DAYS).toBe(1);
+    await raw.db.insert(signInAttempts).values([
+      { keyHash: 'k_old_1', attempts: 3, windowStartedAt: daysAgo(2) },
+      { keyHash: 'k_old_2', attempts: 10, windowStartedAt: new Date(NOW.getTime() - 25 * HOUR) },
+      { keyHash: 'k_old_3', attempts: 1, windowStartedAt: daysAgo(30) },
+      // Within the last day: kept (the limiter itself only needs 15 minutes).
+      { keyHash: 'k_recent', attempts: 2, windowStartedAt: new Date(NOW.getTime() - 23 * HOUR) },
+      { keyHash: 'k_live', attempts: 4, windowStartedAt: new Date(NOW.getTime() - 60_000) },
+    ]);
+    const result = await runRetention(app.db, { now: NOW, batchSize: 2 });
+    expect(result.signInAttempts).toBe(3);
+    expect(result.failed.global).toBe(0);
+    expect(
+      (await raw.db.select({ k: signInAttempts.keyHash }).from(signInAttempts))
+        .map((r) => r.k)
+        .sort(),
+    ).toEqual(['k_live', 'k_recent']);
   });
 
   it('deletes usage written for a deleted workspace after its purge (an in-flight run)', async () => {

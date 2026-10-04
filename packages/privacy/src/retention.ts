@@ -10,6 +10,7 @@ import {
   organization,
   personalDataExports,
   session,
+  signInAttempts,
   skillBuilderCalls,
   skillRuns,
   stripeEvents,
@@ -50,6 +51,11 @@ export const INVITATIONS_RETENTION_DAYS = 30;
 export const PERSONAL_DATA_EXPORTS_RETENTION_DAYS = 30;
 /** Processed Stripe event ids (deduplication; Stripe retries deliveries for 3 days). */
 export const STRIPE_EVENTS_RETENTION_DAYS = 30;
+/**
+ * Per-account sign-in attempt windows (P5-R47): the limiter only reads the last 15 minutes; a
+ * day covers any clock skew. Keyed hashes of addresses, still not kept longer than needed.
+ */
+export const SIGN_IN_ATTEMPTS_RETENTION_DAYS = 1;
 /** Rows deleted per statement, each in its own short transaction. */
 export const RETENTION_BATCH_SIZE = 5000;
 
@@ -92,6 +98,8 @@ export interface RetentionRunResult {
   personalDataExports: number;
   /** Stripe event ids past `STRIPE_EVENTS_RETENTION_DAYS`. */
   stripeEvents: number;
+  /** Sign-in attempt windows started more than `SIGN_IN_ATTEMPTS_RETENTION_DAYS` ago. */
+  signInAttempts: number;
   /** The worker stopped during the run (the next run picks up the rest). */
   interrupted: boolean;
 }
@@ -323,7 +331,8 @@ export async function applyRetention(
 
 /**
  * Sessions and verifications more than a day past their expiry, old invitations, export and
- * deletion-attempt records, and processed Stripe event ids (not tenant data). `expires_at`/`created_at` are timestamps without time zone holding UTC (better-auth
+ * deletion-attempt records, processed Stripe event ids and old sign-in attempt windows (not
+ * tenant data). `expires_at`/`created_at` are timestamps without time zone holding UTC (better-auth
  * through drizzle), compared the same way.
  */
 async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
@@ -424,12 +433,32 @@ async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
       ).count,
     opts,
   );
+  const attemptsCutoff = new Date(now.getTime() - SIGN_IN_ATTEMPTS_RETENTION_DAYS * DAY);
+  const signInAttemptsDeleted = await drain(
+    async (size) =>
+      (
+        await db
+          .delete(signInAttempts)
+          .where(
+            inArray(
+              signInAttempts.keyHash,
+              db
+                .select({ keyHash: signInAttempts.keyHash })
+                .from(signInAttempts)
+                .where(lt(signInAttempts.windowStartedAt, attemptsCutoff))
+                .limit(size),
+            ),
+          )
+      ).count,
+    opts,
+  );
   return {
     sessions,
     verifications,
     invitations,
     personalDataExports: personalDataExportsDeleted,
     stripeEvents: stripeEventsDeleted,
+    signInAttempts: signInAttemptsDeleted,
   };
 }
 
@@ -459,6 +488,7 @@ export async function runRetention(
     invitations: 0,
     personalDataExports: 0,
     stripeEvents: 0,
+    signInAttempts: 0,
     interrupted: false,
   };
   const stopped = () => {
