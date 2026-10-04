@@ -68,14 +68,12 @@ describe('Phase 5 roles in the schema', () => {
         ),
       ).toEqual({ code: '23514', constraint: 'member_role_check' });
     }
-    // The generated column default (`member`) is refused too.
-    expect(
-      await pgError(
-        owner.db.execute(sql`
-          insert into member (id, organization_id, user_id, created_at)
-          values ('g5', 'og', 'g5', now())`),
-      ),
-    ).toEqual({ code: '23514', constraint: 'member_role_check' });
+    // The column default is the least privileged role the CHECK allows (0034; it was `member`).
+    const defaulted = (await owner.db.execute(sql`
+      insert into member (id, organization_id, user_id, created_at)
+      values ('g5', 'og', 'g5', now()) returning role`)) as unknown as { role: string }[];
+    expect(defaulted.map((r) => r.role)).toEqual(['viewer']);
+    await owner.db.execute(sql`delete from member where id = 'g5'`);
 
     expect(
       await pgError(

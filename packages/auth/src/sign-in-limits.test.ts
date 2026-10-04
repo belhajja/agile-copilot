@@ -39,8 +39,11 @@ describe('sign-in limits', () => {
       }),
     );
   const statusOf = async (r: Promise<Response>) => (await r).status;
-  const count = (statuses: number[]) =>
-    statuses.reduce<Record<number, number>>((m, s) => ({ ...m, [s]: (m[s] ?? 0) + 1 }), {});
+  const count = (statuses: number[]) => {
+    const counts: Record<number, number> = {};
+    for (const s of statuses) counts[s] = (counts[s] ?? 0) + 1;
+    return counts;
+  };
 
   beforeAll(async () => {
     tdb = await startTestDatabase();
