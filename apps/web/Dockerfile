@@ -11,9 +11,11 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY e2e/package.json e2e/
+COPY evals/package.json evals/
 COPY packages/ packages/
 RUN find packages -type f ! -name package.json -delete
-RUN pnpm install --frozen-lockfile
+# The evals workspace (promptfoo, ~1.7 GB installed) is not part of any image.
+RUN pnpm install --frozen-lockfile --filter '!@agile/evals'
 
 FROM deps AS build
 COPY . .

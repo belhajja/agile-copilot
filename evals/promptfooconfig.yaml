@@ -1,0 +1,24 @@
+# Deterministic agent evals (CI): the real agent, tools, approvals and data envelopes against the
+# scripted mock model on the demo Jira data. Every test must pass (PROMPTFOO_PASS_RATE_THRESHOLD
+# defaults to 100). These are PLUMBING-ONLY checks: the scripted model is written to satisfy the
+# assertions, so a pass proves tools, numbers from the metrics engine, approvals and data envelopes
+# are wired correctly, not that a model behaves well (promptfooconfig.live.yaml measures that).
+# No secret is read by this job.
+description: Agile Copilot agent (mock model)
+prompts:
+  - '{{question}}'
+providers:
+  - id: file://provider.ts
+    label: mock-model
+evaluateOptions:
+  maxConcurrency: 1
+defaultTest:
+  options:
+    provider: file://provider.ts
+  assert:
+    # Never a Jira change without an approval, whatever the test.
+    - type: javascript
+      value: context.providerResponse.metadata.jiraWrites === 0
+tests:
+  - file://tests/agent.yaml
+  - file://tests/skills.yaml

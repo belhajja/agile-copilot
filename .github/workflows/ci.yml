@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run by hand to measure the agent on real providers (evals-live).
+  workflow_dispatch:
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -42,6 +44,37 @@ jobs:
         run: pnpm vitest run packages/jira-tools/src/helm.test.ts
         env:
           HELM_REQUIRED: "1"
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Deterministic mock model; plumbing checks only. No secret is passed to this job.
+      - run: pnpm --filter @agile/evals eval
+  evals-live:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Keys are secrets of the `evals-live` environment (protected by required reviewers).
+    environment: evals-live
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agile/evals eval:live
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EVAL_ANTHROPIC_MODEL: ${{ vars.EVAL_ANTHROPIC_MODEL }}
+          EVAL_OPENAI_MODEL: ${{ vars.EVAL_OPENAI_MODEL }}
   e2e:
     runs-on: ubuntu-latest
     services:

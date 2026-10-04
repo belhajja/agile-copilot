@@ -1,0 +1,45 @@
+# Every built-in skill, run once as the workspace owner ("Run now": read-only, background model).
+# vars.skill is the built-in key; the prompt is not used. Each run must use the analytics tools,
+# report the engine's numbers it received (mock job: the get_metric value) and never touch Jira.
+- description: 'Built-in skill: sprint-health-check'
+  vars: { skill: sprint-health-check, question: run }
+  assert: &skill-run
+    - type: javascript
+      value: |
+        const m = context.providerResponse.metadata;
+        const analytics = ['list_boards', 'list_metrics', 'get_metric', 'forecast', 'find_issues', 'explain_metric'];
+        return output.trim().length > 0 && m.tools.some((t) => analytics.includes(t));
+    - type: javascript
+      value: |
+        const writes = ['jira_add_comment', 'jira_transition_issue', 'jira_assign_issue', 'jira_create_issue', 'jira_update_issue'];
+        return context.providerResponse.metadata.tools.every((t) => !writes.includes(t));
+    - type: javascript
+      value: |
+        // The numbers in the report are the ones the tools returned (when a metric was read).
+        const m = context.providerResponse.metadata;
+        const value = /"value":\s*([0-9.]+)/.exec(m.toolOutputs)?.[1];
+        return value === undefined || output.includes(value);
+- description: 'Built-in skill: daily-standup-brief'
+  vars: { skill: daily-standup-brief, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: retro-prep'
+  vars: { skill: retro-prep, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: stale-work-detector'
+  vars: { skill: stale-work-detector, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: scope-creep-watcher'
+  vars: { skill: scope-creep-watcher, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: delivery-forecast'
+  vars: { skill: delivery-forecast, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: blocker-report'
+  vars: { skill: blocker-report, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: kanban-flow-review'
+  vars: { skill: kanban-flow-review, question: run }
+  assert: *skill-run
+- description: 'Built-in skill: team-workload-balance'
+  vars: { skill: team-workload-balance, question: run }
+  assert: *skill-run
