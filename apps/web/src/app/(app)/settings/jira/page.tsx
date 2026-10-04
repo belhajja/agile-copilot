@@ -27,7 +27,7 @@ export default async function JiraSettingsPage({
   const canManage = canManageConnections(actor.roles);
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto grid w-full max-w-4xl gap-6">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground">{t('description')}</p>

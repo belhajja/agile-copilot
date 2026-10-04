@@ -15,10 +15,14 @@ async function connectDemoJira(page: Page) {
   await expect(connectionItem(page, 'Demo Jira').getByText('Connected')).toBeVisible();
 }
 
+const kpi = (page: Page, id: string) =>
+  page.locator(`[data-widget="${id}"] [data-slot="card-title"]`);
 // The first visit of a route makes `next dev` compile it (recharts, pg-boss…), which can be slow.
 const firstCompile = { timeout: 60_000 };
 
-test('select boards, map statuses and sync them', async ({ page }) => {
+test('select boards, map statuses, sync, and read the Scrum and Kanban dashboards', async ({
+  page,
+}) => {
   await signUpWithWorkspace(page);
   await connectDemoJira(page);
 
@@ -40,7 +44,7 @@ test('select boards, map statuses and sync them', async ({ page }) => {
   await review.getByRole('checkbox').check();
   await scrumMapping.getByRole('button', { name: 'Save mapping' }).click();
   await expect(page.getByText('Status mapping saved.')).toBeVisible();
-  // Undo it: the dashboards (Task 13) are checked against the default mapping.
+  // Undo it so the dashboard numbers below match the default mapping.
   await page
     .locator('[data-board="DEMO Scrum"] [data-status="In Review"]')
     .getByRole('checkbox')
@@ -49,8 +53,40 @@ test('select boards, map statuses and sync them', async ({ page }) => {
     .locator('[data-board="DEMO Scrum"]')
     .getByRole('button', { name: 'Save mapping' })
     .click();
+  // Wait for the second save too, or the sync could run before the mapping is stored.
+  await expect(page.getByText('Status mapping saved.')).toBeVisible();
 
   // Sync (runs in the worker)
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByText(/^Synced /)).toBeVisible({ timeout: 90_000 });
+
+  // Scrum dashboard
+  await page.goto('/');
+  await page.getByRole('link', { name: /DEMO Scrum/ }).click();
+  await expect(page.getByRole('heading', { name: 'DEMO Scrum' })).toBeVisible(firstCompile);
+  await expect(kpi(page, 'avg-velocity')).toHaveText('19 pts');
+  await expect(kpi(page, 'say-do')).toHaveText('95%');
+  await expect(kpi(page, 'scope-added')).toHaveText('2 pts');
+  await expect(kpi(page, 'carry-over')).toHaveText('1 issue');
+  await expect(
+    page.locator('[data-widget="velocity"] .recharts-bar-rectangle').first(),
+  ).toBeVisible();
+  await expect(page.locator('[data-widget="burndown"] .recharts-line').first()).toBeVisible();
+
+  // The flow dashboard of the same board
+  await page.getByRole('tab', { name: 'Flow' }).click();
+  await expect(
+    page.locator('[data-widget="throughput"] .recharts-bar-rectangle').first(),
+  ).toBeVisible();
+
+  // Kanban dashboard
+  await page.goto('/');
+  await page.getByRole('link', { name: /OPS Kanban/ }).click();
+  await expect(page.getByRole('tab')).toHaveText(['Flow']);
+  await expect(kpi(page, 'throughput-rate')).toHaveText('3 / week');
+  await expect(kpi(page, 'cycle-time')).toHaveText('8 days');
+  await expect(kpi(page, 'wip')).toHaveText('4 issues');
+  await expect(kpi(page, 'flow-efficiency')).toHaveText('83%');
+  await expect(page.locator('[data-widget="cfd"] .recharts-area').first()).toBeVisible();
+  await expect(page.locator('[data-widget="aging-wip"] tbody tr')).toHaveCount(4);
 });

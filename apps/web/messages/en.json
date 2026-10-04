@@ -62,7 +62,10 @@
     "connectLlm": "Connect an AI model",
     "connectLlmHint": "Your own key powers the assistant.",
     "done": "Done",
-    "todo": "To do"
+    "todo": "To do",
+    "chooseBoards": "Choose boards to sync",
+    "chooseBoardsHint": "Pick boards, check the status mapping and run a first sync.",
+    "yourBoards": "Your boards"
   },
   "jira": {
     "title": "Jira connections",
@@ -252,5 +255,149 @@
       "jira_paging": "Jira returned more results than expected. Try again later.",
       "abandoned": "The previous sync was interrupted. Try again."
     }
+  },
+  "dashboards": {
+    "lastSynced": "Synced {when}",
+    "neverSynced": "Not synced yet",
+    "noData": "No data for this board yet",
+    "noDataHint": "Run a sync from the board settings; dashboards fill in as soon as it finishes.",
+    "openSettings": "Open board settings",
+    "kinds": {
+      "scrum": "Sprint",
+      "kanban": "Flow"
+    },
+    "metrics": {
+      "average_velocity": {
+        "title": "Average velocity",
+        "description": "Work completed per closed sprint."
+      },
+      "say_do_ratio": {
+        "title": "Say/do ratio",
+        "description": "Completed versus committed at sprint start."
+      },
+      "velocity": {
+        "title": "Velocity",
+        "description": "Committed at sprint start versus completed at sprint end."
+      },
+      "scope_change": {
+        "title": "Scope added",
+        "description": "Work added to the sprint after it started."
+      },
+      "carry_over": {
+        "title": "Carried over",
+        "description": "Issues still open when the last sprint closed."
+      },
+      "sprint_burndown": {
+        "title": "Sprint burndown",
+        "description": "Work remaining each day against the ideal line."
+      },
+      "sprint_burnup": {
+        "title": "Sprint burnup",
+        "description": "Work completed each day against the sprint scope."
+      },
+      "cycle_time": {
+        "title": "Cycle time",
+        "description": "Days from start to done (85th percentile)."
+      },
+      "lead_time": {
+        "title": "Lead time",
+        "description": "Days from creation to done."
+      },
+      "throughput": {
+        "title": "Weekly throughput",
+        "description": "Issues finished each week."
+      },
+      "throughput_rate": {
+        "title": "Throughput",
+        "description": "Issues finished per week, recent average."
+      },
+      "wip": {
+        "title": "Work in progress",
+        "description": "Issues in progress right now."
+      },
+      "wip_trend": {
+        "title": "Work in progress over time",
+        "description": "Issues in progress at the end of each day."
+      },
+      "aging_wip": {
+        "title": "Aging work in progress",
+        "description": "How long each in-progress issue has been going."
+      },
+      "cfd": {
+        "title": "Cumulative flow",
+        "description": "Issues per workflow stage, day by day."
+      },
+      "flow_efficiency": {
+        "title": "Flow efficiency",
+        "description": "Share of cycle time not spent blocked or waiting."
+      },
+      "forecast_how_many": {
+        "title": "How many in the next {days} days?",
+        "description": "Monte Carlo forecast from recent throughput."
+      },
+      "forecast_when": {
+        "title": "When will the next {items} be done?",
+        "description": "Monte Carlo forecast from recent throughput."
+      },
+      "hygiene": {
+        "title": "Needs attention",
+        "description": "Stale, unestimated, unassigned or oversized open issues."
+      }
+    },
+    "series": {
+      "committed": "Committed",
+      "completed": "Completed",
+      "remaining": "Remaining",
+      "ideal": "Ideal",
+      "scope": "Scope",
+      "done": "Done",
+      "wip": "In progress",
+      "todo": "To do",
+      "inProgress": "In progress"
+    },
+    "columns": {
+      "percentile": "Percentile",
+      "days": "Days",
+      "key": "Issue",
+      "summary": "Summary",
+      "age": "Age",
+      "status": "Status",
+      "confidence": "Confidence",
+      "items": "At least",
+      "date": "By",
+      "problems": "Problems"
+    },
+    "codes": {
+      "blocked": "Blocked",
+      "late": "Older than usual",
+      "on_track": "On track",
+      "stale": "Not updated for 2 weeks",
+      "missing_estimate": "No estimate",
+      "unassigned_in_progress": "In progress, unassigned",
+      "oversized": "Too big"
+    },
+    "units": {
+      "points": "{value} pts",
+      "issues": "{count, plural, one {{value} issue} other {{value} issues}}",
+      "days": "{count, plural, one {{value} day} other {{value} days}}",
+      "per_week": "{value} / week",
+      "number": "{value}",
+      "percent": "{value}"
+    },
+    "hints": {
+      "lastSprints": "Last {count, plural, one {sprint} other {# sprints}}",
+      "scopeRemoved": "{removed} removed · {sprint}",
+      "carriedFrom": "Not finished in {sprint}",
+      "finishedIn": "{count} finished in the last {days} days",
+      "lastDays": "Last {days} days",
+      "blockedDays": "{days} days blocked or waiting"
+    },
+    "empty": {
+      "no_sprint": "No sprint to show yet.",
+      "no_data": "Not enough data yet.",
+      "no_estimates": "This board has no estimates."
+    },
+    "notEnoughData": "Not enough data yet",
+    "cappedDays": "≥ {days} days"
   }
 }

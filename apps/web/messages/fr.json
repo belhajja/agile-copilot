@@ -62,7 +62,10 @@
     "connectLlm": "Connecter un modèle d'IA",
     "connectLlmHint": "Votre propre clé alimente l'assistant.",
     "done": "Fait",
-    "todo": "À faire"
+    "todo": "À faire",
+    "chooseBoards": "Choisir les tableaux à synchroniser",
+    "chooseBoardsHint": "Sélectionnez des tableaux, vérifiez la correspondance des statuts et lancez une première synchronisation.",
+    "yourBoards": "Vos tableaux"
   },
   "jira": {
     "title": "Connexions Jira",
@@ -252,5 +255,149 @@
       "jira_paging": "Jira a renvoyé plus de résultats que prévu. Réessayez plus tard.",
       "abandoned": "La synchronisation précédente a été interrompue. Réessayez."
     }
+  },
+  "dashboards": {
+    "lastSynced": "Synchronisé {when}",
+    "neverSynced": "Pas encore synchronisé",
+    "noData": "Aucune donnée pour ce tableau",
+    "noDataHint": "Lancez une synchronisation depuis les réglages du tableau ; les tableaux de bord se remplissent dès qu'elle se termine.",
+    "openSettings": "Ouvrir les réglages du tableau",
+    "kinds": {
+      "scrum": "Sprint",
+      "kanban": "Flux"
+    },
+    "metrics": {
+      "average_velocity": {
+        "title": "Vélocité moyenne",
+        "description": "Travail terminé par sprint clôturé."
+      },
+      "say_do_ratio": {
+        "title": "Engagement tenu",
+        "description": "Terminé par rapport à l'engagement de début de sprint."
+      },
+      "velocity": {
+        "title": "Vélocité",
+        "description": "Engagé au début du sprint et terminé à la fin."
+      },
+      "scope_change": {
+        "title": "Périmètre ajouté",
+        "description": "Travail ajouté au sprint après son démarrage."
+      },
+      "carry_over": {
+        "title": "Reporté",
+        "description": "Tickets encore ouverts à la clôture du dernier sprint."
+      },
+      "sprint_burndown": {
+        "title": "Burndown du sprint",
+        "description": "Reste à faire chaque jour face à la courbe idéale."
+      },
+      "sprint_burnup": {
+        "title": "Burnup du sprint",
+        "description": "Travail terminé chaque jour face au périmètre du sprint."
+      },
+      "cycle_time": {
+        "title": "Temps de cycle",
+        "description": "Jours entre le démarrage et la fin (85e centile)."
+      },
+      "lead_time": {
+        "title": "Délai de livraison",
+        "description": "Jours entre la création et la fin."
+      },
+      "throughput": {
+        "title": "Débit hebdomadaire",
+        "description": "Tickets terminés chaque semaine."
+      },
+      "throughput_rate": {
+        "title": "Débit",
+        "description": "Tickets terminés par semaine, moyenne récente."
+      },
+      "wip": {
+        "title": "En cours",
+        "description": "Tickets en cours en ce moment."
+      },
+      "wip_trend": {
+        "title": "En cours dans le temps",
+        "description": "Tickets en cours à la fin de chaque jour."
+      },
+      "aging_wip": {
+        "title": "Âge du travail en cours",
+        "description": "Depuis combien de temps chaque ticket en cours avance."
+      },
+      "cfd": {
+        "title": "Flux cumulé",
+        "description": "Tickets par étape du workflow, jour après jour."
+      },
+      "flow_efficiency": {
+        "title": "Efficacité du flux",
+        "description": "Part du temps de cycle hors blocage ou attente."
+      },
+      "forecast_how_many": {
+        "title": "Combien dans les {days} prochains jours ?",
+        "description": "Prévision Monte-Carlo à partir du débit récent."
+      },
+      "forecast_when": {
+        "title": "Quand les {items} prochains seront-ils terminés ?",
+        "description": "Prévision Monte-Carlo à partir du débit récent."
+      },
+      "hygiene": {
+        "title": "À surveiller",
+        "description": "Tickets ouverts inactifs, non estimés, non assignés ou trop gros."
+      }
+    },
+    "series": {
+      "committed": "Engagé",
+      "completed": "Terminé",
+      "remaining": "Reste à faire",
+      "ideal": "Idéal",
+      "scope": "Périmètre",
+      "done": "Terminé",
+      "wip": "En cours",
+      "todo": "À faire",
+      "inProgress": "En cours"
+    },
+    "columns": {
+      "percentile": "Centile",
+      "days": "Jours",
+      "key": "Ticket",
+      "summary": "Résumé",
+      "age": "Âge",
+      "status": "État",
+      "confidence": "Confiance",
+      "items": "Au moins",
+      "date": "D'ici le",
+      "problems": "Problèmes"
+    },
+    "codes": {
+      "blocked": "Bloqué",
+      "late": "Plus ancien que d'habitude",
+      "on_track": "Dans les temps",
+      "stale": "Pas mis à jour depuis 2 semaines",
+      "missing_estimate": "Sans estimation",
+      "unassigned_in_progress": "En cours, non assigné",
+      "oversized": "Trop gros"
+    },
+    "units": {
+      "points": "{value} pts",
+      "issues": "{count, plural, one {{value} ticket} other {{value} tickets}}",
+      "days": "{count, plural, one {{value} jour} other {{value} jours}}",
+      "per_week": "{value} / semaine",
+      "number": "{value}",
+      "percent": "{value}"
+    },
+    "hints": {
+      "lastSprints": "{count, plural, one {Dernier sprint} other {# derniers sprints}}",
+      "scopeRemoved": "{removed} retiré(s) · {sprint}",
+      "carriedFrom": "Non terminé dans {sprint}",
+      "finishedIn": "{count} terminés ces {days} derniers jours",
+      "lastDays": "{days} derniers jours",
+      "blockedDays": "{days} jours bloqués ou en attente"
+    },
+    "empty": {
+      "no_sprint": "Aucun sprint à afficher.",
+      "no_data": "Pas encore assez de données.",
+      "no_estimates": "Ce tableau n'a pas d'estimations."
+    },
+    "notEnoughData": "Pas encore assez de données",
+    "cappedDays": "≥ {days} jours"
   }
 }

@@ -1,0 +1,54 @@
+import { getFormatter, getTranslations } from 'next-intl/server';
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import type { RenderedWidget } from './types';
+
+/** KPI row, adapted from the shadcn dashboard-01 block's SectionCards. */
+export async function KpiCards({ widgets }: { widgets: RenderedWidget[] }) {
+  const t = await getTranslations('dashboards');
+  const format = await getFormatter();
+
+  const title = ({ spec }: RenderedWidget): string =>
+    spec.title ??
+    (t.has(`metrics.${spec.metric}.title`)
+      ? t(`metrics.${spec.metric}.title`, spec.params)
+      : spec.metric);
+  const value = ({ data }: RenderedWidget): string => {
+    if (data.kind !== 'kpi' || data.value === null) return '—';
+    if (data.format === 'percent') {
+      return format.number(data.value, { style: 'percent', maximumFractionDigits: 0 });
+    }
+    return t(`units.${data.format}`, {
+      count: data.value,
+      value: format.number(data.value, { maximumFractionDigits: 1 }),
+    });
+  };
+  const hint = ({ data }: RenderedWidget): string | null => {
+    if (data.kind === 'empty') {
+      return t.has(`empty.${data.reason}`) ? t(`empty.${data.reason}`) : t('notEnoughData');
+    }
+    if (data.kind !== 'kpi') return null;
+    if (data.value === null) return t('notEnoughData');
+    if (data.hint && t.has(`hints.${data.hint.key}`)) {
+      return t(`hints.${data.hint.key}`, data.hint.values ?? {});
+    }
+    return null;
+  };
+
+  return (
+    <div className="grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
+      {widgets.map((w) => (
+        <Card key={w.spec.id} className="@container/card" data-widget={w.spec.id}>
+          <CardHeader>
+            <CardDescription>{title(w)}</CardDescription>
+            <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+              {value(w)}
+            </CardTitle>
+          </CardHeader>
+          <CardFooter className="flex-col items-start gap-1.5 text-sm">
+            <div className="text-muted-foreground">{hint(w)}</div>
+          </CardFooter>
+        </Card>
+      ))}
+    </div>
+  );
+}
