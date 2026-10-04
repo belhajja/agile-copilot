@@ -29,6 +29,8 @@ export interface LlmConnectionView {
   azureResourceName: string | null;
   keyHint: string | null;
   isDefault: boolean;
+  /** Used for background skill runs (the "cheap model"); none set = the default model. */
+  isBackground: boolean;
   /** Price per million tokens in millionths of a currency unit (null = not set). */
   inputPriceMicros: number | null;
   outputPriceMicros: number | null;
@@ -61,6 +63,7 @@ const toView = (r: typeof llmConnections.$inferSelect): LlmConnectionView => ({
   azureResourceName: r.azureResourceName,
   keyHint: r.keyHint,
   isDefault: r.isDefault,
+  isBackground: r.isBackground,
   inputPriceMicros: r.inputPriceMicros,
   outputPriceMicros: r.outputPriceMicros,
   status: r.status,
@@ -326,27 +329,76 @@ export async function deleteLlmConnection(
   });
 }
 
-/** The default model with what the agent needs around it: the row id (usage) and prices (cost). */
-export async function loadDefaultLlm(
-  deps: LlmDeps,
-  orgId: string,
-): Promise<{
+/** A model with what the agent needs around it: the row id (usage) and prices (cost). */
+export interface LoadedLlm {
   id: string;
   config: LlmConfig;
   prices: { inputMicros: number | null; outputMicros: number | null };
-} | null> {
+}
+
+async function loadLlmWhere(
+  deps: LlmDeps,
+  orgId: string,
+  flag: typeof llmConnections.isDefault | typeof llmConnections.isBackground,
+): Promise<LoadedLlm | null> {
   return withOrg(deps.db, orgId, async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(llmConnections)
-      .where(eq(llmConnections.isDefault, true))
-      .limit(1);
+    const [row] = await tx.select().from(llmConnections).where(eq(flag, true)).limit(1);
     if (!row) return null;
     return {
       id: row.id,
       config: await readConfig(tx, deps, orgId, row),
       prices: { inputMicros: row.inputPriceMicros, outputMicros: row.outputPriceMicros },
     };
+  });
+}
+
+/** The default model (chat). */
+export function loadDefaultLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
+  return loadLlmWhere(deps, orgId, llmConnections.isDefault);
+}
+
+/** The model for background skill runs: the "cheap model" when one is set, else the default. */
+export async function loadBackgroundLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
+  return (
+    (await loadLlmWhere(deps, orgId, llmConnections.isBackground)) ??
+    loadLlmWhere(deps, orgId, llmConnections.isDefault)
+  );
+}
+
+/**
+ * Picks the model for background skill runs, or clears the choice (`id: null` -> the default
+ * model). Workspace owners/admins only.
+ */
+export async function setBackgroundLlmConnection(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string | null,
+): Promise<{ ok: true } | LlmServiceFailure> {
+  assertCanManage(actor);
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    await lockOrgDefaults(tx, actor.orgId);
+    if (id !== null) {
+      const [target] = await tx
+        .select({ id: llmConnections.id })
+        .from(llmConnections)
+        .where(eq(llmConnections.id, id));
+      if (!target) return notFound;
+    }
+    await tx
+      .update(llmConnections)
+      .set({ isBackground: false })
+      .where(eq(llmConnections.isBackground, true));
+    if (id !== null) {
+      await tx.update(llmConnections).set({ isBackground: true }).where(eq(llmConnections.id, id));
+    }
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.background_changed',
+      targetType: 'llm_connection',
+      targetId: id ?? 'default',
+    });
+    return { ok: true } as const;
   });
 }
 
