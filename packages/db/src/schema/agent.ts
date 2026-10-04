@@ -41,6 +41,8 @@ export const agentConversations = pgTable(
   },
   (t) => [
     index('agent_conversations_owner_idx').on(t.orgId, t.userId, t.updatedAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('agent_conversations_user_idx').on(t.userId),
     tenantPolicy('agent_conversations', t.orgId),
   ],
 );
@@ -98,6 +100,8 @@ export const agentApprovals = pgTable(
     uniqueIndex('agent_approvals_conversation_approval_uq').on(t.conversationId, t.approvalId),
     // Not unique: some providers reuse tool call ids; the claim matches the call id and the hash.
     index('agent_approvals_conversation_call_idx').on(t.conversationId, t.toolCallId),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('agent_approvals_user_idx').on(t.userId),
     tenantPolicy('agent_approvals', t.orgId),
   ],
 );
@@ -128,6 +132,8 @@ export const agentUsage = pgTable(
   (t) => [
     index('agent_usage_org_created_idx').on(t.orgId, t.createdAt),
     index('agent_usage_user_created_idx').on(t.orgId, t.userId, t.createdAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('agent_usage_user_idx').on(t.userId),
     tenantPolicy('agent_usage', t.orgId),
   ],
 );

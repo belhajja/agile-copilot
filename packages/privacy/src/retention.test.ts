@@ -20,7 +20,7 @@ import {
   withOrg,
 } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyRetention, RETENTION_BATCH_SIZE, runRetention } from './retention';
 import {
@@ -453,6 +453,7 @@ describe('retention and workspace settings', () => {
       workspaces: 0,
       failed: { workspaces: 0, deletedOrgs: 0, global: 0 },
       deletedPurged: 0,
+      deletedUsage: 0,
       sessions: 0,
       verifications: 0,
       interrupted: true,
@@ -501,6 +502,7 @@ describe('retention and workspace settings', () => {
       workspaces: 6,
       failed: { workspaces: 0, deletedOrgs: 0, global: 0 },
       deletedPurged: 1,
+      deletedUsage: 0,
       sessions: 1,
       verifications: 1,
       interrupted: false,
@@ -520,5 +522,20 @@ describe('retention and workspace settings', () => {
     expect(
       (await raw.db.select({ id: verification.id }).from(verification)).map((r) => r.id),
     ).toEqual(['v_live']);
+  });
+
+  it('deletes usage written for a deleted workspace after its purge (an in-flight run)', async () => {
+    // org_recent was deleted 10 days ago; org_a is listed but still a workspace (kept).
+    await raw.db.insert(agentUsage).values([
+      { orgId: 'org_recent', userId: 'u1', provider: 'openai', model: 'late' },
+      { orgId: 'org_a', userId: 'u1', provider: 'openai', model: 'live' },
+    ]);
+    const result = await runRetention(app.db, { now: NOW });
+    expect(result.deletedUsage).toBe(1);
+    const left = await raw.db
+      .select({ model: agentUsage.model })
+      .from(agentUsage)
+      .where(inArray(agentUsage.model, ['late', 'live']));
+    expect(left.map((r) => r.model)).toEqual(['live']);
   });
 });

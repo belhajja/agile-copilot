@@ -1,4 +1,5 @@
-import { boolean, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { user } from './auth';
 import { tenantPolicy, updatedAt } from './tenant';
 
 /**
@@ -31,3 +32,21 @@ export const deletedOrganizations = pgTable('deleted_organizations', {
   deletedOrgId: text('deleted_org_id').primaryKey(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Personal data exports (GDPR access), to throttle them: one running per person and a few per
+ * hour. Not tenant data (an export spans workspaces); deleted with the person.
+ */
+export const personalDataExports = pgTable(
+  'personal_data_exports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Null while the export streams (or after a crash: stale after a while, see @agile/privacy). */
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [index('personal_data_exports_user_started_idx').on(t.userId, t.startedAt)],
+);

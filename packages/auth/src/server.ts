@@ -197,7 +197,9 @@ export function createAuth(
           // are never left behind without an owner.
           beforeDeleteOrganization: async ({ organization: org, user }) => {
             // External state first (H2): if billing cannot be stopped, nothing is deleted, so a
-            // workspace is never gone while still billed.
+            // workspace is never gone while still billed. The other way round is the safe one: if
+            // the transaction below fails after Stripe was cancelled, the workspace stays without
+            // a subscription (back on the free plan); the owner can subscribe again or retry.
             await beforeWorkspaceDeleted(org.id);
             await withOrg(db, org.id, async (tx) => {
               // audit_log is append-only for the app role and holds no secrets: it is kept as the

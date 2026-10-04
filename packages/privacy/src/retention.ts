@@ -62,6 +62,11 @@ export interface RetentionRunResult {
   /** Failures, by step: a workspace's retention, a deleted workspace's audit trail, sign-in data. */
   failed: { workspaces: number; deletedOrgs: number; global: number };
   deletedPurged: number;
+  /**
+   * Usage rows of deleted workspaces: a run or chat turn still in flight when its workspace was
+   * deleted can record usage after the purge (no foreign key to the workspace).
+   */
+  deletedUsage: number;
   /** Expired sessions and verifications deleted. */
   sessions: number;
   verifications: number;
@@ -359,6 +364,7 @@ export async function runRetention(
     workspaces: 0,
     failed: { workspaces: 0, deletedOrgs: 0, global: 0 },
     deletedPurged: 0,
+    deletedUsage: 0,
     sessions: 0,
     verifications: 0,
     interrupted: false,
@@ -386,6 +392,41 @@ export async function runRetention(
   } catch (e) {
     result.failed.global++;
     opts.onError?.(e, 'expired_auth');
+  }
+
+  // Every deleted workspace (not only the expired ones): usage written after its purge goes.
+  const gone = await db
+    .select({ id: deletedOrganizations.deletedOrgId })
+    .from(deletedOrganizations)
+    .where(
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(organization)
+          .where(eq(organization.id, deletedOrganizations.deletedOrgId)),
+      ),
+    );
+  for (const { id } of gone) {
+    if (stopped()) return result;
+    try {
+      result.deletedUsage += await tenantDrain(db, id, batch, (tx, size) =>
+        tx
+          .delete(agentUsage)
+          .where(
+            inArray(
+              agentUsage.id,
+              tx
+                .select({ id: agentUsage.id })
+                .from(agentUsage)
+                .where(eq(agentUsage.orgId, id))
+                .limit(size),
+            ),
+          ),
+      );
+    } catch (e) {
+      result.failed.deletedOrgs++;
+      opts.onError?.(e, 'deleted_org', id);
+    }
   }
 
   const expired = await db

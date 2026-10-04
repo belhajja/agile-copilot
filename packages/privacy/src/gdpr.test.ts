@@ -7,18 +7,27 @@ import {
   auditLog,
   createDb,
   invitation,
+  mcpRateBuckets,
+  mcpTokens,
   member,
   organization,
   session,
+  skillBuilderCalls,
   skillRuns,
   skills,
   skillVersions,
   user,
 } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deleteAccount, EXPORT_PAGE_SIZE, exportUserData } from './gdpr';
+import {
+  deleteAccount,
+  EXPORT_PAGE_SIZE,
+  EXPORTS_PER_HOUR,
+  exportUserData,
+  openUserExport,
+} from './gdpr';
 
 const NOW = new Date('2026-10-04T12:00:00Z');
 
@@ -330,6 +339,16 @@ describe('personal data: export and account deletion', () => {
       'Dan before leaving',
     );
 
+    // The indexed lookup behind it (P5-R37): workspace ids only, for this person only.
+    const orgIdsOf = async (userId: string) =>
+      (
+        (await app.db.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
+          id: string;
+        }[]
+      ).map((r) => r.id);
+    expect(await orgIdsOf('u_dan')).toEqual(['org_3']);
+    expect(await orgIdsOf('u_stranger')).toEqual([]);
+
     expect(await deleteAccount(app.db, 'u_dan')).toEqual({ ok: true, workspaces: 2 });
     expect(await raw.db.$count(agentConversations, eq(agentConversations.userId, 'u_dan'))).toBe(0);
     expect(await raw.db.$count(skills, eq(skills.ownerUserId, 'u_dan'))).toBe(0);
@@ -363,5 +382,94 @@ describe('personal data: export and account deletion', () => {
       { ok: false, code: 'sole_owner', workspaces: ['Four'] },
     ]);
     expect(await raw.db.$count(member, eq(member.organizationId, 'org_4'))).toBe(1);
+  });
+
+  it('drops secret columns from later tables, paging a table without a primary key', async () => {
+    const n = EXPORT_PAGE_SIZE * 2 + 1;
+    await raw.db.execute(sql`create table later_personal (
+      org_id text not null, user_id text not null, n integer not null, secret text, note text)`);
+    await raw.db.execute(sql`insert into later_personal
+      select 'org_1', 'u_bob', g, 'shh-' || g, 'note ' || g from generate_series(1, ${n}) g`);
+    try {
+      const data = await exportOf('u_bob');
+      const rows = data.workspaces[0]?.other.later_personal ?? [];
+      expect(new Set(rows.map((r) => r.n)).size).toBe(n);
+      expect(rows).toHaveLength(n);
+      expect(rows[0]).toEqual(expect.objectContaining({ note: expect.any(String) }));
+      expect(JSON.stringify(rows)).not.toContain('shh-');
+    } finally {
+      await raw.db.execute(sql`drop table later_personal`);
+    }
+  });
+
+  it('erases builder reservations, MCP tokens and rate windows; pages them by primary key', async () => {
+    await raw.db.insert(user).values({ id: 'u_gus', name: 'Gus', email: 'gus@example.com' });
+    await raw.db.insert(member).values({
+      id: 'm_gus',
+      organizationId: 'org_1',
+      userId: 'u_gus',
+      role: 'viewer',
+      createdAt: NOW,
+    });
+    const n = EXPORT_PAGE_SIZE + 5;
+    await raw.db
+      .insert(skillBuilderCalls)
+      .values(Array.from({ length: n }, () => ({ orgId: 'org_1', userId: 'u_gus' })));
+    await raw.db.insert(mcpTokens).values({
+      orgId: 'org_1',
+      userId: 'u_gus',
+      name: 'cli',
+      tokenHash: 'hash-of-token',
+      prefix: 'ac_',
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+    await raw.db.insert(mcpRateBuckets).values([
+      { orgId: 'org_1', userId: 'u_gus', windowStart: NOW, count: 3 },
+      { orgId: 'org_1', userId: 'u_gus', windowStart: new Date(NOW.getTime() + 60_000), count: 1 },
+    ]);
+
+    const other = (await exportOf('u_gus')).workspaces[0]?.other ?? {};
+    expect(new Set(other.skill_builder_calls?.map((r) => r.id)).size).toBe(n);
+    expect(other.mcp_tokens?.map((t) => t.name)).toEqual(['cli']);
+    expect(other.mcp_rate_buckets).toHaveLength(2);
+    expect(JSON.stringify(other)).not.toContain('hash-of-token');
+
+    expect(await deleteAccount(app.db, 'u_gus')).toEqual({ ok: true, workspaces: 1 });
+    expect(await raw.db.$count(skillBuilderCalls, eq(skillBuilderCalls.userId, 'u_gus'))).toBe(0);
+    expect(await raw.db.$count(mcpTokens, eq(mcpTokens.userId, 'u_gus'))).toBe(0);
+    expect(await raw.db.$count(mcpRateBuckets, eq(mcpRateBuckets.userId, 'u_gus'))).toBe(0);
+  });
+
+  it('runs one export per person at a time and a few per hour', async () => {
+    await raw.db.insert(user).values({ id: 'u_fay', name: 'Fay', email: 'fay@example.com' });
+    expect(await openUserExport(app.db, 'u_missing', NOW)).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+
+    // Two at once: one runs, the other is refused.
+    const both = await Promise.all([
+      openUserExport(app.db, 'u_fay', NOW),
+      openUserExport(app.db, 'u_fay', NOW),
+    ]);
+    const running = both.find((r) => r.ok);
+    expect(both.filter((r) => !r.ok)).toEqual([{ ok: false, code: 'export_in_progress' }]);
+    let text = '';
+    if (running?.ok) for await (const chunk of running.chunks) text += chunk;
+    expect(JSON.parse(text).user.email).toBe('fay@example.com');
+
+    // Finished (or abandoned: finish()) exports count against the hourly allowance.
+    for (let i = 1; i < EXPORTS_PER_HOUR; i++) {
+      const next = await openUserExport(app.db, 'u_fay', NOW);
+      expect(next.ok).toBe(true);
+      if (next.ok) await next.finish();
+    }
+    expect(await openUserExport(app.db, 'u_fay', NOW)).toEqual({
+      ok: false,
+      code: 'export_rate_limited',
+    });
+    const later = await openUserExport(app.db, 'u_fay', new Date(NOW.getTime() + 61 * 60_000));
+    expect(later.ok).toBe(true);
+    if (later.ok) await later.finish();
   });
 });

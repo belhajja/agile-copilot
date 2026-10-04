@@ -1,4 +1,4 @@
-import { exportUserData } from '@agile/privacy';
+import { openUserExport } from '@agile/privacy';
 import { currentSession, services } from '@/server/context';
 
 export const dynamic = 'force-dynamic';
@@ -6,27 +6,40 @@ export const dynamic = 'force-dynamic';
 /**
  * Downloads everything the service holds about the signed-in person (GDPR access/portability),
  * as one JSON file streamed from the database. Needs a session only, not a workspace (M3).
+ * Throttled (one running per person, a few per hour): 429 with a fixed code.
  */
 export async function GET(request: Request) {
   const signedIn = await currentSession(request.headers);
   if (!signedIn) return Response.json({ error: 'unauthorized' }, { status: 401 });
-  const chunks = exportUserData(services().db, signedIn.user.id);
+  const opened = await openUserExport(services().db, signedIn.user.id);
+  if (!opened.ok) {
+    return Response.json(
+      { error: opened.code },
+      { status: opened.code === 'not_found' ? 404 : 429 },
+    );
+  }
+  const { chunks, finish } = opened;
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const next = await chunks.next();
-        if (next.done) controller.close();
-        else controller.enqueue(encoder.encode(next.value));
+        if (next.done) {
+          await finish();
+          controller.close();
+        } else controller.enqueue(encoder.encode(next.value));
       } catch (e) {
         console.error(
           JSON.stringify({ level: 'error', event: 'export_failed', name: (e as Error)?.name }),
         );
+        await finish();
         controller.error(e);
       }
     },
     async cancel() {
       await chunks.return(undefined);
+      // Also when the download is dropped before the first piece (the generator never started).
+      await finish();
     },
   });
   const day = new Date().toISOString().slice(0, 10);

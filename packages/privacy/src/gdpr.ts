@@ -9,6 +9,7 @@ import {
   invitation,
   member,
   organization,
+  personalDataExports,
   recordAudit,
   session,
   skillRuns,
@@ -19,7 +20,7 @@ import {
   verification,
   withOrg,
 } from '@agile/db';
-import { and, asc, eq, gt, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 /** Rows read per query while exporting: a long history is never loaded at once (L14). */
@@ -92,37 +93,59 @@ interface Workspace {
 }
 
 /**
- * Workspaces the person is no longer a member of but still has rows in (M2): a former member's
- * conversations, skills, runs, usage or audit entries stay until erased. RLS shows one workspace at
- * a time, so each is checked under its own context, in one transaction.
+ * Every workspace the person has rows in, member or not (M2: a former member's conversations,
+ * skills, runs, usage, tokens or audit entries stay until erased). RLS shows the app one workspace
+ * at a time, so this asks `user_org_ids` (SECURITY DEFINER, P5-R37): one indexed probe per
+ * personal table, workspace ids only.
  */
+async function personOrgIds(q: Query, userId: string): Promise<string[]> {
+  const rows = (await q.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
+    id: string;
+  }[];
+  return rows.map((r) => r.id);
+}
+
+/** Of `ids`, the workspaces that still exist and the person is no longer a member of. */
 async function formerWorkspaces(
-  tx: Tx,
-  userId: string,
-  tables: PersonalTable[],
+  q: Query,
+  ids: readonly string[],
   current: ReadonlySet<string>,
 ): Promise<Workspace[]> {
-  const checks = [
-    ...tables.map(
-      (t) =>
-        sql`exists (select 1 from ${sql.identifier(t.table)} where ${personCol(t)} = ${userId})`,
-    ),
-    sql`exists (select 1 from ${auditLog} where ${auditLog.actorUserId} = ${userId})`,
-  ];
-  const all = await tx
+  const former = ids.filter((id) => !current.has(id));
+  if (former.length === 0) return [];
+  return q
     .select({ orgId: organization.id, workspace: organization.name })
     .from(organization)
+    .where(inArray(organization.id, former))
     .orderBy(asc(organization.name), asc(organization.id));
-  const found: Workspace[] = [];
-  for (const org of all) {
-    if (current.has(org.orgId)) continue;
-    await enterOrg(tx, org.orgId);
-    const [row] = (await tx.execute(
-      sql`select (${sql.join(checks, sql` or `)}) as "found"`,
-    )) as unknown as { found: boolean }[];
-    if (row?.found) found.push(org);
-  }
-  return found;
+}
+
+/** A key column for keyset paging: its name and its SQL type (from the catalog). */
+interface KeyColumn {
+  name: string;
+  type: string;
+}
+/** Physical row order, for a table without a primary key. */
+const CTID_KEY: KeyColumn[] = [{ name: 'ctid', type: 'tid' }];
+/** Catalog type names only (`format_type`), checked before they are written into a query. */
+const SAFE_TYPE = /^[a-z][a-z0-9 _(),]*$/;
+
+/**
+ * The table's primary key columns, in key order, to page by (stable across transactions);
+ * `ctid` when there is none or a type is unexpected.
+ */
+async function pagingKeyOf(q: Query, table: string): Promise<KeyColumn[]> {
+  const rows = (await q.execute(sql`
+    select a.attname as "name", format_type(a.atttypid, a.atttypmod) as "type"
+    from pg_index i
+    join pg_class c on c.oid = i.indrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+    where n.nspname = 'public' and c.relname = ${table} and i.indisprimary
+    order by array_position(i.indkey::int2[], a.attnum)
+  `)) as unknown as KeyColumn[];
+  if (rows.length === 0 || !rows.every((r) => SAFE_TYPE.test(r.type))) return CTID_KEY;
+  return rows;
 }
 
 const withoutSecrets = (row: Record<string, unknown>) =>
@@ -173,6 +196,7 @@ async function* workspaceSection(
   userId: string,
   ws: Workspace & { role: string[]; joinedAt: Date | null; member: boolean },
   tables: PersonalTable[],
+  keys: ReadonlyMap<string, KeyColumn[]>,
 ): AsyncGenerator<string> {
   const inOrg = <T>(fn: (tx: Tx) => Promise<T>) => withOrg(db, ws.orgId, fn);
 
@@ -344,18 +368,33 @@ async function* workspaceSection(
   let firstTable = true;
   for (const t of tables) {
     if (EXPORTED_EXPLICITLY.has(t.table)) continue;
+    const key = keys.get(t.table) ?? CTID_KEY;
+    const cols = sql.join(
+      key.map((k) => sql`r.${sql.identifier(k.name)}`),
+      sql`, `,
+    );
     const rows = paged(
-      (after: string | undefined) =>
+      (after: string[] | undefined) =>
         inOrg(
           async (tx) =>
             (await tx.execute(sql`
-              select r.ctid::text as "key", to_jsonb(r) as "row"
+              select jsonb_build_array(${sql.join(
+                key.map((k) => sql`r.${sql.identifier(k.name)}::text`),
+                sql`, `,
+              )}) as "key", to_jsonb(r) as "row"
               from ${sql.identifier(t.table)} r
               where ${personCol(t)} = ${userId}
-                ${after === undefined ? sql`` : sql`and r.ctid > ${after}::tid`}
-              order by r.ctid
+                ${
+                  after === undefined
+                    ? sql``
+                    : sql`and (${cols}) > (${sql.join(
+                        key.map((k, i) => sql`${after[i] ?? null}::${sql.raw(k.type)}`),
+                        sql`, `,
+                      )})`
+                }
+              order by ${cols}
               limit ${EXPORT_PAGE_SIZE}
-            `)) as unknown as { key: string; row: Record<string, unknown> }[],
+            `)) as unknown as { key: string[]; row: Record<string, unknown> }[],
         ),
       (r) => r.key,
     );
@@ -454,8 +493,14 @@ export async function* exportUserData(db: Db, userId: string): AsyncGenerator<st
     .where(eq(member.userId, userId))
     .orderBy(asc(member.createdAt), asc(member.organizationId));
   const tables = await personalTables(db);
-  const former = await db.transaction((tx) =>
-    formerWorkspaces(tx, userId, tables, new Set(memberships.map((m) => m.orgId))),
+  const keys = new Map<string, KeyColumn[]>();
+  for (const t of tables) {
+    if (!EXPORTED_EXPLICITLY.has(t.table)) keys.set(t.table, await pagingKeyOf(db, t.table));
+  }
+  const former = await formerWorkspaces(
+    db,
+    await personOrgIds(db, userId),
+    new Set(memberships.map((m) => m.orgId)),
   );
   const workspaces = [
     ...memberships.map((m) => ({ ...m, role: parseRoles(m.role), member: true })),
@@ -463,7 +508,7 @@ export async function* exportUserData(db: Db, userId: string): AsyncGenerator<st
   ];
 
   yield `{"exportedAt":${json(new Date())},"user":${json(profile)},"signInMethods":${json(signInMethods)},"sessions":${json(sessions)},"invitations":${json({ sent, received })},"workspaces":`;
-  yield* jsonArray(workspaces, (ws) => workspaceSection(db, userId, ws, tables));
+  yield* jsonArray(workspaces, (ws) => workspaceSection(db, userId, ws, tables, keys));
   yield '}';
 }
 
@@ -481,8 +526,18 @@ export type DeleteAccountResult =
  * Refused while the person is the only owner of a workspace: it would be left without anyone able
  * to manage or delete it. The workspaces' member rows are locked first (L12), so two owners
  * leaving at once cannot both pass that check.
+ *
+ * Lock order: user row, member rows, then the person's tenant rows workspace by workspace. A
+ * workspace deletion running at the same moment (better-auth's hook) takes the workspace's tenant
+ * rows first, then its organisation and member rows: the two can deadlock on one workspace. Both
+ * are single transactions, so Postgres aborts one of them whole and nothing is half done; the
+ * person (or the owner) retries. Residual, documented: aligning the orders means locking the
+ * member rows first in the workspace deletion too (packages/auth).
  */
 export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccountResult> {
+  // Before any lock (P5-R37): a workspace the person has rows in now is in this list, member or
+  // not; one they join meanwhile is a membership, read under the locks below.
+  const known = await personOrgIds(db, userId);
   return db.transaction(async (tx): Promise<DeleteAccountResult> => {
     const [person] = await tx
       .select({ id: user.id, email: user.email })
@@ -520,7 +575,7 @@ export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccou
 
     const tables = await personalTables(tx);
     const current = new Set(memberships.map((m) => m.orgId));
-    const former = await formerWorkspaces(tx, userId, tables, current);
+    const former = await formerWorkspaces(tx, known, current);
     const orgIds = [...current, ...former.map((f) => f.orgId)];
     const erased = tables.filter((t) => !KEPT_ON_DELETION.has(t.table));
     for (const orgId of orgIds) {
@@ -552,4 +607,83 @@ export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccou
     await tx.delete(user).where(eq(user.id, userId));
     return { ok: true, workspaces: orgIds.length };
   });
+}
+
+/** Exports one person may start per hour (L14 / P5-R37); one at a time. */
+export const EXPORTS_PER_HOUR = 5;
+/** An export still marked running after this long was abandoned (a crash): it no longer blocks. */
+export const EXPORT_STALE_MS = 30 * 60_000;
+const HOUR_MS = 3_600_000;
+
+export type OpenExportResult =
+  | {
+      ok: true;
+      /** The document, piece by piece; marks the export finished when it ends or is closed. */
+      chunks: AsyncGenerator<string>;
+      /** Marks the export finished (idempotent): call it when the download is abandoned. */
+      finish: () => Promise<void>;
+    }
+  | { ok: false; code: 'not_found' | 'export_in_progress' | 'export_rate_limited' };
+
+/**
+ * Starts a personal data export, throttled: one running per person, at most `EXPORTS_PER_HOUR`
+ * an hour (an export reads every workspace the person was in). The person's row is locked while
+ * deciding, so two requests at once cannot both start.
+ */
+export async function openUserExport(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<OpenExportResult> {
+  const opened = await db.transaction(
+    async (tx): Promise<{ ok: true; id: string } | Exclude<OpenExportResult, { ok: true }>> => {
+      const [person] = await tx
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, userId))
+        .for('no key update');
+      if (!person) return { ok: false, code: 'not_found' };
+      const recent = await tx
+        .select({
+          startedAt: personalDataExports.startedAt,
+          finishedAt: personalDataExports.finishedAt,
+        })
+        .from(personalDataExports)
+        .where(
+          and(
+            eq(personalDataExports.userId, userId),
+            gt(personalDataExports.startedAt, new Date(now.getTime() - HOUR_MS)),
+          ),
+        );
+      const staleBefore = now.getTime() - EXPORT_STALE_MS;
+      if (recent.some((r) => r.finishedAt === null && r.startedAt.getTime() > staleBefore)) {
+        return { ok: false, code: 'export_in_progress' };
+      }
+      if (recent.length >= EXPORTS_PER_HOUR) return { ok: false, code: 'export_rate_limited' };
+      const [row] = await tx
+        .insert(personalDataExports)
+        .values({ userId, startedAt: now })
+        .returning({ id: personalDataExports.id });
+      if (!row) throw new Error('export insert returned nothing');
+      return { ok: true, id: row.id };
+    },
+  );
+  if (!opened.ok) return opened;
+  let finished = false;
+  const finish = async () => {
+    if (finished) return;
+    finished = true;
+    await db
+      .update(personalDataExports)
+      .set({ finishedAt: new Date() })
+      .where(eq(personalDataExports.id, opened.id));
+  };
+  const chunks = (async function* () {
+    try {
+      yield* exportUserData(db, userId);
+    } finally {
+      await finish();
+    }
+  })();
+  return { ok: true, chunks, finish };
 }

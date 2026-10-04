@@ -9,12 +9,23 @@ vi.mock('@/server/context', () => ({
   currentSession: (headers: Headers) => currentSession(headers),
   services: () => ({ db: { stub: true } }),
 }));
-const exportUserData = vi.fn(async function* (_db: unknown, _userId: string) {
+const finish = vi.fn(async () => {});
+const chunks = async function* () {
   yield '{"user":';
   yield '{"id":"user_1"}}';
-});
+};
+type Opened =
+  | { ok: true; chunks: AsyncGenerator<string>; finish: () => Promise<void> }
+  | { ok: false; code: string };
+const openUserExport = vi.fn(
+  async (_db: unknown, _userId: string): Promise<Opened> => ({
+    ok: true,
+    chunks: chunks(),
+    finish,
+  }),
+);
 vi.mock('@agile/privacy', () => ({
-  exportUserData: (db: unknown, userId: string) => exportUserData(db, userId),
+  openUserExport: (db: unknown, userId: string) => openUserExport(db, userId),
 }));
 
 const { GET } = await import('./route');
@@ -24,7 +35,8 @@ const get = () => GET(new Request('http://localhost:3200/api/account/export'));
 describe('GET /api/account/export', () => {
   beforeEach(() => {
     currentSession.mockResolvedValue(signedIn);
-    exportUserData.mockClear();
+    openUserExport.mockClear();
+    finish.mockClear();
   });
 
   it('streams the signed-in person’s data as a JSON download, without needing a workspace', async () => {
@@ -36,13 +48,30 @@ describe('GET /api/account/export', () => {
     );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(JSON.parse(await res.text())).toEqual({ user: { id: 'user_1' } });
-    expect(exportUserData).toHaveBeenCalledWith({ stub: true }, 'user_1');
+    expect(openUserExport).toHaveBeenCalledWith({ stub: true }, 'user_1');
+    expect(finish).toHaveBeenCalled();
   });
 
   it('answers 401 without a session', async () => {
     currentSession.mockResolvedValue(null);
     const res = await get();
     expect(res.status).toBe(401);
-    expect(exportUserData).not.toHaveBeenCalled();
+    expect(openUserExport).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the account no longer exists', async () => {
+    openUserExport.mockResolvedValueOnce({ ok: false, code: 'not_found' });
+    const res = await get();
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('answers 429 with a fixed code while an export runs or after too many', async () => {
+    for (const code of ['export_in_progress', 'export_rate_limited']) {
+      openUserExport.mockResolvedValueOnce({ ok: false, code });
+      const res = await get();
+      expect(res.status).toBe(429);
+      expect(await res.json()).toEqual({ error: code });
+    }
   });
 });

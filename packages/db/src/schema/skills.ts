@@ -76,6 +76,8 @@ export const skills = pgTable(
   (t) => [
     uniqueIndex('skills_owner_name_uq').on(t.orgId, t.ownerUserId, t.name),
     index('skills_org_trigger_idx').on(t.orgId, t.trigger),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('skills_owner_idx').on(t.ownerUserId),
     tenantPolicy('skills', t.orgId),
   ],
 );
@@ -144,6 +146,8 @@ export const skillRuns = pgTable(
     index('skill_runs_skill_created_idx').on(t.skillId, t.createdAt),
     index('skill_runs_channel_idx').on(t.channelId),
     index('skill_runs_org_created_idx').on(t.orgId, t.createdAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('skill_runs_owner_idx').on(t.ownerUserId),
     tenantPolicy('skill_runs', t.orgId),
   ],
 );
@@ -192,6 +196,8 @@ export const skillBuilderCalls = pgTable(
   },
   (t) => [
     index('skill_builder_calls_user_created_idx').on(t.orgId, t.userId, t.createdAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('skill_builder_calls_user_idx').on(t.userId),
     tenantPolicy('skill_builder_calls', t.orgId),
   ],
 );

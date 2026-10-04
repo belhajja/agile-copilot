@@ -13,6 +13,19 @@ export type DeleteAccountState =
 const FRESH_SIGN_IN_MS = 10 * 60_000;
 
 /**
+ * Expires the auth cookies (the sessions are gone with the account). A `__Secure-`/`__Host-`
+ * cookie is only replaced by a Secure Set-Cookie, so those are expired with `secure: true`.
+ */
+async function dropAuthCookies() {
+  const jar = await cookies();
+  for (const c of jar.getAll()) {
+    if (!c.name.includes('better-auth')) continue;
+    const secure = c.name.startsWith('__Secure-') || c.name.startsWith('__Host-');
+    jar.set(c.name, '', { maxAge: 0, path: '/', secure });
+  }
+}
+
+/**
  * Deletes the signed-in person's account after they typed their e-mail address to confirm. Open
  * to anyone signed in, with or without a workspace (M3).
  */
@@ -35,12 +48,10 @@ export async function deleteAccountAction(
     if (result.code === 'sole_owner') {
       return { status: 'error', code: 'sole_owner', workspaces: result.workspaces };
     }
+    // not_found: the account is already gone (deleted elsewhere); so are its sessions.
+    await dropAuthCookies();
     redirect('/login');
   }
-  // The sessions are gone with the account; drop the stale cookies too.
-  const jar = await cookies();
-  for (const c of jar.getAll()) {
-    if (c.name.includes('better-auth')) jar.delete(c.name);
-  }
+  await dropAuthCookies();
   redirect('/login');
 }

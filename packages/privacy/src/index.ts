@@ -2,7 +2,11 @@ export {
   type DeleteAccountResult,
   deleteAccount,
   EXPORT_PAGE_SIZE,
+  EXPORT_STALE_MS,
+  EXPORTS_PER_HOUR,
   exportUserData,
+  type OpenExportResult,
+  openUserExport,
 } from './gdpr';
 export { RETENTION_CRON, RETENTION_QUEUE, startRetentionWorker } from './queue';
 export {

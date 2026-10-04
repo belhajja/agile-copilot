@@ -112,6 +112,8 @@ export const auditLog = pgTable(
   },
   (t) => [
     index('audit_log_org_created_idx').on(t.orgId, t.createdAt),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('audit_log_actor_idx').on(t.actorUserId),
     tenantPolicy('audit_log', t.orgId),
   ],
 );

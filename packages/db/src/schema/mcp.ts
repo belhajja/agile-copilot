@@ -23,6 +23,8 @@ export const mcpTokens = pgTable(
   (t) => [
     index('mcp_tokens_hash_idx').on(t.orgId, t.tokenHash),
     index('mcp_tokens_owner_idx').on(t.orgId, t.userId),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('mcp_tokens_user_idx').on(t.userId),
     tenantPolicy('mcp_tokens', t.orgId),
   ],
 );
@@ -43,6 +45,8 @@ export const mcpRateBuckets = pgTable(
   (t) => [
     primaryKey({ columns: [t.orgId, t.userId, t.windowStart] }),
     index('mcp_rate_buckets_window_idx').on(t.orgId, t.windowStart),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('mcp_rate_buckets_user_idx').on(t.userId),
     tenantPolicy('mcp_rate_buckets', t.orgId),
   ],
 );

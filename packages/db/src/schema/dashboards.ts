@@ -34,6 +34,8 @@ export const dashboards = pgTable(
   (t) => [
     index('dashboards_board_idx').on(t.boardId),
     index('dashboards_owner_idx').on(t.orgId, t.userId, t.boardId),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('dashboards_user_idx').on(t.userId),
     // At most one default dashboard of each kind per user and board (makes seeding idempotent).
     uniqueIndex('dashboards_default_uq')
       .on(t.boardId, t.userId, t.kind)

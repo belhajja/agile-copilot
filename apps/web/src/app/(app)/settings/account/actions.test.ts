@@ -11,7 +11,7 @@ const session = vi.hoisted(() => ({
   },
 }));
 const privacy = vi.hoisted(() => ({ deleteAccount: vi.fn() }));
-const deleted = vi.hoisted(() => [] as string[]);
+const cleared = vi.hoisted(() => [] as { name: string; secure?: boolean; maxAge?: number }[]);
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({
@@ -21,8 +21,13 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('next/headers', () => ({
   cookies: async () => ({
-    getAll: () => [{ name: 'better-auth.session_token' }, { name: 'NEXT_LOCALE' }],
-    delete: (name: string) => deleted.push(name),
+    getAll: () => [
+      { name: 'better-auth.session_token' },
+      { name: '__Secure-better-auth.session_data' },
+      { name: 'NEXT_LOCALE' },
+    ],
+    set: (name: string, _value: string, opts: { secure?: boolean; maxAge?: number }) =>
+      cleared.push({ name, secure: opts.secure, maxAge: opts.maxAge }),
   }),
 }));
 vi.mock('@agile/privacy', () => privacy);
@@ -44,7 +49,7 @@ describe('deleteAccountAction', () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
     vi.clearAllMocks();
-    deleted.length = 0;
+    cleared.length = 0;
     session.current.session.createdAt = new Date(NOW.getTime() - 2 * MINUTE);
   });
 
@@ -84,6 +89,21 @@ describe('deleteAccountAction', () => {
       'REDIRECT:/login',
     );
     expect(privacy.deleteAccount).toHaveBeenCalledWith({ stub: true }, 'user_1');
-    expect(deleted).toEqual(['better-auth.session_token']);
+    expect(cleared).toEqual([
+      { name: 'better-auth.session_token', secure: false, maxAge: 0 },
+      // A __Secure- cookie is only replaced by a Secure Set-Cookie.
+      { name: '__Secure-better-auth.session_data', secure: true, maxAge: 0 },
+    ]);
+  });
+
+  it('drops the session cookies of an account that no longer exists', async () => {
+    privacy.deleteAccount.mockResolvedValue({ ok: false, code: 'not_found' });
+    await expect(deleteAccountAction(idle, confirm('pat@example.com'))).rejects.toThrow(
+      'REDIRECT:/login',
+    );
+    expect(cleared.map((c) => c.name)).toEqual([
+      'better-auth.session_token',
+      '__Secure-better-auth.session_data',
+    ]);
   });
 });
