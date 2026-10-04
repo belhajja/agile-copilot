@@ -7,11 +7,12 @@ import {
 } from 'better-auth/plugins/organization/access';
 import type { Role } from './role-matrix';
 
-// Client-safe (the browser's auth client is typed with these roles).
+// Client-safe: no database or server code, so `@agile/auth/client` can export it.
 
 /**
  * better-auth's organisation permissions (members, invitations, the workspace itself) for our four
- * roles. Managers and viewers manage nobody. App permissions live in `PERMISSIONS` (roles.ts).
+ * roles. Managers and viewers manage nobody. App permissions live in `PERMISSIONS`
+ * (role-matrix.ts).
  */
 export const ac = createAccessControl(defaultStatements);
 

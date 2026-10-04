@@ -50,7 +50,21 @@ describe('role matrix', () => {
 
   it('accepts exactly one of the four roles as an assignment', () => {
     expect(assertAssignableRole('manager')).toBe('manager');
-    for (const bad of ['member', 'admin,owner', '', 'superuser']) {
+    for (const bad of [
+      'member',
+      'admin,owner',
+      '',
+      'superuser',
+      // Exact match only: better-auth compares untrimmed strings in its owner checks.
+      ' owner',
+      'owner ',
+      ' admin',
+      'owner,admin',
+      'Owner',
+    ]) {
+      expect(() => assertAssignableRole(bad)).toThrow(/owner, admin, manager, viewer/);
+    }
+    for (const bad of [['viewer'], [' owner'], undefined, null, 1]) {
       expect(() => assertAssignableRole(bad)).toThrow(/owner, admin, manager, viewer/);
     }
   });

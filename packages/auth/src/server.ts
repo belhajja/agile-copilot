@@ -2,11 +2,15 @@ import * as schema from '@agile/db';
 import { auditLog, type Db, purgeOrgTenantRows, withOrg } from '@agile/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { createAuthMiddleware } from 'better-auth/api';
 import { nextCookies } from 'better-auth/next-js';
 import { organization } from 'better-auth/plugins/organization';
 import { asc, eq } from 'drizzle-orm';
 import { ac, orgRoles } from './access';
 import { assertAssignableRole } from './assign';
+
+/** Endpoints whose body carries a role to give. */
+const ROLE_PATHS = new Set(['/organization/invite-member', '/organization/update-member-role']);
 
 export interface AuthOptions {
   db: Db;
@@ -20,6 +24,13 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
     secret,
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     emailAndPassword: { enabled: true, minPasswordLength: 10 },
+    hooks: {
+      // The role exactly as the client sent it: better-auth trims and splits roles before its
+      // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
+      }),
+    },
     databaseHooks: {
       session: {
         create: {
@@ -38,15 +49,16 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
         roles: orgRoles,
         organizationHooks: {
           // The role set is closed: owner, admin, manager, viewer (never better-auth's `member`).
-          beforeCreateInvitation: async ({ invitation }) => {
-            assertAssignableRole(invitation.role);
-          },
-          beforeAddMember: async ({ member }) => {
-            assertAssignableRole(member.role);
-          },
-          beforeUpdateMemberRole: async ({ newRole }) => {
-            assertAssignableRole(newRole);
-          },
+          // Second layer behind `hooks.before`; `addMember` (server-only, no path) relies on it.
+          beforeCreateInvitation: async ({ invitation }) => ({
+            data: { ...invitation, role: assertAssignableRole(invitation.role) },
+          }),
+          beforeAddMember: async ({ member }) => ({
+            data: { ...member, role: assertAssignableRole(member.role) },
+          }),
+          beforeUpdateMemberRole: async ({ newRole }) => ({
+            data: { role: assertAssignableRole(newRole) },
+          }),
           // Before, not after: if the purge fails the workspace is kept, so its encrypted secrets
           // are never left behind without an owner.
           beforeDeleteOrganization: async ({ organization: org, user }) => {
