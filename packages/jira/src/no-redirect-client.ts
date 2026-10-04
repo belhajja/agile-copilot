@@ -1,33 +1,90 @@
-import type { SendRequestOptions } from 'jira.js/core';
+import { fetchNoRedirect } from '@agile/net';
+import type { Client, SendRequestOptions } from 'jira.js/core';
 
-type Auth = { type: 'basic'; email: string; apiToken: string } | { type: 'bearer'; token: string };
+export type JiraAuth =
+  | { type: 'basic'; email: string; apiToken: string }
+  | { type: 'bearer'; token: string };
+
+export interface NoRedirectClientConfig {
+  host: string;
+  auth: JiraAuth;
+  /**
+   * 'strict' (default) throws SchemaMismatchError when a body does not match jira.js's schema.
+   * 'lenient' returns the parsed JSON as-is: sync code validates with its own, looser schemas, so
+   * a field Atlassian added or renamed does not stop a whole sync.
+   */
+  schemaValidation?: 'strict' | 'lenient';
+  /** Per-request deadline (default 30 s). */
+  timeoutMs?: number;
+}
+
+/** A non-2xx answer from Jira. `retryAfterMs` is set when Jira sent a usable Retry-After header. */
+export class JiraHttpError extends Error {
+  override name = 'JiraHttpError';
+  constructor(
+    readonly status: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(`Jira request failed with HTTP ${status}`);
+  }
+}
+
+/** Retry-After is either delta-seconds or an HTTP date. */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  const at = Date.parse(trimmed);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
+/** Same encoding as jira.js's own client: arrays repeat the key, objects are JSON, nullish is skipped. */
+function appendSearchParams(url: URL, params: Record<string, unknown> | undefined) {
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null) url.searchParams.append(key, String(item));
+      }
+    } else if (typeof value === 'object') {
+      url.searchParams.set(key, JSON.stringify(value));
+    } else {
+      url.searchParams.set(key, String(value));
+    }
+  }
+}
 
 /**
- * Minimal jira.js v6 `Client` that never follows redirects. jira.js's own client calls global
- * `fetch` with `redirect: 'follow'` and exposes no option for it, which would let a public host
- * bounce the server to an internal address (SSRF). Any 3xx surfaces as an error carrying `status`.
+ * jira.js v6 `Client` that never follows redirects. jira.js's own client calls global `fetch` with
+ * `redirect: 'follow'` and exposes no option for it, which would let a public host bounce the
+ * server — with our credentials — to an internal address (SSRF). A 3xx surfaces as
+ * RedirectBlockedError (`status` set), any other non-2xx as JiraHttpError.
  */
-export function createNoRedirectClient(config: { host: string; auth: Auth }) {
+export function createNoRedirectClient(config: NoRedirectClientConfig): Client {
   const authorization =
     config.auth.type === 'basic'
       ? `Basic ${Buffer.from(`${config.auth.email}:${config.auth.apiToken}`).toString('base64')}`
       : `Bearer ${config.auth.token}`;
+  const host = config.host.replace(/\/+$/, '');
   return {
     async sendRequest<T>(options: SendRequestOptions<T>): Promise<T> {
-      const url = new URL(
-        config.host.replace(/\/+$/, '') +
-          (options.url.startsWith('/') ? options.url : `/${options.url}`),
-      );
-      for (const [k, v] of Object.entries(options.searchParams ?? {}))
-        url.searchParams.set(k, String(v));
-      const res = await fetch(url, {
+      const url = new URL(host + (options.url.startsWith('/') ? options.url : `/${options.url}`));
+      appendSearchParams(url, options.searchParams);
+      const headers = new Headers(options.headers);
+      headers.set('Accept', 'application/json');
+      const hasBody = options.body !== undefined && options.body !== null;
+      if (hasBody) headers.set('Content-Type', 'application/json');
+      // Set last, case-insensitively: a caller header can never replace our credentials.
+      headers.set('Authorization', authorization);
+      const res = await fetchNoRedirect(url, {
         method: options.method ?? 'GET',
-        redirect: 'manual',
-        headers: { Accept: 'application/json', Authorization: authorization, ...options.headers },
+        headers,
+        body: hasBody ? JSON.stringify(options.body) : undefined,
+        signal: AbortSignal.timeout(config.timeoutMs ?? 30_000),
       });
       if (!res.ok) {
         await res.body?.cancel();
-        throw Object.assign(new Error(`Request failed: ${res.status}`), { status: res.status });
+        throw new JiraHttpError(res.status, parseRetryAfter(res.headers.get('retry-after')));
       }
       const text = await res.text();
       let data: unknown;
@@ -36,7 +93,7 @@ export function createNoRedirectClient(config: { host: string; auth: Auth }) {
       } catch {
         throw Object.assign(new Error('Response was not JSON'), { name: 'SchemaMismatchError' });
       }
-      if (options.schema && data !== undefined) {
+      if (options.schema && data !== undefined && config.schemaValidation !== 'lenient') {
         const parsed = options.schema.safeParse(data);
         if (!parsed.success) {
           throw Object.assign(new Error('Response did not match the schema'), {
