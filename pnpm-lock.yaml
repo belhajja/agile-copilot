@@ -347,6 +347,55 @@ importers:
         specifier: 16.3.8
         version: 16.3.8(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@24.19.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
+  packages/automation:
+    dependencies:
+      '@agile/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@agile/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@agile/connections':
+        specifier: workspace:*
+        version: link:../connections
+      '@agile/dashboards':
+        specifier: workspace:*
+        version: link:../dashboards
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../db
+      '@agile/metrics':
+        specifier: workspace:*
+        version: link:../metrics
+      '@agile/notify':
+        specifier: workspace:*
+        version: link:../notify
+      '@agile/skills':
+        specifier: workspace:*
+        version: link:../skills
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      pg-boss:
+        specifier: 12.36.0
+        version: 12.36.0(@opentelemetry/api@1.9.1)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@agile/jira-tools':
+        specifier: workspace:*
+        version: link:../jira-tools
+      '@agile/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@agile/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
+
   packages/config:
     dependencies:
       zod:

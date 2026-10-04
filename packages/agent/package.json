@@ -6,7 +6,8 @@
     ".": "./src/index.ts",
     "./reasons": "./src/reasons.ts",
     "./untrusted": "./src/untrusted.ts",
-    "./tool-errors": "./src/tool-errors.ts"
+    "./tool-errors": "./src/tool-errors.ts",
+    "./testing": "./src/test-harness.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
