@@ -8,6 +8,7 @@ import { organization } from 'better-auth/plugins/organization';
 import { asc, eq } from 'drizzle-orm';
 import { ac, orgRoles } from './access';
 import { assertAssignableRole } from './assign';
+import { auditMembership, guardInvitationList, redactFullOrganization } from './hooks';
 
 /** Endpoints whose body carries a role to give. */
 const ROLE_PATHS = new Set(['/organization/invite-member', '/organization/update-member-role']);
@@ -29,6 +30,12 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
+        await guardInvitationList(db, ctx);
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        await auditMembership(db, ctx);
+        const redacted = await redactFullOrganization(db, ctx);
+        if (redacted) return ctx.json(redacted);
       }),
     },
     databaseHooks: {
