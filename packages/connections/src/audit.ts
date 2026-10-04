@@ -12,7 +12,13 @@ export type AuditAction =
   | 'jira_boards.discovered'
   | 'jira_boards.selection_changed'
   | 'jira_status_mapping.updated'
-  | 'jira_sync.requested';
+  | 'jira_sync.requested'
+  | 'llm_connection.prices_changed'
+  | 'agent_action.proposed'
+  | 'agent_action.approved'
+  | 'agent_action.rejected'
+  | 'agent_action.executed'
+  | 'agent_action.failed';
 
 /** metadata must never contain secrets — pass only non-sensitive descriptors. */
 export async function recordAudit(

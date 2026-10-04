@@ -26,8 +26,10 @@ export {
   type LlmDeps,
   type LlmServiceFailure,
   listLlmConnections,
+  loadDefaultLlm,
   loadDefaultLlmConfig,
   retestLlmConnection,
   setDefaultLlmConnection,
+  setLlmConnectionPrices,
 } from './llm-connections';
 export { getOrgDek } from './vault';

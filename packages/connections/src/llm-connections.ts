@@ -29,6 +29,9 @@ export interface LlmConnectionView {
   azureResourceName: string | null;
   keyHint: string | null;
   isDefault: boolean;
+  /** Price per million tokens in millionths of a currency unit (null = not set). */
+  inputPriceMicros: number | null;
+  outputPriceMicros: number | null;
   status: 'untested' | 'ok' | 'error';
   lastError: string | null;
   lastCheckedAt: Date | null;
@@ -58,6 +61,8 @@ const toView = (r: typeof llmConnections.$inferSelect): LlmConnectionView => ({
   azureResourceName: r.azureResourceName,
   keyHint: r.keyHint,
   isDefault: r.isDefault,
+  inputPriceMicros: r.inputPriceMicros,
+  outputPriceMicros: r.outputPriceMicros,
   status: r.status,
   lastError: r.lastError,
   lastCheckedAt: r.lastCheckedAt,
@@ -321,16 +326,67 @@ export async function deleteLlmConnection(
   });
 }
 
-export async function loadDefaultLlmConfig(
+/** The default model with what the agent needs around it: the row id (usage) and prices (cost). */
+export async function loadDefaultLlm(
   deps: LlmDeps,
   orgId: string,
-): Promise<LlmConfig | null> {
+): Promise<{
+  id: string;
+  config: LlmConfig;
+  prices: { inputMicros: number | null; outputMicros: number | null };
+} | null> {
   return withOrg(deps.db, orgId, async (tx) => {
     const [row] = await tx
       .select()
       .from(llmConnections)
       .where(eq(llmConnections.isDefault, true))
       .limit(1);
-    return row ? readConfig(tx, deps, orgId, row) : null;
+    if (!row) return null;
+    return {
+      id: row.id,
+      config: await readConfig(tx, deps, orgId, row),
+      prices: { inputMicros: row.inputPriceMicros, outputMicros: row.outputPriceMicros },
+    };
+  });
+}
+
+export async function loadDefaultLlmConfig(
+  deps: LlmDeps,
+  orgId: string,
+): Promise<LlmConfig | null> {
+  return (await loadDefaultLlm(deps, orgId))?.config ?? null;
+}
+
+const MAX_PRICE_MICROS = 1_000_000_000; // 1,000 currency units per million tokens
+
+/** Sets (or clears, with null) a connection's prices per million tokens. Owners/admins only. */
+export async function setLlmConnectionPrices(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+  prices: { inputMicros: number | null; outputMicros: number | null },
+): Promise<{ ok: true } | LlmServiceFailure | { ok: false; code: 'invalid_price' }> {
+  assertCanManage(actor);
+  const valid = (v: number | null) =>
+    v === null || (Number.isInteger(v) && v >= 0 && v <= MAX_PRICE_MICROS);
+  if (!valid(prices.inputMicros) || !valid(prices.outputMicros)) {
+    return { ok: false, code: 'invalid_price' };
+  }
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    const updated = await tx
+      .update(llmConnections)
+      .set({ inputPriceMicros: prices.inputMicros, outputPriceMicros: prices.outputMicros })
+      .where(eq(llmConnections.id, id))
+      .returning({ id: llmConnections.id });
+    if (updated.length === 0) return notFound;
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.prices_changed',
+      targetType: 'llm_connection',
+      targetId: id,
+      metadata: { inputMicros: prices.inputMicros, outputMicros: prices.outputMicros },
+    });
+    return { ok: true } as const;
   });
 }
