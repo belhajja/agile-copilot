@@ -5,7 +5,12 @@ import type { LookupFunction } from 'node:net';
 import ipaddr from 'ipaddr.js';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { RedirectBlockedError } from './http';
-import { isAllowlistedHost, isPublicAddress, type Resolver } from './outbound-url';
+import {
+  isAllowlistedHost,
+  isAlwaysBlockedHost,
+  isPublicAddress,
+  type Resolver,
+} from './outbound-url';
 
 /** The deployment's outbound rule: private addresses only for operator-allowlisted hosts. */
 export interface OutboundPolicy {
@@ -23,6 +28,13 @@ export class BlockedAddressError extends Error {
   }
 }
 
+/** Lower-case, no IPv6 brackets, no trailing dot ("jira.corp.test." is the same host). */
+const normalizeHost = (hostname: string) =>
+  hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+
 const systemResolve: Resolver = (host) =>
   new Promise((resolve, reject) =>
     dnsLookup(host, { all: true }, (err, addresses) =>
@@ -39,7 +51,11 @@ const systemResolve: Resolver = (host) =>
 export function createPinnedLookup(policy: OutboundPolicy): LookupFunction {
   const resolve = policy.resolve ?? systemResolve;
   return (hostname, options, callback) => {
-    const host = hostname.toLowerCase();
+    const host = normalizeHost(hostname);
+    if (isAlwaysBlockedHost(host)) {
+      callback(new BlockedAddressError(host), '');
+      return;
+    }
     resolve(host).then(
       (addresses) => {
         if (addresses.length === 0) {
@@ -86,24 +102,9 @@ export function createPinnedLookup(policy: OutboundPolicy): LookupFunction {
 
 /** IP literals never reach `lookup`: check them against the same rule up front. */
 function assertLiteralAllowed(hostname: string, policy: OutboundPolicy) {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const host = normalizeHost(hostname);
   if (!ipaddr.isValid(host) || isAllowlistedHost(host, policy.allowedPrivateHosts)) return;
   if (!isPublicAddress(host)) throw new BlockedAddressError(host);
-}
-
-const agents = new Map<string, Agent>();
-
-/** One undici Agent per allowlist (connection reuse); a fresh one when a test injects `resolve`. */
-function agentFor(policy: OutboundPolicy): Agent {
-  const make = () => new Agent({ connect: { lookup: createPinnedLookup(policy) } });
-  if (policy.resolve) return make();
-  const key = [...policy.allowedPrivateHosts].sort().join(',');
-  let agent = agents.get(key);
-  if (!agent) {
-    agent = make();
-    agents.set(key, agent);
-  }
-  return agent;
 }
 
 /**
@@ -111,6 +112,7 @@ function agentFor(policy: OutboundPolicy): Agent {
  * only to addresses the policy allows, pinned at connect time. Accepts a string or URL.
  */
 export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
+  const dispatcher = new Agent({ connect: { lookup: createPinnedLookup(policy) } });
   return (async (input: string | URL | Request, init?: RequestInit) => {
     if (input instanceof Request)
       throw new TypeError('createOutboundFetch takes a URL, not a Request');
@@ -119,7 +121,7 @@ export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
     const res = await undiciFetch(url, {
       ...(init as Parameters<typeof undiciFetch>[1]),
       redirect: 'manual',
-      dispatcher: agentFor(policy),
+      dispatcher,
     });
     if (res.status >= 300 && res.status < 400) {
       await res.body?.cancel();
@@ -129,13 +131,44 @@ export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
   }) as typeof fetch;
 }
 
+/**
+ * Node's `net.connect` skips `lookup` for IP literals, so the agents also check the target host
+ * before connecting and report a blocked literal as a socket error.
+ */
+function guardLiteral<T extends { createConnection: (...args: never[]) => unknown }>(
+  agent: T,
+  policy: OutboundPolicy,
+): T {
+  const original = agent.createConnection.bind(agent) as (...args: unknown[]) => unknown;
+  (agent as { createConnection: unknown }).createConnection = (...args: unknown[]) => {
+    const options = args.find((a) => a && typeof a === 'object') as
+      | { host?: string; hostname?: string }
+      | undefined;
+    const callback = args.find((a) => typeof a === 'function') as
+      | ((err: Error) => void)
+      | undefined;
+    try {
+      assertLiteralAllowed(options?.host ?? options?.hostname ?? '', policy);
+    } catch (error) {
+      if (!callback) throw error;
+      callback(error as Error);
+      return undefined;
+    }
+    return original(...args);
+  };
+  return agent;
+}
+
 /** Node http(s) agents with the pinned lookup, for axios-based clients (jira.js v5). */
 export function createPinnedAgents(policy: OutboundPolicy): {
   httpAgent: HttpAgent;
   httpsAgent: HttpsAgent;
 } {
   const lookup = createPinnedLookup(policy);
-  return { httpAgent: new HttpAgent({ lookup }), httpsAgent: new HttpsAgent({ lookup }) };
+  return {
+    httpAgent: guardLiteral(new HttpAgent({ lookup }), policy),
+    httpsAgent: guardLiteral(new HttpsAgent({ lookup }), policy),
+  };
 }
 
 /** True when `e` (or an error in its `cause` chain) is a blocked connection. */

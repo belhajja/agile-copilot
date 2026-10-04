@@ -95,4 +95,42 @@ describe('DNS-pinned outbound requests', () => {
     expect(hits).toEqual([]);
     expect(await request('jira.corp.test', ['corp.test'])).toBe(200);
   });
+
+  it('refuses IP literals through the Node agents unless allowlisted', async () => {
+    const request = (allowedPrivateHosts: string[]) =>
+      new Promise<number | unknown>((resolve) => {
+        const { httpAgent } = createPinnedAgents({ allowedPrivateHosts });
+        get({ host: '127.0.0.1', port, path: '/ok', agent: httpAgent }, (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        }).on('error', resolve);
+      });
+    expect(isBlockedAddressError(await request([]))).toBe(true);
+    expect(hits).toEqual([]);
+    expect(await request(['127.0.0.1'])).toBe(200);
+  });
+
+  it('refuses cloud metadata hosts even when allowlisted', async () => {
+    const fetch = createOutboundFetch({
+      allowedPrivateHosts: ['metadata.google.internal'],
+      resolve: async () => ['127.0.0.1'],
+    });
+    const err = await fetch(`http://metadata.google.internal:${port}/ok`).catch((e: unknown) => e);
+    expect(isBlockedAddressError(err)).toBe(true);
+    expect(hits).toEqual([]);
+  });
+
+  it('matches the allowlist ignoring a trailing dot', async () => {
+    const fetch = createOutboundFetch({
+      allowedPrivateHosts: ['corp.test'],
+      resolve: async () => ['127.0.0.1'],
+    });
+    expect((await fetch(`http://jira.corp.test.:${port}/ok`)).status).toBe(200);
+    const blocked = createOutboundFetch({
+      allowedPrivateHosts: [],
+      resolve: async () => ['127.0.0.1'],
+    });
+    const err = await blocked(`http://jira.corp.test.:${port}/ok`).catch((e: unknown) => e);
+    expect(isBlockedAddressError(err)).toBe(true);
+  });
 });

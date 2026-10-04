@@ -23,6 +23,9 @@ const defaultResolver: Resolver = async (host) =>
 
 const ALWAYS_BLOCKED = new Set(['metadata.google.internal', 'metadata']);
 
+/** Cloud metadata hosts: refused even when allowlisted. */
+export const isAlwaysBlockedHost = (host: string) => ALWAYS_BLOCKED.has(host);
+
 /** The host (or a parent domain) is on the operator's private-host allowlist. */
 export const isAllowlistedHost = (host: string, allowed: readonly string[]) =>
   allowed.some((d) => host === d || host.endsWith(`.${d}`));
@@ -52,7 +55,7 @@ export async function checkOutboundUrl(
     return { ok: false, code: 'credentials', reason: 'URLs must not contain credentials' };
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (ALWAYS_BLOCKED.has(host)) {
+  if (isAlwaysBlockedHost(host)) {
     return { ok: false, code: 'blocked_host', reason: `Host ${host} is blocked`, host };
   }
   if (isAllowlistedHost(host, opts.allowedPrivateHosts)) return { ok: true, url };
