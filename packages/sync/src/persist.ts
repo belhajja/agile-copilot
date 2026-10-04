@@ -99,6 +99,7 @@ export async function saveIssues(
   connectionId: string,
   boardId: string,
   issues: NormalizedIssue[],
+  syncedAt: Date,
 ): Promise<string[]> {
   if (issues.length === 0) return [];
   const rows = await tx
@@ -119,7 +120,7 @@ export async function saveIssues(
         jiraCreatedAt: i.createdAt,
         jiraUpdatedAt: i.updatedAt,
         resolvedAt: i.resolvedAt,
-        syncedAt: new Date(),
+        syncedAt,
       })),
     )
     .onConflictDoUpdate({

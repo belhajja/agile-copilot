@@ -13,3 +13,4 @@ export {
 } from './boards';
 export { resolveCredentials } from './credentials';
 export { type SyncDeps, SyncError, type SyncFailure, type SyncFailureCode } from './deps';
+export { FULL_SYNC_EVERY_MS, runSync, type SyncJob, type SyncOutcome } from './run-sync';
