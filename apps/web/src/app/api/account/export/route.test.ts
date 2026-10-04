@@ -7,7 +7,7 @@ const currentSession = vi.fn(
 );
 vi.mock('@/server/context', () => ({
   currentSession: (headers: Headers) => currentSession(headers),
-  services: () => ({ db: { stub: true } }),
+  services: () => ({ db: { stub: true }, env: { BETTER_AUTH_URL: 'http://localhost:3200' } }),
 }));
 const finish = vi.fn(async () => {});
 const chunks = async function* () {
@@ -28,12 +28,16 @@ vi.mock('@agile/privacy', () => ({
   openUserExport: (db: unknown, userId: string) => openUserExport(db, userId),
 }));
 
-const { GET } = await import('./route');
+const route = await import('./route');
 
-const get = () => GET(new Request('http://localhost:3200/api/account/export'));
+const SAME_ORIGIN = { origin: 'http://localhost:3200' };
+const post = (headers: Record<string, string> = SAME_ORIGIN) =>
+  route.POST(new Request('http://localhost:3200/api/account/export', { method: 'POST', headers }));
+const get = () => post();
 
-describe('GET /api/account/export', () => {
+describe('POST /api/account/export', () => {
   beforeEach(() => {
+    currentSession.mockClear();
     currentSession.mockResolvedValue(signedIn);
     openUserExport.mockClear();
     finish.mockClear();
@@ -72,6 +76,30 @@ describe('GET /api/account/export', () => {
       const res = await get();
       expect(res.status).toBe(429);
       expect(await res.json()).toEqual({ error: code });
+    }
+  });
+
+  it('is a POST from our own pages only: a cross-site link or form cannot spend the quota (A-m5)', async () => {
+    expect('GET' in route).toBe(false);
+    for (const headers of [
+      { origin: 'https://evil.example' },
+      { 'sec-fetch-site': 'cross-site' },
+      {} as Record<string, string>,
+    ]) {
+      const res = await post(headers);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'forbidden' });
+    }
+    expect(currentSession).not.toHaveBeenCalled();
+    expect(openUserExport).not.toHaveBeenCalled();
+  });
+
+  it('sends a throttled browser form back to the account page', async () => {
+    for (const code of ['export_in_progress', 'export_rate_limited']) {
+      openUserExport.mockResolvedValueOnce({ ok: false, code });
+      const res = await post({ ...SAME_ORIGIN, accept: 'text/html,application/xhtml+xml' });
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe(`/settings/account?export_error=${code}`);
     }
   });
 });

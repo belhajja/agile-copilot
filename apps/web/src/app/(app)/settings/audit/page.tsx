@@ -51,8 +51,9 @@ export default async function AuditPage({
           <CardDescription>{t('exportHint')}</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* A plain GET form: the browser downloads the streamed file. */}
-          <form action="/api/audit/export" method="get">
+          {/* A plain POST form (never a GET: links elsewhere must not start exports, A-m5); the
+              browser downloads the streamed file. */}
+          <form action="/api/audit/export" method="post">
             <FieldGroup className="@xl/main:flex-row @xl/main:items-end">
               <Field>
                 <FieldLabel htmlFor="audit-from">{t('from')}</FieldLabel>

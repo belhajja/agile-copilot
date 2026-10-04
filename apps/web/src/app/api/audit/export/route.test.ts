@@ -4,7 +4,7 @@ const actor = { orgId: 'org_1', userId: 'user_1', roles: ['admin'] };
 const currentActor = vi.fn(async (_headers: Headers): Promise<typeof actor | null> => actor);
 vi.mock('@/server/context', () => ({
   currentActor: (headers: Headers) => currentActor(headers),
-  services: () => ({ db: { stub: true } }),
+  services: () => ({ db: { stub: true }, env: { BETTER_AUTH_URL: 'http://localhost:3200' } }),
 }));
 const finish = vi.fn(async () => {});
 type Opened =
@@ -24,13 +24,25 @@ vi.mock('@agile/privacy', () => ({
   openAuditExport: (db: unknown, a: unknown, opts: unknown) => openAuditExport(db, a, opts),
 }));
 
-const { GET } = await import('./route');
+const route = await import('./route');
 
+/** The form fields (`format=csv&from=…`, a leading `?` allowed), posted from our own page. */
 const get = (query: string, headers: Record<string, string> = {}) =>
-  GET(new Request(`http://localhost:3200/api/audit/export${query}`, { headers }));
+  route.POST(
+    new Request('http://localhost:3200/api/audit/export', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:3200',
+        'content-type': 'application/x-www-form-urlencoded',
+        ...headers,
+      },
+      body: query.replace(/^\?/, ''),
+    }),
+  );
 
-describe('GET /api/audit/export', () => {
+describe('POST /api/audit/export', () => {
   beforeEach(() => {
+    currentActor.mockClear();
     currentActor.mockResolvedValue(actor);
     openAuditExport.mockClear();
     finish.mockClear();
@@ -88,5 +100,26 @@ describe('GET /api/audit/export', () => {
     // Programmatic callers keep the JSON answer.
     openAuditExport.mockResolvedValueOnce({ ok: false, code: 'export_rate_limited' });
     expect((await get('?format=csv', { accept: 'application/json' })).status).toBe(429);
+  });
+
+  it('is a POST from our own pages only: a cross-site link or form cannot spend the quota (A-m5)', async () => {
+    expect('GET' in route).toBe(false);
+    const crossSite: Record<string, string>[] = [
+      { origin: 'https://evil.example' },
+      { origin: '', 'sec-fetch-site': 'cross-site' },
+    ];
+    for (const headers of crossSite) {
+      const res = await get('?format=csv', headers);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'forbidden' });
+    }
+    expect(currentActor).not.toHaveBeenCalled();
+    expect(openAuditExport).not.toHaveBeenCalled();
+  });
+
+  it('refuses an oversized form body', async () => {
+    const res = await get(`format=csv&from=${'x'.repeat(8192)}`);
+    expect(res.status).toBe(400);
+    expect(openAuditExport).not.toHaveBeenCalled();
   });
 });

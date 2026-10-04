@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, type Page, test } from '@playwright/test';
 import { signUp, signUpWithWorkspace } from '../helpers';
 
@@ -23,6 +24,9 @@ async function nextSsoUser(user: OidcUser) {
   });
   expect(res.status).toBe(204);
 }
+
+/** Our own origin: the export routes take POSTs from our pages only (A-m5). */
+const SAME_ORIGIN = { origin: 'http://localhost:3200' };
 
 const unique = (prefix: string) =>
   `${prefix}+${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
@@ -128,7 +132,10 @@ test('SSO joins by invitation; roles, audit export, MCP tokens and account delet
   await expect(sso.getByRole('button', { name: 'Invite', exact: true })).toHaveCount(0);
 
   // Audit export: owners and admins only, streamed as a download.
-  const csv = await page.request.get('/api/audit/export?format=csv');
+  const csv = await page.request.post('/api/audit/export', {
+    form: { format: 'csv' },
+    headers: SAME_ORIGIN,
+  });
   expect(csv.status()).toBe(200);
   expect(csv.headers()['content-disposition']).toContain('attachment');
   const log = await csv.text();
@@ -138,7 +145,10 @@ test('SSO joins by invitation; roles, audit export, MCP tokens and account delet
   for (const action of ['member.invited', 'member.joined', 'member.role_changed']) {
     expect(log).toContain(action);
   }
-  const refused = await sso.request.get('/api/audit/export?format=csv');
+  const refused = await sso.request.post('/api/audit/export', {
+    form: { format: 'csv' },
+    headers: SAME_ORIGIN,
+  });
   expect(refused.status()).toBe(403);
   expect(await refused.text()).not.toContain('member.invited');
 
@@ -183,10 +193,13 @@ test('SSO joins by invitation; roles, audit export, MCP tokens and account delet
 
   // The teammate downloads their data (no credentials, tokens or key material), then deletes
   // their account (their SSO session is fresh).
-  const exported = await sso.request.get('/api/account/export');
-  expect(exported.status()).toBe(200);
-  expect(exported.headers()['content-disposition']).toContain('attachment');
-  const raw = await exported.text();
+  await sso.goto('/settings/account');
+  const [exported] = await Promise.all([
+    sso.waitForEvent('download'),
+    sso.getByRole('button', { name: 'Download my data (JSON)' }).click(),
+  ]);
+  expect(exported.suggestedFilename()).toMatch(/^agile-copilot-my-data-.*\.json$/);
+  const raw = await readFile(await exported.path(), 'utf8');
   const data = JSON.parse(raw) as {
     user: { email: string };
     signInMethods: { providerId: string }[];

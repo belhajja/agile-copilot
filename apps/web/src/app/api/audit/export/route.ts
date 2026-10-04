@@ -1,8 +1,13 @@
+import { readBodyCapped } from '@agile/net';
 import { openAuditExport } from '@agile/privacy';
 import { z } from 'zod';
 import { currentActor, services } from '@/server/context';
+import { isSameOrigin } from '@/server/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+/** The form is three short fields. */
+const MAX_FORM_BYTES = 2048;
 
 const day = z.iso.date();
 const query = z
@@ -14,17 +19,24 @@ const query = z
   .strict();
 
 /**
- * The workspace's audit log as a streamed download (owners and admins). `from`/`to` are UTC days;
- * `to` is inclusive. Throttled: one running and a few per hour per person (429).
+ * The workspace's audit log as a streamed download (owners and admins), from a form post of
+ * `format`, `from` and `to` (UTC days; `to` is inclusive). Throttled: one running and a few per
+ * hour per person (429). A POST from our own pages only (A-m5): a link or form on another site
+ * cannot start exports and spend the person's quota.
  */
-export async function GET(request: Request) {
+export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: 'forbidden' }, { status: 403 });
   const actor = await currentActor(request.headers);
   if (!actor) return Response.json({ error: 'unauthorized' }, { status: 401 });
-  const url = new URL(request.url);
-  const params = Object.fromEntries([...url.searchParams].filter(([, v]) => v !== '')) as Record<
-    string,
-    string
-  >;
+  let form: string;
+  try {
+    form = await readBodyCapped(request, MAX_FORM_BYTES);
+  } catch {
+    return Response.json({ error: 'invalid_request' }, { status: 400 });
+  }
+  const params = Object.fromEntries(
+    [...new URLSearchParams(form)].filter(([, v]) => v !== ''),
+  ) as Record<string, string>;
   const parsed = query.safeParse(params);
   if (!parsed.success) return Response.json({ error: 'invalid_request' }, { status: 400 });
   const { format, from, to } = parsed.data;

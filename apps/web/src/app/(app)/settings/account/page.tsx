@@ -3,9 +3,10 @@ import { getTranslations } from 'next-intl/server';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { allowedCode } from '@/lib/error-code';
 import { ssoErrorOf } from '@/lib/sso-error-codes';
 import { requireSignedIn, services } from '@/server/context';
-import { AccountDataSection } from './account-data-section';
+import { AccountDataSection, EXPORT_ERROR_CODES } from './account-data-section';
 import { LinkSsoButton } from './link-sso-button';
 import { canLinkSso } from './sign-in-methods';
 
@@ -18,10 +19,10 @@ export const dynamic = 'force-dynamic';
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; linked?: string }>;
+  searchParams: Promise<{ error?: string; linked?: string; export_error?: string }>;
 }) {
   const session = await requireSignedIn('/settings/account');
-  const { error, linked } = await searchParams;
+  const { error, linked, export_error: exportError } = await searchParams;
   const t = await getTranslations('account');
   const ta = await getTranslations('auth');
   const { env, auth } = services();
@@ -73,7 +74,10 @@ export default async function AccountPage({
         </CardContent>
       </Card>
       {/* Download my data, delete my account (Task 12): a session is enough, no workspace (M3). */}
-      <AccountDataSection email={session.user.email} />
+      <AccountDataSection
+        email={session.user.email}
+        exportError={allowedCode(exportError, EXPORT_ERROR_CODES)}
+      />
     </div>
   );
 }

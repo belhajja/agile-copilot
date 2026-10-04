@@ -970,6 +970,10 @@
     "dataTitle": "Your data",
     "dataHint": "Download everything Agile Copilot holds about you: profile, workspaces, conversations, usage and your actions in the audit log.",
     "export": "Download my data (JSON)",
+    "exportErrors": {
+      "export_in_progress": "An export is already running. Wait for it to finish.",
+      "export_rate_limited": "Too many exports this hour. Try again later."
+    },
     "deleteTitle": "Delete my account",
     "deleteDescription": "Deletes your account, your conversations and your other private data in every workspace. Workspace spend and audit records keep an anonymous id. This cannot be undone.",
     "deleteConfirmLabel": "Type {email} to confirm",

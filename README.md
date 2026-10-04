@@ -382,7 +382,7 @@ Billing exists only with `DEPLOYMENT_MODE=saas` and all three of `STRIPE_SECRET_
 
 ## Audit log export
 
-**Settings → Audit log** (owners and admins) shows the latest entries and exports a period: *From* and *To* are UTC days (both included; empty = everything), as CSV or JSON Lines. The file is streamed, oldest first; CSV cells that a spreadsheet would run as a formula are neutralised. Every export is itself audited (`audit.exported`). Exports are throttled per person: one at a time and at most 5 an hour. The same download is available at `GET /api/audit/export?format=csv|json&from=YYYY-MM-DD&to=YYYY-MM-DD` with a signed-in session.
+**Settings → Audit log** (owners and admins) shows the latest entries and exports a period: *From* and *To* are UTC days (both included; empty = everything), as CSV or JSON Lines. The file is streamed, oldest first; CSV cells that a spreadsheet would run as a formula are neutralised. Every export is itself audited (`audit.exported`). Exports are throttled per person: one at a time and at most 5 an hour. The same download is available as `POST /api/audit/export` (form fields `format=csv|json`, `from`, `to` as `YYYY-MM-DD`) with a signed-in session and the app's own `Origin` header: both exports are POSTs from the app's own pages only, so a link or form on another site cannot start one and use up the hourly allowance.
 
 ## External AI clients (MCP)
 
@@ -445,9 +445,10 @@ Both commands need Docker: they start Postgres with Testcontainers and sync the 
 What the chart guarantees:
 
 - **Secrets:** the chart creates no Secret and takes no secret value. Each key is read from the existing Secret by `secretKeyRef`. Only the migration Job gets `DATABASE_OWNER_URL`.
-  - The worker also receives the web app's secrets (the OIDC client secret, the Stripe keys, `BETTER_AUTH_SECRET`). It does not use them, but its settings are checked like the web app's, and those checks require them together. This is an accepted residual.
+  - The worker gets only what it needs: no OIDC client secret, no Stripe keys and no sign-in or MCP settings (those checks are all-or-none, so leaving them all out is valid). It still needs `BETTER_AUTH_SECRET`, which its settings schema requires.
 - **Pod security:** every pod runs as a numeric non-root user (10001; mcp-atlassian 1000), with a read-only root filesystem (emptyDirs for `/tmp` and the few paths each image writes), no privilege escalation, all capabilities dropped, the RuntimeDefault seccomp profile and no service-account token.
-- **Probes:** the web probes are TCP probes, so an identity-provider outage never takes the pods out of the Service.
+- **Probes:** the web probes call `/healthz`, a public endpoint that touches neither the database nor the identity provider, so an identity-provider outage never takes the pods out of the Service.
+- **Shutdown:** the web pods get 30 seconds (`terminationGracePeriodSeconds`) to finish running requests (downloads, chat answers) and flush traces; the worker gets 200.
 - **`TRUSTED_PROXY_HOPS`** is `1` when `ingress.enabled=true`, else `0`. Set `config.trustedProxyHops` to override it (see *External AI clients (MCP)*).
 - **NetworkPolicies** mirror the compose networks:
   - Ingress to every pod of the release is denied by default.

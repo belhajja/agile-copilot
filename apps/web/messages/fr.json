@@ -970,6 +970,10 @@
     "dataTitle": "Vos données",
     "dataHint": "Téléchargez tout ce qu'Agile Copilot conserve sur vous : profil, espaces, conversations, consommation et vos actions dans le journal d'audit.",
     "export": "Télécharger mes données (JSON)",
+    "exportErrors": {
+      "export_in_progress": "Un export est déjà en cours. Attendez qu'il se termine.",
+      "export_rate_limited": "Trop d'exports cette heure. Réessayez plus tard."
+    },
     "deleteTitle": "Supprimer mon compte",
     "deleteDescription": "Supprime votre compte, vos conversations et vos autres données privées dans tous les espaces. Les dépenses et le journal d'audit des espaces conservent un identifiant anonyme. Action irréversible.",
     "deleteConfirmLabel": "Saisissez {email} pour confirmer",

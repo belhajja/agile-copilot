@@ -1,28 +1,11 @@
 import { handleAgentRequest } from '@agile/agent';
 import { agentDeps } from '@/server/agent';
-import { currentActor, services } from '@/server/context';
+import { currentActor } from '@/server/context';
+import { isSameOrigin } from '@/server/same-origin';
 
 export const dynamic = 'force-dynamic';
 
 const MAX_BODY_BYTES = 64 * 1024;
-
-// BETTER_AUTH_URL never changes while the process runs: compute its origin once.
-let cachedOrigin: string | undefined;
-const allowedOrigin = () => {
-  cachedOrigin ??= new URL(services().env.BETTER_AUTH_URL).origin;
-  return cachedOrigin;
-};
-
-/**
- * Same-origin only (the session cookie is SameSite=Lax; this is a second, explicit check): the
- * Origin must be ours, or, when the browser sent none, Sec-Fetch-Site must say same-origin.
- * Anything else, including a request with neither header, is refused.
- */
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (origin) return origin === allowedOrigin();
-  return request.headers.get('sec-fetch-site') === 'same-origin';
-}
 
 /** One chat turn (streamed). The browser sends a message or approval decisions, nothing else. */
 export async function POST(request: Request) {
