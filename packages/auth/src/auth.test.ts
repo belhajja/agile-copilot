@@ -1,4 +1,4 @@
-import { auditLog, createDb, orgDataKeys, withOrg } from '@agile/db';
+import { auditLog, createDb, member as memberTable, orgDataKeys, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -116,6 +116,71 @@ describe('auth', () => {
     } finally {
       await owner.close();
     }
+  });
+
+  it('invites with one of the four roles only; the invitee joins with that role', async () => {
+    const signUp = async (email: string) =>
+      cookieHeader(
+        (
+          await auth.api.signUpEmail({
+            body: { email, password: 'correct-horse-1', name: email.split('@')[0] ?? 'x' },
+            returnHeaders: true,
+          })
+        ).headers,
+      );
+    const ownerH = await signUp('boss@example.com');
+    const org = await auth.api.createOrganization({
+      headers: ownerH,
+      body: { name: 'Roles', slug: 'roles' },
+    });
+    const organizationId = org?.id ?? '';
+
+    // better-auth refuses unknown roles itself; its own `member` and lists are refused by our hook.
+    await expect(
+      auth.api.createInvitation({
+        headers: ownerH,
+        body: { email: 'new@example.com', role: 'superuser' as 'admin', organizationId },
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    for (const role of ['member', 'admin,manager']) {
+      await expect(
+        auth.api.createInvitation({
+          headers: ownerH,
+          body: { email: 'new@example.com', role: role as 'admin', organizationId },
+        }),
+      ).rejects.toMatchObject({ body: { code: 'ROLE_NOT_ALLOWED' } });
+    }
+
+    const invitation = await auth.api.createInvitation({
+      headers: ownerH,
+      body: { email: 'mgr@example.com', role: 'manager' as 'admin', organizationId },
+    });
+    const mgrH = await signUp('mgr@example.com');
+    await auth.api.acceptInvitation({
+      headers: mgrH,
+      body: { invitationId: invitation?.id ?? '' },
+    });
+    const mgr = await auth.api.getSession({ headers: mgrH });
+    expect(await getMemberRoles(conn.db, organizationId, mgr?.user.id ?? '')).toEqual(['manager']);
+
+    // A manager manages nobody.
+    await expect(
+      auth.api.createInvitation({
+        headers: mgrH,
+        body: { email: 'x@example.com', role: 'viewer' as 'admin', organizationId },
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    // The legacy role cannot come back through a role change either.
+    const [mgrMember] = await conn.db
+      .select()
+      .from(memberTable)
+      .where(eq(memberTable.userId, mgr?.user.id ?? ''));
+    await expect(
+      auth.api.updateMemberRole({
+        headers: ownerH,
+        body: { memberId: mgrMember?.id ?? '', role: 'member' as 'admin', organizationId },
+      }),
+    ).rejects.toMatchObject({ body: { code: 'ROLE_NOT_ALLOWED' } });
   });
 
   it('returns no roles for a non-member', async () => {

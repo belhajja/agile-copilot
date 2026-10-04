@@ -5,6 +5,8 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
 import { organization } from 'better-auth/plugins/organization';
 import { asc, eq } from 'drizzle-orm';
+import { ac, orgRoles } from './access';
+import { assertAssignableRole } from './assign';
 
 export interface AuthOptions {
   db: Db;
@@ -32,7 +34,19 @@ export function createAuth({ db, secret, baseURL }: AuthOptions) {
     plugins: [
       organization({
         allowUserToCreateOrganization: true,
+        ac,
+        roles: orgRoles,
         organizationHooks: {
+          // The role set is closed: owner, admin, manager, viewer (never better-auth's `member`).
+          beforeCreateInvitation: async ({ invitation }) => {
+            assertAssignableRole(invitation.role);
+          },
+          beforeAddMember: async ({ member }) => {
+            assertAssignableRole(member.role);
+          },
+          beforeUpdateMemberRole: async ({ newRole }) => {
+            assertAssignableRole(newRole);
+          },
           // Before, not after: if the purge fails the workspace is kept, so its encrypted secrets
           // are never left behind without an owner.
           beforeDeleteOrganization: async ({ organization: org, user }) => {
