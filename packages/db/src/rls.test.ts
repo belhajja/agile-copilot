@@ -100,7 +100,9 @@ describe('row-level security (as app_user)', () => {
           where col.table_schema = 'public' and col.table_name = rel.relname
             and col.column_name = 'org_id')
     `)) as unknown as { name: string; on_delete: string }[];
-    expect(rows.filter((r) => r.on_delete !== 'c')).toEqual([]);
+    // 'n' (SET NULL) is allowed for an optional pointer that must not take its child rows with it
+    // (skill_runs.channel_id): purge works in any order since it only nulls a column.
+    expect(rows.filter((r) => r.on_delete !== 'c' && r.on_delete !== 'n')).toEqual([]);
   });
 
   it('guards the schema: every cascading foreign key is covered by an index', async () => {

@@ -103,8 +103,8 @@ export const agentApprovals = pgTable(
 );
 
 /**
- * Token usage of one agent reply (all its model calls). Kept when the conversation or the LLM
- * connection is deleted, so no foreign keys: spend history must survive both.
+ * Token usage of one agent reply or skill run (all its model calls). Kept when the conversation,
+ * the skill run or the LLM connection is deleted, so no foreign keys: spend history must survive.
  */
 export const agentUsage = pgTable(
   'agent_usage',
@@ -113,6 +113,8 @@ export const agentUsage = pgTable(
     orgId: text('org_id').notNull(),
     userId: text('user_id').notNull(),
     conversationId: uuid('conversation_id'),
+    /** Set for background skill runs and builder previews' runs (no conversation). */
+    skillRunId: uuid('skill_run_id'),
     llmConnectionId: uuid('llm_connection_id'),
     provider: text('provider').notNull(),
     model: text('model').notNull(),

@@ -78,6 +78,8 @@ export const llmConnections = pgTable(
     keyHint: text('key_hint'),
     secret: text('secret').notNull(),
     isDefault: boolean('is_default').notNull().default(false),
+    /** The "cheap model" for background skill runs (at most one per workspace; else the default). */
+    isBackground: boolean('is_background').notNull().default(false),
     /** Optional prices per million tokens, in millionths of a currency unit (cost meter). */
     inputPriceMicros: integer('input_price_micros'),
     outputPriceMicros: integer('output_price_micros'),
@@ -91,6 +93,7 @@ export const llmConnections = pgTable(
   (t) => [
     index('llm_connections_org_idx').on(t.orgId),
     uniqueIndex('llm_connections_one_default_uq').on(t.orgId).where(sql`${t.isDefault}`),
+    uniqueIndex('llm_connections_one_background_uq').on(t.orgId).where(sql`${t.isBackground}`),
     tenantPolicy('llm_connections', t.orgId),
   ],
 );
