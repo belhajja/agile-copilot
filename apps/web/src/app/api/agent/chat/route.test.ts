@@ -102,6 +102,36 @@ describe('POST /api/agent/chat', () => {
     expect(handleAgentRequest).not.toHaveBeenCalled();
   });
 
+  it('stops reading a chunked body (no Content-Length) once it passes 64 KB', async () => {
+    let pulled = 0;
+    const chunk = new TextEncoder().encode('x'.repeat(16 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 1000) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const res = await POST(
+      new Request('http://localhost:3200/api/agent/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3200' },
+        body,
+        duplex: 'half',
+      } as RequestInit),
+    );
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+    expect(handleAgentRequest).not.toHaveBeenCalled();
+  });
+
+  it('counts bytes, not characters: 40 000 three-byte characters are over 64 KB', async () => {
+    const res = await post(JSON.stringify({ text: '€'.repeat(40_000) }), {
+      'content-length': null,
+    });
+    expect(res.status).toBe(413);
+  });
+
   it('passes unparsable bodies on as null (the agent answers 400)', async () => {
     await post('{not json');
     expect(handleAgentRequest).toHaveBeenCalledWith({ deps: 'stub' }, owner, null);

@@ -1,4 +1,5 @@
 import { handleAgentRequest } from '@agile/agent';
+import { BodyTooLargeError, readBodyCapped } from '@agile/net';
 import { agentDeps } from '@/server/agent';
 import { currentActor } from '@/server/context';
 import { isSameOrigin } from '@/server/same-origin';
@@ -12,12 +13,17 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) return Response.json({ error: 'forbidden' }, { status: 403 });
   const actor = await currentActor(request.headers);
   if (!actor) return Response.json({ error: 'unauthorized' }, { status: 401 });
-  // A chat turn is one short message or a few decisions: refuse big bodies before parsing.
-  if (Number(request.headers.get('content-length')) > MAX_BODY_BYTES)
-    return Response.json({ error: 'payload_too_large' }, { status: 413 });
-  const text = await request.text().catch(() => '');
-  if (text.length > MAX_BODY_BYTES)
-    return Response.json({ error: 'payload_too_large' }, { status: 413 });
+  // A chat turn is one short message or a few decisions: refuse big bodies before parsing,
+  // counting bytes as they stream in (a missing or false Content-Length changes nothing).
+  let text = '';
+  try {
+    text = await readBodyCapped(request, MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return Response.json({ error: 'payload_too_large' }, { status: 413 });
+    }
+    // An unreadable body (client gone): the agent answers 400 to the empty text.
+  }
   let body: unknown = null;
   try {
     body = JSON.parse(text);

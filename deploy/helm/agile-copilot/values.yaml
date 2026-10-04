@@ -47,8 +47,9 @@ secrets:
   # BETTER_AUTH_SECRET, ENCRYPTION_KEYS. Optional: OIDC_CLIENT_SECRET,
   # ATLASSIAN_OAUTH_CLIENT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
   # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY.
-  # Web and worker get the same keys (the worker's env checks are the web app's, so it also gets
-  # the OIDC and Stripe secrets it does not use); only the migration Job gets DATABASE_OWNER_URL.
+  # The web app gets all of them but DATABASE_OWNER_URL. The worker gets only what it uses:
+  # DATABASE_URL, BETTER_AUTH_SECRET, ENCRYPTION_KEYS, ATLASSIAN_OAUTH_CLIENT_SECRET and the
+  # Langfuse keys (never the OIDC or Stripe secrets). Only the migration Job gets DATABASE_OWNER_URL.
   existingSecret: ""
 
 web:
