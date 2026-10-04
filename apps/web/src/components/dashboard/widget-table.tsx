@@ -8,13 +8,22 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { allowedCode } from '@/lib/error-code';
+import { DASHBOARD_CODES, DASHBOARD_COLUMNS } from './message-keys';
 import type { TableData } from './types';
 import { visibleRows } from './visible-rows';
 
 export async function WidgetTable({ data }: { data: TableData }) {
   const t = await getTranslations('dashboards');
   const format = await getFormatter();
-  const code = (c: string) => (t.has(`codes.${c}`) ? t(`codes.${c}`) : c);
+  const columnLabel = (key: string) => {
+    const known = allowedCode(key, DASHBOARD_COLUMNS);
+    return known ? t(`columns.${known}`) : key;
+  };
+  const code = (c: string) => {
+    const known = allowedCode(c, DASHBOARD_CODES);
+    return known ? t(`codes.${known}`) : c;
+  };
   // Percentiles only grow, so when the simulation hit its day cap the last row is capped, and so
   // is any earlier row that shows the same date.
   const cappedDate = data.capped
@@ -60,9 +69,7 @@ export async function WidgetTable({ data }: { data: TableData }) {
       <TableHeader>
         <TableRow>
           {data.columns.map((c) => (
-            <TableHead key={c.key}>
-              {t.has(`columns.${c.key}`) ? t(`columns.${c.key}`) : c.key}
-            </TableHead>
+            <TableHead key={c.key}>{columnLabel(c.key)}</TableHead>
           ))}
         </TableRow>
       </TableHeader>

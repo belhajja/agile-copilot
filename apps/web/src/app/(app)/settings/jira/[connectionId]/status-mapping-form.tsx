@@ -25,7 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { allowedCode } from '@/lib/error-code';
-import { JIRA_CATEGORIES } from '../error-codes';
+import { BOARD_ERROR_CODES, JIRA_CATEGORIES } from '../error-codes';
 import { type ActionState, saveStatusMappingAction } from './actions';
 
 type Category = StatusMappingView['category'];
@@ -60,7 +60,7 @@ export function StatusMappingForm({
   useEffect(() => {
     if (state.status === 'ok') toast.success(t('mappingSaved'));
     if (state.status === 'error') {
-      toast.error(t.has(`errors.${state.code}`) ? t(`errors.${state.code}`) : t('errors.unknown'));
+      toast.error(t(`errors.${allowedCode(state.code, BOARD_ERROR_CODES) ?? 'unknown'}`));
     }
   }, [state, t]);
 

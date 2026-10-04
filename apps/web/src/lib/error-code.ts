@@ -17,3 +17,17 @@ export function allowedCode<T extends string>(value: unknown, allowed: readonly 
     ? (value as T)
     : null;
 }
+
+/**
+ * Why an outbound URL was refused (`blocked_url` with a reason): one sentence each under
+ * `llm.errors.blocked`, `jira.errors.blocked` and `delivery.errors.blocked`.
+ */
+export const BLOCKED_REASONS = [
+  'invalid_url',
+  'scheme',
+  'credentials',
+  'blocked_host',
+  'localhost',
+  'private_address',
+  'unresolvable',
+] as const;

@@ -13,7 +13,9 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+import { allowedCode } from '@/lib/error-code';
 import { deleteJiraConnectionAction, retestJiraConnectionAction } from './actions';
+import { JIRA_ERROR_CODES } from './error-codes';
 
 export async function JiraConnectionItem({
   c,
@@ -47,7 +49,7 @@ export async function JiraConnectionItem({
         </ItemDescription>
         {c.lastError && (
           <p className="text-sm text-destructive">
-            {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
+            {t(`errors.${allowedCode(c.lastError, JIRA_ERROR_CODES) ?? 'unknown'}`)}
           </p>
         )}
       </ItemContent>

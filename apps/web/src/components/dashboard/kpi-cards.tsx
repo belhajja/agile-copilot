@@ -1,5 +1,7 @@
 import { getFormatter, getTranslations } from 'next-intl/server';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { allowedCode } from '@/lib/error-code';
+import { DASHBOARD_EMPTY_REASONS, DASHBOARD_HINTS, DASHBOARD_METRICS } from './message-keys';
 import { RemoveWidget, type WidgetRemoval } from './remove-widget';
 import type { RenderedWidget } from './types';
 
@@ -14,11 +16,10 @@ export async function KpiCards({
   const t = await getTranslations('dashboards');
   const format = await getFormatter();
 
-  const title = ({ spec }: RenderedWidget): string =>
-    spec.title ??
-    (t.has(`metrics.${spec.metric}.title`)
-      ? t(`metrics.${spec.metric}.title`, spec.params)
-      : spec.metric);
+  const title = ({ spec }: RenderedWidget): string => {
+    const metric = allowedCode(spec.metric, DASHBOARD_METRICS);
+    return spec.title ?? (metric ? t(`metrics.${metric}.title`, spec.params) : spec.metric);
+  };
   const value = ({ data }: RenderedWidget): string => {
     if (data.kind !== 'kpi' || data.value === null) return '—';
     if (data.format === 'percent') {
@@ -31,13 +32,13 @@ export async function KpiCards({
   };
   const hint = ({ data }: RenderedWidget): string | null => {
     if (data.kind === 'empty') {
-      return t.has(`empty.${data.reason}`) ? t(`empty.${data.reason}`) : t('notEnoughData');
+      const reason = allowedCode(data.reason, DASHBOARD_EMPTY_REASONS);
+      return reason ? t(`empty.${reason}`) : t('notEnoughData');
     }
     if (data.kind !== 'kpi') return null;
     if (data.value === null) return t('notEnoughData');
-    if (data.hint && t.has(`hints.${data.hint.key}`)) {
-      return t(`hints.${data.hint.key}`, data.hint.values ?? {});
-    }
+    const hintKey = allowedCode(data.hint?.key, DASHBOARD_HINTS);
+    if (data.hint && hintKey) return t(`hints.${hintKey}`, data.hint.values ?? {});
     return null;
   };
 

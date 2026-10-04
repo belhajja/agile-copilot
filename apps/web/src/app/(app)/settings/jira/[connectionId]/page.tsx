@@ -13,8 +13,10 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import { allowedCode } from '@/lib/error-code';
 import { connectionDeps, requireActor } from '@/server/context';
 import { syncDeps } from '@/server/sync';
+import { BOARD_ERROR_CODES } from '../error-codes';
 import { BoardSelectionForm } from './board-selection-form';
 import { StatusMappingForm } from './status-mapping-form';
 import { DiscoverBoardsButton, SyncControls } from './sync-controls';
@@ -47,9 +49,7 @@ export default async function JiraConnectionBoardsPage({
       : t(`sync.${state.status}`);
   const syncError =
     state.status === 'error' && state.lastError
-      ? t.has(`errors.${state.lastError}`)
-        ? t(`errors.${state.lastError}`)
-        : t('errors.unknown')
+      ? t(`errors.${allowedCode(state.lastError, BOARD_ERROR_CODES) ?? 'unknown'}`)
       : null;
   const mappings = await Promise.all(
     selected.map(async (b) => ({

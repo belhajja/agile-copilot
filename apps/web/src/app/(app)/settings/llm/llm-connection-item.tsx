@@ -12,12 +12,14 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+import { allowedCode } from '@/lib/error-code';
 import {
   deleteLlmConnectionAction,
   retestLlmConnectionAction,
   setDefaultLlmConnectionAction,
 } from './actions';
 import { BackgroundModelButton } from './background-model-button';
+import { LLM_ERROR_CODES } from './error-codes';
 import { LlmPriceForm } from './llm-price-form';
 
 export async function LlmConnectionItem({
@@ -53,7 +55,7 @@ export async function LlmConnectionItem({
         </ItemDescription>
         {c.lastError && (
           <p className="text-sm text-destructive">
-            {t.has(`errors.${c.lastError}`) ? t(`errors.${c.lastError}`) : t('errors.unknown')}
+            {t(`errors.${allowedCode(c.lastError, LLM_ERROR_CODES) ?? 'unknown'}`)}
           </p>
         )}
         {canManage && (

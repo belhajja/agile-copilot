@@ -2,12 +2,25 @@ import { describe, expect, it } from 'vitest';
 import en from '../../messages/en.json';
 import fr from '../../messages/fr.json';
 import { BILLING_ERROR_CODES, BILLING_STATUSES } from '../app/(app)/settings/billing/billing-codes';
-import { JIRA_CATEGORIES, JIRA_ERROR_CODES } from '../app/(app)/settings/jira/error-codes';
+import {
+  BOARD_ERROR_CODES,
+  JIRA_CATEGORIES,
+  JIRA_ERROR_CODES,
+} from '../app/(app)/settings/jira/error-codes';
+import { LLM_ERROR_CODES } from '../app/(app)/settings/llm/error-codes';
 import { MCP_ERROR_CODES } from '../app/(app)/settings/mcp/error-codes';
 import { SETTINGS_ERROR_CODES } from '../app/(app)/settings/workspace/error-codes';
 import { TOOL_LABELS } from '../components/agent/tool-labels';
+import {
+  DASHBOARD_CODES,
+  DASHBOARD_COLUMNS,
+  DASHBOARD_EMPTY_REASONS,
+  DASHBOARD_HINTS,
+  DASHBOARD_METRICS,
+  DASHBOARD_SERIES,
+} from '../components/dashboard/message-keys';
 import { AUTH_ERROR_CODES } from './auth-error';
-import { allowedCode } from './error-code';
+import { allowedCode, BLOCKED_REASONS } from './error-code';
 import { INVITATION_PAGE_ERRORS, SSO_ERROR_CODES } from './sso-error-codes';
 
 /** The plain-sentence keys of a message group (nested groups and `unknown` left out). */
@@ -32,6 +45,21 @@ describe('allowlisted message keys', () => {
     expect([...BILLING_STATUSES].sort()).toEqual(sentences(m.billing.status));
     expect([...SETTINGS_ERROR_CODES].sort()).toEqual(sentences(m.workspace.errors));
     expect([...MCP_ERROR_CODES].sort()).toEqual(sentences(m.mcp.errors));
+    expect([...LLM_ERROR_CODES].sort()).toEqual(sentences(m.llm.errors));
+    expect([...BOARD_ERROR_CODES].sort()).toEqual(sentences(m.boards.errors));
+    for (const group of [m.llm.errors.blocked, m.jira.errors.blocked, m.delivery.errors.blocked]) {
+      expect([...BLOCKED_REASONS].sort()).toEqual(sentences(group));
+    }
+    expect([...DASHBOARD_CODES].sort()).toEqual(sentences(m.dashboards.codes));
+    expect([...DASHBOARD_COLUMNS].sort()).toEqual(sentences(m.dashboards.columns));
+    expect([...DASHBOARD_EMPTY_REASONS].sort()).toEqual(sentences(m.dashboards.empty));
+    expect([...DASHBOARD_HINTS].sort()).toEqual(sentences(m.dashboards.hints));
+    expect([...DASHBOARD_SERIES].sort()).toEqual(sentences(m.dashboards.series));
+    // Each metric has a title and a description.
+    expect([...DASHBOARD_METRICS].sort()).toEqual(Object.keys(m.dashboards.metrics).sort());
+    for (const metric of Object.values(m.dashboards.metrics)) {
+      expect(Object.keys(metric).sort()).toEqual(['description', 'title']);
+    }
   });
 
   it('explains every billing refusal and the plan limits', () => {
@@ -97,6 +125,15 @@ describe('allowlisted message keys', () => {
       BILLING_STATUSES,
       SETTINGS_ERROR_CODES,
       MCP_ERROR_CODES,
+      LLM_ERROR_CODES,
+      BOARD_ERROR_CODES,
+      BLOCKED_REASONS,
+      // (DASHBOARD_CODES has a real `blocked` code: no `blocked` group lives under it.)
+      DASHBOARD_COLUMNS,
+      DASHBOARD_EMPTY_REASONS,
+      DASHBOARD_HINTS,
+      DASHBOARD_METRICS,
+      DASHBOARD_SERIES,
     ]) {
       expect(allowedCode(value, list)).toBeNull();
     }

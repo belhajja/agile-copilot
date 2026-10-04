@@ -24,6 +24,8 @@ import {
   ItemMedia,
   ItemTitle,
 } from '@/components/ui/item';
+import { allowedCode } from '@/lib/error-code';
+import { BOARD_ERROR_CODES } from '../error-codes';
 import { type ActionState, saveBoardSelectionAction } from './actions';
 
 export function BoardSelectionForm({
@@ -47,7 +49,7 @@ export function BoardSelectionForm({
   useEffect(() => {
     if (state.status === 'ok') toast.success(t('selectionSaved'));
     if (state.status === 'error') {
-      toast.error(t.has(`errors.${state.code}`) ? t(`errors.${state.code}`) : t('errors.unknown'));
+      toast.error(t(`errors.${allowedCode(state.code, BOARD_ERROR_CODES) ?? 'unknown'}`));
     }
   }, [state, t]);
 
@@ -105,9 +107,7 @@ export function BoardSelectionForm({
                       </ItemDescription>
                       {b.lastError && (
                         <ItemDescription className="text-destructive" data-board-error>
-                          {t.has(`errors.${b.lastError}`)
-                            ? t(`errors.${b.lastError}`)
-                            : t('errors.unknown')}
+                          {t(`errors.${allowedCode(b.lastError, BOARD_ERROR_CODES) ?? 'unknown'}`)}
                         </ItemDescription>
                       )}
                     </ItemContent>

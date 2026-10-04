@@ -8,6 +8,8 @@ import { useEffect, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { allowedCode } from '@/lib/error-code';
+import { BOARD_ERROR_CODES } from '../error-codes';
 import { discoverBoardsAction, requestSyncAction } from './actions';
 
 const BUSY = new Set(['queued', 'running']);
@@ -58,9 +60,7 @@ export function SyncControls({
             startTransition(async () => {
               const r = await requestSyncAction(connectionId);
               if (r.status === 'error')
-                toast.error(
-                  t.has(`errors.${r.code}`) ? t(`errors.${r.code}`) : t('errors.unknown'),
-                );
+                toast.error(t(`errors.${allowedCode(r.code, BOARD_ERROR_CODES) ?? 'unknown'}`));
               else
                 toast.success(
                   r.status === 'ok' && r.queued === false
@@ -100,7 +100,7 @@ export function DiscoverBoardsButton({
         startTransition(async () => {
           const r = await discoverBoardsAction(connectionId);
           if (r.status === 'error') {
-            toast.error(t.has(`errors.${r.code}`) ? t(`errors.${r.code}`) : t('errors.unknown'));
+            toast.error(t(`errors.${allowedCode(r.code, BOARD_ERROR_CODES) ?? 'unknown'}`));
           }
         })
       }

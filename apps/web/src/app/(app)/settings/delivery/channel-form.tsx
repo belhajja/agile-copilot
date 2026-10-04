@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import { type ChannelFormState, createChannelAction } from './actions';
 import { isChannelErrorCode } from './error-codes';
 
@@ -31,11 +32,15 @@ export function ChannelForm() {
     }
   }, [state, t]);
 
+  const blockedReason =
+    state.status === 'error' && state.code === 'blocked_url'
+      ? allowedCode(state.reason, BLOCKED_REASONS)
+      : null;
   const errorText =
     state.status !== 'error'
       ? null
-      : state.code === 'blocked_url' && state.reason && t.has(`errors.blocked.${state.reason}`)
-        ? t(`errors.blocked.${state.reason}`, { host: state.host ?? '' })
+      : blockedReason
+        ? t(`errors.blocked.${blockedReason}`, { host: state.host ?? '' })
         : state.code === 'rejected'
           ? t('errors.rejected', { status: String(state.httpStatus ?? '') })
           : isChannelErrorCode(state.code)
