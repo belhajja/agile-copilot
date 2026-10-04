@@ -212,10 +212,13 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(
       convo?.messages[1]?.parts.map((p) => p.type).filter((t) => t.startsWith('tool-')),
     ).toEqual(['tool-list_boards', 'tool-get_metric']);
-    const [usage] = await h.rawDb
+    // Exactly one usage row per turn, holding every model call of it.
+    const usageRows = await h.rawDb
       .select()
       .from(agentUsage)
       .where(eq(agentUsage.conversationId, id));
+    expect(usageRows).toHaveLength(1);
+    const [usage] = usageRows;
     // 3 model calls × (120 in, 30 out); 3 and 15 per million tokens.
     expect(usage).toMatchObject({ inputTokens: 360, outputTokens: 90, costMicros: 2430 });
     // The model saw the analytics results as untrusted data.
@@ -830,10 +833,13 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     const id = randomUUID();
     const r = await h.ask(owner(), id, 'What is our velocity? Answer, then break');
     expect(r.status).toBe(200);
-    const [usage] = await h.rawDb
+    // Exactly one usage row per turn, holding every model call of it.
+    const usageRows = await h.rawDb
       .select()
       .from(agentUsage)
       .where(eq(agentUsage.conversationId, id));
+    expect(usageRows).toHaveLength(1);
+    const [usage] = usageRows;
     expect(usage).toMatchObject({ inputTokens: 120, outputTokens: 30, costMicros: 810 });
   });
 
@@ -861,10 +867,13 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
       message: { id: 'm1', text: 'hello' },
     });
     expect(r.status).toBe(200);
-    const [usage] = await h.rawDb
+    // Exactly one usage row per turn, holding every model call of it.
+    const usageRows = await h.rawDb
       .select()
       .from(agentUsage)
       .where(eq(agentUsage.conversationId, id));
+    expect(usageRows).toHaveLength(1);
+    const [usage] = usageRows;
     expect(usage).toMatchObject({ inputTokens: 120, outputTokens: 30 });
   });
 
@@ -943,12 +952,12 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     });
   });
 
-  it('an owner demoted after a proposal can only deny it', async () => {
+  it('an owner demoted to viewer after a proposal can only deny it', async () => {
     const id = randomUUID();
     h.mock.writes.length = 0;
     await h.ask(owner(), id, 'Please comment on DEMO-6: Before the demotion');
     const { approvalId } = await approvalPartOf(id);
-    const demoted = { ...owner(), roles: ['member'] };
+    const demoted = { ...owner(), roles: ['viewer'] };
     const r = await h.send(demoted, {
       conversationId: id,
       approvals: [{ approvalId, approved: true }],
