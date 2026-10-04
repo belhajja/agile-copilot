@@ -25,9 +25,16 @@ services:
   web:
     build: { context: ., dockerfile: apps/web/Dockerfile, target: runner }
     restart: unless-stopped
-    env_file: .env
+    # Only what the app needs: never the owner credentials (POSTGRES_PASSWORD, DATABASE_OWNER_URL).
     environment:
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-selfhost}
       DATABASE_URL: postgres://app_user:${APP_DB_PASSWORD}@postgres:5432/agile
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL}
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?set ENCRYPTION_KEYS}
+      ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-}
+      ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
+      ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
     ports: ["${WEB_PORT:-3000}:3000"]
     healthcheck:
       # busybox wget ships with node:24-alpine
@@ -42,9 +49,19 @@ services:
     restart: unless-stopped
     # The worker drains in-flight jobs for up to 30 s (+ a 45 s backstop) on SIGTERM.
     stop_grace_period: 60s
-    env_file: .env
+    # Only what the worker needs: never the owner credentials (POSTGRES_PASSWORD,
+    # DATABASE_OWNER_URL). BETTER_AUTH_* are required by its env schema (the OAuth callback URL is
+    # derived from BETTER_AUTH_URL).
     environment:
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-selfhost}
       DATABASE_URL: postgres://app_user:${APP_DB_PASSWORD}@postgres:5432/agile
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL}
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?set ENCRYPTION_KEYS}
+      ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-}
+      ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
+      ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
       # Listen on all interfaces inside the container for the health check; no port is published.
       WORKER_HEALTH_HOST: 0.0.0.0
       WORKER_HEALTH_PORT: "8080"

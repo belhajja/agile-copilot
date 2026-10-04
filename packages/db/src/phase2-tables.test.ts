@@ -162,6 +162,29 @@ describe('Phase 2 tenant tables (as app_user)', () => {
     await withOrg(app.db, 'org_a', (tx) => purgeOrgTenantRows(tx, 'org_a'));
     expect(Object.values(await countAll('org_a')).every((n) => n === 0)).toBe(true);
     expect(Object.values(await countAll('org_b')).every((n) => n === 1)).toBe(true);
+    // Whatever tables exist (read from the catalogue, not from a list in this test), none keeps a
+    // row of the purged org — except the append-only audit log.
+    const tables = (await owner.db.execute(sql`
+      select c.table_name as name
+      from information_schema.columns c
+      join information_schema.tables t
+        on t.table_schema = c.table_schema and t.table_name = c.table_name
+      where c.table_schema = 'public' and c.column_name = 'org_id' and t.table_type = 'BASE TABLE'
+      order by 1
+    `)) as unknown as { name: string }[];
+    expect(tables.length).toBeGreaterThan(PHASE2_TABLES.length);
+    const left: Record<string, number> = {};
+    for (const { name } of tables) {
+      if (name === 'audit_log') continue;
+      const [row] = (await owner.db.execute(
+        sql`select count(*)::int as n from ${sql.identifier(name)} where org_id = 'org_a'`,
+      )) as unknown as { n: number }[];
+      left[name] = row?.n ?? -1;
+    }
+    expect(Object.entries(left).filter(([, n]) => n !== 0)).toEqual([]);
+    expect(Object.keys(left)).toEqual(
+      expect.arrayContaining([...PHASE2_TABLES, 'jira_connections']),
+    );
   });
 
   it('lets the app role own the pg-boss schema', async () => {

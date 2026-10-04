@@ -50,7 +50,7 @@ cp .env.example .env
 docker compose -f docker-compose.selfhost.yml up -d --build
 ```
 
-The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 60 s because it drains running jobs (up to 30 s, plus a 45 s backstop) before exiting. The app is published on `${WEB_PORT:-3000}`; if you change it, update `BETTER_AUTH_URL` to match. Put a TLS-terminating reverse proxy in front of it for anything beyond a local trial.
+The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. `web` and `worker` receive an explicit list of variables from `.env` (never `POSTGRES_PASSWORD` or an owner connection URL). The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 60 s: on stop it interrupts running syncs at their next page (they are recorded as *interrupted* and retried), then waits up to 30 s (plus a 45 s backstop) before exiting. The app is published on `${WEB_PORT:-3000}`; if you change it, update `BETTER_AUTH_URL` to match. Put a TLS-terminating reverse proxy in front of it for anything beyond a local trial.
 
 `POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into SQL and into connection URLs, so they must be URL-safe and contain no quotes; generate them with `openssl rand -hex 24`.
 
@@ -96,10 +96,10 @@ Without these variables, users can still connect with an API token (Cloud) or a 
 
 ## Jira sync and dashboards
 
-1. In **Settings → Jira**, open a connection's **Boards**, load the boards, and select the ones to sync.
+1. In **Settings → Jira**, open a connection's **Boards**, load the boards, and select the ones to sync. Loading only lists the boards; each board's configuration (columns, estimation field) is read when you select it, and again at every sync.
 2. Check the **status mapping** of each board. Every Jira status counts as *To do*, *In progress* or *Done* (suggested from Jira's status categories). Mark in-progress statuses where work only waits (for example *Blocked* or *Waiting for review*): flow efficiency counts that time as waiting.
-3. Click **Sync now**, or wait for the scheduled sync (every `SYNC_INTERVAL_MINUTES`, default 15). The first sync of a connection reads every issue of the selected boards; later syncs read only issues updated since the previous sync (with a 15-minute overlap), and once a day the worker re-reads everything so that issues which left a board disappear from it.
-4. Open the board from the home page. Scrum boards get a *Sprint* and a *Flow* dashboard; Kanban boards a *Flow* dashboard.
+3. Click **Sync now**, or wait for the scheduled sync (every `SYNC_INTERVAL_MINUTES`, default 15). Each board keeps its own progress: its first sync reads all its issues; later syncs read only issues updated since that board's previous successful sync (with a 15-minute overlap), and once a day each board is re-read completely so that issues which left it disappear from it. A board that fails (for example its saved filter was deleted) shows the reason on its row and does not hold back the other boards.
+4. Open the board from the home page. Boards with sprints (Scrum boards, and team-managed boards whose project uses sprints) get a *Sprint* and a *Flow* dashboard; the others a *Flow* dashboard. Boards that estimate with time tracking (hours) are counted in issues, not points.
 
 How the numbers are defined:
 
@@ -109,19 +109,30 @@ How the numbers are defined:
 - **Forecasts** are Monte Carlo simulations (10 000 runs, fixed seed) drawn from the last 30 days of daily throughput.
 - Days are UTC calendar days. Sub-tasks are left out (as in Jira's own reports).
 
-The sync never stores raw Jira error messages: a failed sync shows a short reason (for example *Jira rejected the stored credentials*) and is retried at the next schedule.
+The sync never stores raw Jira error messages: a failed sync shows a short reason (for example *Jira rejected the stored credentials*). What happens next depends on the reason:
+
+- **Retryable** (`rate_limited`, `unreachable` — including a DNS failure — and `interrupted`, when the worker stopped mid-sync): the job is retried with backoff (twice), and the scheduled sync keeps running.
+- **Board problems** (`board_query_rejected`, the board's filter was rejected by Jira; `board_not_found`; `jira_paging`; …): the other boards keep syncing; the failing board is tried again at every scheduled sync and its row shows the reason until it succeeds.
+- **Permanent** (`unauthorized`, `forbidden`, `oauth_expired`, `oauth_unavailable`, `blocked_url`): only a person can fix these, so the scheduled sync skips the connection. Fix the cause (update the token, **Reconnect with Atlassian**, ask the administrator to allow the host), then **Retest** the connection or reconnect — a successful retest or reconnect clears the error — or click **Sync now**.
 
 ## Validating against a real Jira
 
 Automated tests run the same contract against a Cloud-flavoured and a Data Center-flavoured mock Jira (REST v3/`search/jql` with page tokens, REST v2/`search` with offsets, the Agile API, truncated changelogs and HTTP 429). Before relying on a new Jira version, run this checklist once against a real site (a [Data Center trial container](https://hub.docker.com/r/atlassian/jira-software) with a time-bombed licence, and a Jira Cloud sandbox):
 
 1. Connect it (Cloud: API token and "Connect with Atlassian"; Data Center: personal access token). Self-hosted Data Center needs its host in `ALLOWED_PRIVATE_HOSTS`.
-2. Load boards: every Scrum and Kanban board you can see in Jira is listed, with the right type, and Scrum boards show "Story points".
+2. Load boards: every Scrum, Kanban and team-managed board you can see in Jira is listed, with the right type. After selecting them, Scrum boards that estimate in story points show "Story points".
 3. Status mapping: every column status appears, with a sensible suggestion.
 4. Select one Scrum and one Kanban board and click **Sync now**. In Jira, run the board's filter (`filter = <id>` in issue search): the number of issues matches the board's dashboards' data, and the closed sprints match the sprint report's committed/completed values for a sprint with no mid-sprint estimate changes.
 5. Move an issue to another status in Jira, wait for the next scheduled sync (or click **Sync now**), and check that cycle time / WIP change accordingly.
 6. With a board of more than 100 issues, check that all of them were read (pagination) and that an issue with more than 100 changelog entries has its full history.
-7. Note the Jira version and the date in the pull request that validated it.
+7. Note the Jira version and the date in the pull request that validated it, and record the results below.
+
+Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandbox was available when this was written; nothing below has been checked against a real Jira):
+
+| Date | Jira (deployment, version) | Steps 1–6 result | Notes | Checked by |
+| ---- | -------------------------- | ---------------- | ----- | ---------- |
+| —    | Data Center —              | NOT YET RUN      |       |            |
+| —    | Cloud —                    | NOT YET RUN      |       |            |
 
 ## Rotating the encryption key
 
