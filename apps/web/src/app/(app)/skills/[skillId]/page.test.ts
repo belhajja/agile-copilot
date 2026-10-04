@@ -2,7 +2,7 @@ import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ID = '0f4c1b9e-5d3a-4a52-8d52-2f1c7a9a0b11';
-const ACTOR = { orgId: 'org', userId: 'user', roles: ['member'] };
+const ACTOR = { orgId: 'org', userId: 'user', roles: ['member'] as string[] };
 
 const skillView = (over: Record<string, unknown> = {}) => ({
   id: ID,
@@ -54,16 +54,14 @@ vi.mock('next/navigation', () => ({
   },
 }));
 vi.mock('next-intl/server', () => ({
-  getTranslations: async () =>
-    Object.assign(
-      (k: string, v?: Record<string, unknown>) => (v ? `${k}:${JSON.stringify(v)}` : k),
-      {
-        has: () => true,
-      },
-    ),
+  getTranslations: async () => (k: string, v?: Record<string, unknown>) =>
+    v ? `${k}:${JSON.stringify(v)}` : k,
   getFormatter: async () => ({ dateTime: () => 'date' }),
 }));
 vi.mock('@agile/skills', () => store);
+vi.mock('@agile/auth', () => ({
+  canManageConnections: (roles: string[]) => roles.includes('owner') || roles.includes('admin'),
+}));
 vi.mock('@agile/automation', () => automation);
 vi.mock('@agile/notify', () => ({ listDeliveryChannels: async () => [] }));
 vi.mock('@/components/agent/agent-markdown', () => ({ AgentMarkdown: () => null }));
@@ -113,6 +111,7 @@ const render = (searchParams: Record<string, unknown> = {}) =>
 describe('a skill page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ACTOR.roles = ['member'];
     automation.listRuns.mockResolvedValue([run]);
   });
 
@@ -182,4 +181,40 @@ describe('a skill page', () => {
     store.getSkill.mockResolvedValue(null);
     await expect(render()).rejects.toThrow('NOT_FOUND');
   });
+
+  it('remounts the editor on the new version after a restore (I1)', async () => {
+    store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+    const [before] = find(await render(), has('initialDocument'));
+    expect(before?.key).toBe('2');
+    expect(before?.props.baseVersion).toBe(2);
+    store.getSkill.mockResolvedValue({
+      ...detailOf({ ownerUserId: 'user', currentVersion: 3 }, true),
+      document: 'restored',
+    });
+    const [after] = find(await render({ restored: '1' }), has('initialDocument'));
+    expect(after?.key).toBe('3');
+    expect(after?.props).toMatchObject({ baseVersion: 3, initialDocument: 'restored' });
+  });
+
+  it('offers Slack/Teams channels in the editor to owners and admins only (M3, P4-R4)', async () => {
+    store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+    const [member] = find(await render(), has('initialDocument'));
+    expect(member?.props.canPostToChannels).toBe(false);
+    ACTOR.roles = ['admin'];
+    const [admin] = find(await render(), has('initialDocument'));
+    expect(admin?.props.canPostToChannels).toBe(true);
+  });
+
+  it.each(['delivery_failed', 'forbidden_role'])(
+    'shows others a generic failure instead of %s (M4)',
+    async (resultCode) => {
+      automation.listRuns.mockResolvedValue([{ ...run, status: 'failed', resultCode }]);
+      store.getSkill.mockResolvedValue(detailOf());
+      const others = text(await render());
+      expect(others).toContain('resultCodes.unknown');
+      expect(others).not.toContain(`resultCodes.${resultCode}`);
+      store.getSkill.mockResolvedValue(detailOf({ ownerUserId: 'user' }, true));
+      expect(text(await render())).toContain(`resultCodes.${resultCode}`);
+    },
+  );
 });

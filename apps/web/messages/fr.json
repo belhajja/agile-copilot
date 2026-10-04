@@ -750,6 +750,7 @@
       "documentHint": "Les réglages entre les lignes ---, puis les instructions en Markdown.",
       "document": "SKILL.md",
       "fieldsHint": "name, description, trigger (on_demand, always, schedule, alert), schedule (cron au plus horaire, timezone), alert (metric, op, value), output (chat, dashboard_card, email, slack, teams), scope (boards).",
+      "fieldsHintNoChannels": "name, description, trigger (on_demand, always, schedule, alert), schedule (cron au plus horaire, timezone), alert (metric, op, value), output (chat, dashboard_card, email), scope (boards). Les sorties Slack et Teams sont réservées aux propriétaires et administrateurs de l'espace.",
       "channel": "Canal Slack ou Teams",
       "noChannel": "Aucun",
       "channelHint": "Nécessaire pour les sorties slack et teams. Les administrateurs ajoutent les canaux dans Diffusion.",

@@ -17,8 +17,7 @@ const automation = vi.hoisted(() => ({ requestSkillRun: vi.fn() }));
 const agent = vi.hoisted(() => ({
   draftSkill: vi.fn(),
   runSkill: vi.fn(),
-  builderCallsSince: vi.fn(),
-  SKILL_BUILDER_HOURLY_LIMIT: 20,
+  reserveBuilderCall: vi.fn(),
 }));
 const revalidated = vi.hoisted(() => [] as string[]);
 
@@ -155,7 +154,7 @@ describe('the skill builder actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     revalidated.length = 0;
-    agent.builderCallsSince.mockResolvedValue(0);
+    agent.reserveBuilderCall.mockResolvedValue(true);
   });
 
   it('drafts from a request and saves nothing', async () => {
@@ -176,6 +175,7 @@ describe('the skill builder actions', () => {
   it.each(['', '   ', 'x'.repeat(2_001)])('refuses the request %j', async (request) => {
     expect(await actions.draftSkillAction(request)).toEqual({ ok: false, code: 'invalid_request' });
     expect(agent.draftSkill).not.toHaveBeenCalled();
+    expect(agent.reserveBuilderCall).not.toHaveBeenCalled();
   });
 
   it('returns the draft failure code', async () => {
@@ -183,8 +183,8 @@ describe('the skill builder actions', () => {
     expect(await actions.draftSkillAction('x')).toEqual({ ok: false, code: 'no_llm' });
   });
 
-  it('limits drafts and previews to 20 per member and hour (P4-R16)', async () => {
-    agent.builderCallsSince.mockResolvedValue(20);
+  it('refuses a draft or preview without a reserved slot, before any model call (P4-R29)', async () => {
+    agent.reserveBuilderCall.mockResolvedValue(false);
     expect(await actions.draftSkillAction('every Monday')).toEqual({
       ok: false,
       code: 'rate_limited',
@@ -195,17 +195,18 @@ describe('the skill builder actions', () => {
     });
     expect(agent.draftSkill).not.toHaveBeenCalled();
     expect(agent.runSkill).not.toHaveBeenCalled();
-    const [, actor, since] = agent.builderCallsSince.mock.calls[0] ?? [];
+    const [db, actor, now] = agent.reserveBuilderCall.mock.calls[0] ?? [];
+    expect(db).toEqual({});
     expect(actor).toMatchObject({ orgId: 'org', userId: 'user' });
-    const window = Date.now() - (since as Date).getTime();
-    expect(window).toBeGreaterThanOrEqual(3_600_000);
-    expect(window).toBeLessThan(3_660_000);
+    expect(Math.abs(Date.now() - (now as Date).getTime())).toBeLessThan(60_000);
   });
 
-  it('lets the 20th call of the hour through', async () => {
-    agent.builderCallsSince.mockResolvedValue(19);
+  it('reserves one slot per draft and per preview', async () => {
+    agent.draftSkill.mockResolvedValue({ ok: true, document: 'DOC' });
     agent.runSkill.mockResolvedValue({ ok: true, text: 'Report' });
-    expect(await actions.previewSkillAction(doc('email'))).toEqual({ ok: true, text: 'Report' });
+    await actions.draftSkillAction('every Monday');
+    await actions.previewSkillAction(doc('email'));
+    expect(agent.reserveBuilderCall).toHaveBeenCalledTimes(2);
   });
 
   it('previews a valid document once, read-only and without delivery', async () => {
@@ -222,7 +223,7 @@ describe('the skill builder actions', () => {
     expect(r).toMatchObject({ ok: false, code: 'invalid' });
     expect(r.ok ? [] : r.issues).not.toHaveLength(0);
     expect(agent.runSkill).not.toHaveBeenCalled();
-    expect(agent.builderCallsSince).not.toHaveBeenCalled();
+    expect(agent.reserveBuilderCall).not.toHaveBeenCalled();
   });
 
   it('returns the run failure code of a preview', async () => {

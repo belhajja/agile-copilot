@@ -750,6 +750,7 @@
       "documentHint": "Settings between the --- lines, then the instructions in Markdown.",
       "document": "SKILL.md",
       "fieldsHint": "name, description, trigger (on_demand, always, schedule, alert), schedule (cron at most hourly, timezone), alert (metric, op, value), output (chat, dashboard_card, email, slack, teams), scope (boards).",
+      "fieldsHintNoChannels": "name, description, trigger (on_demand, always, schedule, alert), schedule (cron at most hourly, timezone), alert (metric, op, value), output (chat, dashboard_card, email), scope (boards). Slack and Teams outputs are for workspace owners and admins.",
       "channel": "Slack or Teams channel",
       "noChannel": "None",
       "channelHint": "Needed for the slack and teams outputs. Admins add channels under Delivery.",

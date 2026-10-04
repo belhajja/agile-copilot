@@ -1,3 +1,4 @@
+import { canManageConnections } from '@agile/auth';
 import { listRuns } from '@agile/automation';
 import { listDeliveryChannels } from '@agile/notify';
 import { getSkill } from '@agile/skills';
@@ -31,6 +32,11 @@ import {
 
 type Query = string | string[] | undefined;
 
+/** Result codes about delivery or the owner's role are the owner's business: others see "failed". */
+const OTHERS_RESULT_CODES = RUN_RESULT_CODES.filter(
+  (c) => c !== 'delivery_failed' && c !== 'forbidden_role',
+);
+
 /**
  * One skill: its full text (the only place a shared skill can be copied from, P4-R8), the editor
  * and versions for its owner, "Run now", on/off, sharing, deletion and the latest runs. Reports
@@ -53,8 +59,9 @@ export default async function SkillPage({
   const format = await getFormatter();
   const { skill } = detail;
   const owner = detail.canEdit;
+  const canPostToChannels = canManageConnections(actor.roles);
   const [channels, runs] = await Promise.all([
-    owner ? listDeliveryChannels(db, actor.orgId) : Promise.resolve([]),
+    owner && canPostToChannels ? listDeliveryChannels(db, actor.orgId) : Promise.resolve([]),
     listRuns(db, actor, skill.id, 10),
   ]);
   const runnable = skill.trigger === 'schedule' || skill.trigger === 'alert';
@@ -141,11 +148,14 @@ export default async function SkillPage({
       </div>
       {owner ? (
         <SkillEditor
+          // A restore (or a save in another tab) makes a new current version: start from it.
+          key={skill.currentVersion}
           skillId={skill.id}
           initialDocument={detail.document}
           baseVersion={skill.currentVersion}
           channels={channels.map(({ id, name, kind }) => ({ id, name, kind }))}
           initialChannelId={skill.channelId}
+          canPostToChannels={canPostToChannels}
         />
       ) : (
         <Card>
@@ -186,7 +196,9 @@ export default async function SkillPage({
                 </span>
                 {r.resultCode && (
                   <span className="text-muted-foreground">
-                    {t(`resultCodes.${pickCode(r.resultCode, RUN_RESULT_CODES)}`)}
+                    {t(
+                      `resultCodes.${pickCode(r.resultCode, owner ? RUN_RESULT_CODES : OTHERS_RESULT_CODES)}`,
+                    )}
                   </span>
                 )}
               </p>

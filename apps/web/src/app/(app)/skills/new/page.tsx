@@ -1,3 +1,4 @@
+import { canManageConnections } from '@agile/auth';
 import { listDeliveryChannels } from '@agile/notify';
 import { serializeSkill } from '@agile/skills';
 import { getTranslations } from 'next-intl/server';
@@ -8,7 +9,8 @@ import { SkillEditor } from '../skill-editor';
 export default async function NewSkillPage() {
   const actor = await requireActor();
   const t = await getTranslations('skills.editor');
-  const channels = await listDeliveryChannels(services().db, actor.orgId);
+  const canPostToChannels = canManageConnections(actor.roles);
+  const channels = canPostToChannels ? await listDeliveryChannels(services().db, actor.orgId) : [];
   const template = serializeSkill({
     frontmatter: { name: 'my-skill', description: t('templateDescription'), trigger: 'on_demand' },
     instructions: t('templateInstructions'),
@@ -23,6 +25,7 @@ export default async function NewSkillPage() {
         initialDocument={template}
         channels={channels.map(({ id, name, kind }) => ({ id, name, kind }))}
         initialChannelId={null}
+        canPostToChannels={canPostToChannels}
       />
     </div>
   );

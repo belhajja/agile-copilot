@@ -19,6 +19,7 @@ import {
   previewSkillAction,
   saveSkillAction,
 } from './actions';
+import { afterResult, type EditorState, postsToChannel } from './editor-state';
 import { EDITOR_ERROR_CODES, SKILL_ISSUE_CODES } from './skill-errors';
 
 export interface ChannelOption {
@@ -30,7 +31,8 @@ export interface ChannelOption {
 /**
  * The skill builder: describe → draft (AI) → edit the SKILL.md → preview on real data → save.
  * Nothing is saved before "Save": a draft only fills the editor, where the user reads and edits
- * the full text first; the preview runs read-only, without delivery.
+ * the full text first; the preview runs read-only, without delivery. Slack/Teams channels are
+ * offered only to workspace owners/admins (P4-R4; the server checks it again on save).
  */
 export function SkillEditor({
   skillId,
@@ -38,45 +40,53 @@ export function SkillEditor({
   baseVersion,
   channels,
   initialChannelId,
+  canPostToChannels,
 }: {
   skillId?: string;
   initialDocument: string;
   baseVersion?: number;
   channels: ChannelOption[];
   initialChannelId: string | null;
+  /** Workspace owners/admins: the slack and teams outputs and their channel. */
+  canPostToChannels: boolean;
 }) {
   const t = useTranslations('skills.editor');
   const [request, setRequest] = useState('');
-  const [document, setDocument] = useState(initialDocument);
-  const [drafted, setDrafted] = useState(false);
+  const [state, setState] = useState<EditorState>({
+    document: initialDocument,
+    drafted: false,
+    preview: null,
+    version: baseVersion,
+    result: null,
+  });
+  const { document, drafted, preview, version, result } = state;
   const [channelId, setChannelId] = useState(initialChannelId ?? '');
-  const [version, setVersion] = useState(baseVersion);
-  const [result, setResult] = useState<EditorResult | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState<'draft' | 'preview' | 'save' | null>(null);
   const [, startTransition] = useTransition();
 
+  // A channel only goes with the slack and teams outputs: switching away clears it.
+  const clearChannelUnlessPosting = (next: string) => {
+    if (!postsToChannel(next)) setChannelId('');
+  };
+  const setDocument = (next: string) => {
+    setState((s) => ({ ...s, document: next }));
+    clearChannelUnlessPosting(next);
+  };
+  const showChannel = canPostToChannels && postsToChannel(document);
+
   const run = (kind: 'draft' | 'preview' | 'save', action: () => Promise<EditorResult>) => {
     setBusy(kind);
-    setResult(null);
+    setState((s) => ({ ...s, result: null }));
     startTransition(async () => {
       try {
         const r = await action();
-        setResult(r);
-        if (r.ok && kind === 'draft' && r.document) {
-          setDocument(r.document);
-          setDrafted(true);
-        }
-        if (r.ok && kind === 'preview') setPreview(r.text ?? '');
-        if (r.ok && kind === 'save') {
-          if (r.version) setVersion(r.version);
-          setDrafted(false);
-          toast.success(t('saved'));
-        }
+        setState((s) => afterResult(s, kind, r));
+        if (r.ok && kind === 'draft' && r.document) clearChannelUnlessPosting(r.document);
+        if (r.ok && kind === 'save') toast.success(t('saved'));
       } catch (e) {
         // A redirect (a new skill opens its page) is navigation, not a failure.
         unstable_rethrow(e);
-        setResult({ ok: false, code: 'unknown' });
+        setState((s) => ({ ...s, result: { ok: false, code: 'unknown' } }));
       } finally {
         setBusy(null);
       }
@@ -144,24 +154,28 @@ export function SkillEditor({
                 spellCheck={false}
                 onChange={(e) => setDocument(e.target.value)}
               />
-              <FieldDescription>{t('fieldsHint')}</FieldDescription>
+              <FieldDescription>
+                {canPostToChannels ? t('fieldsHint') : t('fieldsHintNoChannels')}
+              </FieldDescription>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="skill-channel">{t('channel')}</FieldLabel>
-              <NativeSelect
-                id="skill-channel"
-                value={channelId}
-                onChange={(e) => setChannelId(e.target.value)}
-              >
-                <NativeSelectOption value="">{t('noChannel')}</NativeSelectOption>
-                {webhookChannels.map((c) => (
-                  <NativeSelectOption key={c.id} value={c.id}>
-                    {c.name} ({c.kind === 'slack' ? 'Slack' : 'Teams'})
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <FieldDescription>{t('channelHint')}</FieldDescription>
-            </Field>
+            {showChannel && (
+              <Field>
+                <FieldLabel htmlFor="skill-channel">{t('channel')}</FieldLabel>
+                <NativeSelect
+                  id="skill-channel"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                >
+                  <NativeSelectOption value="">{t('noChannel')}</NativeSelectOption>
+                  {webhookChannels.map((c) => (
+                    <NativeSelectOption key={c.id} value={c.id}>
+                      {c.name} ({c.kind === 'slack' ? 'Slack' : 'Teams'})
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+                <FieldDescription>{t('channelHint')}</FieldDescription>
+              </Field>
+            )}
             {error && (
               <FieldError>
                 <span className="grid gap-1" data-editor-error>
@@ -193,7 +207,7 @@ export function SkillEditor({
                     saveSkillAction({
                       id: skillId,
                       document,
-                      channelId: channelId || null,
+                      channelId: (showChannel && channelId) || null,
                       baseVersion: version,
                     }),
                   )

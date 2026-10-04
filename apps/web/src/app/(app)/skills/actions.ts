@@ -1,6 +1,6 @@
 'use server';
 
-import { builderCallsSince, draftSkill, runSkill, SKILL_BUILDER_HOURLY_LIMIT } from '@agile/agent';
+import { draftSkill, reserveBuilderCall, runSkill } from '@agile/agent';
 import { requestSkillRun } from '@agile/automation';
 import { isUuid } from '@agile/db';
 import {
@@ -110,13 +110,11 @@ export type EditorResult =
 const MAX_REQUEST = 2_000;
 
 /**
- * Drafts and previews spend the workspace's own model budget: at most
- * `SKILL_BUILDER_HOURLY_LIMIT` per member and rolling hour, counted from their metered usage
- * (P4-R16).
+ * Drafts and previews spend the workspace's own model budget: each reserves a slot first, at most
+ * 20 per member and rolling hour, burst-safe (P4-R16, P4-R29). A refused slot costs nothing.
  */
 async function overBuilderLimit(actor: Awaited<ReturnType<typeof requireActor>>) {
-  const since = new Date(Date.now() - 3_600_000);
-  return (await builderCallsSince(services().db, actor, since)) >= SKILL_BUILDER_HOURLY_LIMIT;
+  return !(await reserveBuilderCall(services().db, actor, new Date()));
 }
 
 /**
