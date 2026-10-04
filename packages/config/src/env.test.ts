@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EnvError, parseServerEnv } from './env';
+import { billingConfigOf, EnvError, langfuseConfigOf, parseServerEnv } from './env';
 
 const valid = {
   DATABASE_URL: 'postgres://app_user:pw@localhost:5432/agile',
@@ -54,6 +54,79 @@ describe('parseServerEnv', () => {
     });
     expect(() => parseServerEnv({ ...valid, SKILL_RUNS_DAILY_LIMIT: '-1' })).toThrow(
       /SKILL_RUNS_DAILY_LIMIT/,
+    );
+  });
+
+  it('reads the SSO settings and the password policy', () => {
+    const sso = {
+      ...valid,
+      OIDC_ISSUER: 'https://id.example.com/realms/acme',
+      OIDC_CLIENT_ID: 'agile',
+      OIDC_CLIENT_SECRET: 'secret',
+      PASSWORD_LOGIN: 'admin_only',
+      BREAK_GLASS_EMAILS: ' Root@Example.com , ops@example.com,',
+    };
+    const env = parseServerEnv(sso);
+    expect(env).toMatchObject({
+      OIDC_PROVIDER: 'keycloak',
+      OIDC_DISPLAY_NAME: 'SSO',
+      PASSWORD_LOGIN: 'admin_only',
+      BREAK_GLASS_EMAILS: ['root@example.com', 'ops@example.com'],
+    });
+    expect(parseServerEnv(valid)).toMatchObject({ PASSWORD_LOGIN: 'all', BREAK_GLASS_EMAILS: [] });
+    expect(parseServerEnv(valid).OIDC_ISSUER).toBeUndefined();
+    expect(() => parseServerEnv({ ...valid, OIDC_ISSUER: sso.OIDC_ISSUER })).toThrow(
+      /OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET must be set together/,
+    );
+    // Without SSO, or without a break-glass account, nobody could sign in.
+    expect(() => parseServerEnv({ ...valid, PASSWORD_LOGIN: 'admin_only' })).toThrow(
+      /PASSWORD_LOGIN/,
+    );
+    expect(() => parseServerEnv({ ...sso, BREAK_GLASS_EMAILS: '' })).toThrow(/PASSWORD_LOGIN/);
+    expect(() => parseServerEnv({ ...sso, BREAK_GLASS_EMAILS: 'not-an-email' })).toThrow(
+      /BREAK_GLASS_EMAILS/,
+    );
+  });
+
+  it('turns billing on only for SaaS deployments with Stripe configured', () => {
+    const stripe = {
+      STRIPE_SECRET_KEY: 'sk_test_1',
+      STRIPE_WEBHOOK_SECRET: 'whsec_1',
+      STRIPE_PRICE_TEAM: 'price_1',
+    };
+    expect(billingConfigOf(parseServerEnv({ ...valid, ...stripe }))).toBeNull();
+    expect(
+      billingConfigOf(parseServerEnv({ ...valid, ...stripe, DEPLOYMENT_MODE: 'saas' })),
+    ).toEqual({
+      secretKey: 'sk_test_1',
+      webhookSecret: 'whsec_1',
+      priceTeam: 'price_1',
+      apiUrl: undefined,
+    });
+    expect(billingConfigOf(parseServerEnv({ ...valid, DEPLOYMENT_MODE: 'saas' }))).toBeNull();
+    expect(() => parseServerEnv({ ...valid, STRIPE_SECRET_KEY: 'sk_test_1' })).toThrow(
+      /STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_PRICE_TEAM/,
+    );
+  });
+
+  it('traces to Langfuse only when both keys are set', () => {
+    expect(langfuseConfigOf(parseServerEnv(valid))).toBeNull();
+    expect(
+      langfuseConfigOf(
+        parseServerEnv({
+          ...valid,
+          LANGFUSE_PUBLIC_KEY: 'pk-lf-1',
+          LANGFUSE_SECRET_KEY: 'sk-lf-1',
+        }),
+      ),
+    ).toEqual({
+      publicKey: 'pk-lf-1',
+      secretKey: 'sk-lf-1',
+      baseUrl: 'https://cloud.langfuse.com',
+      environment: 'selfhost',
+    });
+    expect(() => parseServerEnv({ ...valid, LANGFUSE_PUBLIC_KEY: 'pk-lf-1' })).toThrow(
+      /LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY/,
     );
   });
 
