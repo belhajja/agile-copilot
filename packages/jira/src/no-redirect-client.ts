@@ -29,6 +29,14 @@ export class JiraHttpError extends Error {
   }
 }
 
+/** The stored credential cannot be sent as a header. The message never contains the credential. */
+export class InvalidCredentialsError extends Error {
+  override name = 'InvalidCredentialsError';
+  constructor() {
+    super('The stored Jira credentials contain invalid characters.');
+  }
+}
+
 /** Retry-After is either delta-seconds or an HTTP date. */
 export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
   if (!value) return undefined;
@@ -75,7 +83,12 @@ export function createNoRedirectClient(config: NoRedirectClientConfig): Client {
       const hasBody = options.body !== undefined && options.body !== null;
       if (hasBody) headers.set('Content-Type', 'application/json');
       // Set last, case-insensitively: a caller header can never replace our credentials.
-      headers.set('Authorization', authorization);
+      try {
+        headers.set('Authorization', authorization);
+      } catch {
+        // undici's message quotes the offending value, i.e. the credential: drop it, no `cause`.
+        throw new InvalidCredentialsError();
+      }
       const res = await fetchNoRedirect(url, {
         method: options.method ?? 'GET',
         headers,

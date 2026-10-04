@@ -43,7 +43,7 @@ export function mapJiraError(e: unknown): JiraFailure {
   if (name === 'SchemaMismatchError' || name === 'SyntaxError') {
     return { ok: false, code: 'not_jira', message: 'This URL did not answer like Jira.' };
   }
-  if (name === 'ZodError')
+  if (name === 'ZodError' || name === 'InvalidCredentialsError')
     return { ok: false, code: 'invalid_input', message: 'Some connection details are invalid.' };
   return { ok: false, code: 'unknown', message: 'Unexpected error while contacting Jira.' };
 }

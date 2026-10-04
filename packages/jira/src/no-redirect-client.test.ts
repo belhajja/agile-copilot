@@ -3,7 +3,13 @@ import type { AddressInfo } from 'node:net';
 import { RedirectBlockedError } from '@agile/net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createNoRedirectClient, JiraHttpError, parseRetryAfter } from './no-redirect-client';
+import { mapJiraError } from './errors';
+import {
+  createNoRedirectClient,
+  InvalidCredentialsError,
+  JiraHttpError,
+  parseRetryAfter,
+} from './no-redirect-client';
 
 interface Seen {
   method?: string;
@@ -129,6 +135,22 @@ describe('createNoRedirectClient', () => {
     });
     expect(await lenient.sendRequest({ url: '/ok', schema })).toEqual({ id: '1', extra: true });
     expect(seen.at(-1)?.authorization).toBe(`Basic ${Buffer.from('a@b.c:t').toString('base64')}`);
+  });
+
+  it('never leaks a malformed token into the error', async () => {
+    const bad = createNoRedirectClient({
+      host: base,
+      auth: { type: 'bearer', token: 'sec\nret-TOKEN123' },
+    });
+    const err = await bad.sendRequest({ url: '/rest/x' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidCredentialsError);
+    const e = err as Error;
+    expect(String(e)).not.toContain('TOKEN123');
+    expect(e.message).not.toContain('TOKEN123');
+    expect(e.stack).not.toContain('TOKEN123');
+    expect(e.cause).toBeUndefined();
+    expect(mapJiraError(e).code).toBe('invalid_input');
+    expect(seen).toHaveLength(0);
   });
 });
 
