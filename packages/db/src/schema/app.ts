@@ -1,34 +1,17 @@
 import { sql } from 'drizzle-orm';
 import {
-  type AnyPgColumn,
   boolean,
   index,
   integer,
   jsonb,
   pgEnum,
-  pgPolicy,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-
-/** Rows are visible/writable only when app.current_org_id (set by withOrg) matches. */
-const tenantPolicy = (table: string, orgId: AnyPgColumn) =>
-  pgPolicy(`${table}_tenant_isolation`, {
-    as: 'permissive',
-    for: 'all',
-    to: 'public',
-    using: sql`${orgId} = current_setting('app.current_org_id', true)`,
-    withCheck: sql`${orgId} = current_setting('app.current_org_id', true)`,
-  });
-
-const createdAt = timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
-const updatedAt = timestamp('updated_at', { withTimezone: true })
-  .notNull()
-  .defaultNow()
-  .$onUpdate(() => new Date());
+import { createdAt, tenantPolicy, updatedAt } from './tenant';
 
 export const jiraDeployment = pgEnum('jira_deployment', ['cloud', 'datacenter']);
 export const jiraAuthType = pgEnum('jira_auth_type', ['basic', 'oauth', 'pat']);

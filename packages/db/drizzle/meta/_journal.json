@@ -29,6 +29,20 @@
       "when": 1791054802641,
       "tag": "0003_powerful_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791078842530,
+      "tag": "0004_flawless_iron_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791078843100,
+      "tag": "0005_phase2_force_rls_and_pgboss",
+      "breakpoints": true
     }
   ]
 }
