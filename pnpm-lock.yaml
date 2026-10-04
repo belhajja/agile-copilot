@@ -236,6 +236,9 @@ importers:
 
   packages/llm:
     dependencies:
+      '@agile/net':
+        specifier: workspace:*
+        version: link:../net
       '@ai-sdk/anthropic':
         specifier: 4.0.71
         version: 4.0.71(zod@4.6.5)

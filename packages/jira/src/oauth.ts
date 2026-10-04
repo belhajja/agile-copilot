@@ -1,3 +1,4 @@
+import { fetchNoRedirect } from '@agile/net';
 import { Atlassian } from 'arctic';
 import { z } from 'zod';
 
@@ -50,12 +51,11 @@ export async function listAccessibleJiraSites(
   accessToken: string,
   opts: { apiBase?: string } = {},
 ): Promise<AtlassianSite[]> {
-  const res = await fetch(
+  // Never follow redirects: a bearer token must not be replayed to another host.
+  const res = await fetchNoRedirect(
     `${opts.apiBase ?? 'https://api.atlassian.com'}/oauth/token/accessible-resources`,
     {
       headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
-      // Never follow redirects: a bearer token must not be replayed to another host.
-      redirect: 'manual',
       signal: AbortSignal.timeout(15_000),
     },
   );

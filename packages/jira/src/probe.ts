@@ -1,3 +1,4 @@
+import { withDeadline } from '@agile/net';
 import { createCloudClient } from 'jira.js';
 import { Version2Client } from 'jira-js-v5';
 import { mapJiraError } from './errors';
@@ -9,14 +10,6 @@ export interface ProbeOptions {
   atlassianApiBase?: string;
   timeoutMs?: number;
 }
-
-const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([
-    p,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' })), ms),
-    ),
-  ]);
 
 async function probeCloud(
   c: Exclude<JiraCredentials, { kind: 'datacenter_pat' }>,
@@ -88,7 +81,7 @@ export async function probeJira(
 ): Promise<JiraTestResult> {
   try {
     const run = c.kind === 'datacenter_pat' ? probeDataCenter(c) : probeCloud(c, opts);
-    return await withTimeout(run, opts.timeoutMs ?? 15_000);
+    return await withDeadline(run, opts.timeoutMs ?? 15_000);
   } catch (e) {
     return mapJiraError(e);
   }
