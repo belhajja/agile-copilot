@@ -22,24 +22,28 @@ import {
   ItemTitle,
 } from '@/components/ui/item';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { pickCode } from '@/lib/error-code';
 import { requireActor, services } from '@/server/context';
 import { copyBuiltinSkillAction } from './actions';
 import { SkillBadges } from './skill-badges';
+import { SKILL_ERROR_CODES, SKILL_TABS } from './skill-errors';
 
 /** The user's skills, the built-in library and the skills members shared with the workspace. */
 export default async function SkillsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string | string[]; tab?: string | string[] }>;
 }) {
   const actor = await requireActor();
   const t = await getTranslations('skills');
   const format = await getFormatter();
-  const { error } = await searchParams;
+  const params = await searchParams;
+  const error = params.error === undefined ? null : pickCode(params.error, SKILL_ERROR_CODES);
   const { mine, shared } = await listSkills(services().db, actor);
   const now = new Date();
+  const tab = SKILL_TABS.find((x) => x === params.tab) ?? (mine.length > 0 ? 'mine' : 'library');
 
-  const lastRun = (s: SkillView) =>
+  const lastRunText = (s: SkillView) =>
     s.lastRun
       ? t('lastRun', {
           status: t(`runStatus.${s.lastRun.status}`),
@@ -47,29 +51,32 @@ export default async function SkillsPage({
         })
       : null;
 
-  const item = (s: SkillView, actions: React.ReactNode) => (
-    <Item key={s.id} variant="outline" data-skill={s.name}>
-      <ItemMedia variant="icon">
-        <Sparkles />
-      </ItemMedia>
-      <ItemContent>
-        <ItemTitle className="flex-wrap">
-          <Link href={`/skills/${s.id}`} className="hover:underline">
-            {s.name}
-          </Link>
-          <SkillBadges skill={s} />
-        </ItemTitle>
-        <ItemDescription>{s.description}</ItemDescription>
-        {s.ownerUserId !== actor.userId && (
-          <p className="text-sm text-muted-foreground">
-            {t('by', { name: s.ownerName ?? t('formerMember') })}
-          </p>
-        )}
-        {lastRun(s) && <p className="text-sm text-muted-foreground">{lastRun(s)}</p>}
-      </ItemContent>
-      <ItemActions className="flex-wrap">{actions}</ItemActions>
-    </Item>
-  );
+  const item = (s: SkillView, actions: React.ReactNode) => {
+    const lastRun = lastRunText(s);
+    return (
+      <Item key={s.id} variant="outline" data-skill={s.name}>
+        <ItemMedia variant="icon">
+          <Sparkles />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle className="flex-wrap">
+            <Link href={`/skills/${s.id}`} className="hover:underline">
+              {s.name}
+            </Link>
+            <SkillBadges skill={s} />
+          </ItemTitle>
+          <ItemDescription>{s.description}</ItemDescription>
+          {s.ownerUserId !== actor.userId && (
+            <p className="text-sm text-muted-foreground">
+              {t('by', { name: s.ownerName ?? t('formerMember') })}
+            </p>
+          )}
+          {lastRun && <p className="text-sm text-muted-foreground">{lastRun}</p>}
+        </ItemContent>
+        <ItemActions className="flex-wrap">{actions}</ItemActions>
+      </Item>
+    );
+  };
 
   const open = (s: SkillView, label: string) => (
     <Button asChild variant="outline" size="sm">
@@ -93,12 +100,10 @@ export default async function SkillsPage({
       </div>
       {error && (
         <Alert variant="destructive">
-          <AlertDescription>
-            {t.has(`errors.${error}`) ? t(`errors.${error}`) : t('errors.unknown')}
-          </AlertDescription>
+          <AlertDescription>{t(`errors.${error}`)}</AlertDescription>
         </Alert>
       )}
-      <Tabs defaultValue={mine.length > 0 ? 'mine' : 'library'}>
+      <Tabs defaultValue={tab}>
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="mine">{t('tabs.mine')}</TabsTrigger>
           <TabsTrigger value="library">{t('tabs.library')}</TabsTrigger>

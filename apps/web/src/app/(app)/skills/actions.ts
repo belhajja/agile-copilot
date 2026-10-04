@@ -15,18 +15,23 @@ import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { skillQueue, skillRunsDailyLimit } from '@/server/automation';
 import { requireActor, services } from '@/server/context';
+import type { SkillTab } from './skill-errors';
 
 const locale = async (): Promise<SkillLocale> => ((await getLocale()) === 'fr' ? 'fr' : 'en');
 
 /** No silent failures (P4-R11): a refused action comes back to the page with a translated code. */
-const fail = (path: string, code: string): never =>
-  redirect(`${path}?error=${encodeURIComponent(code)}`);
+const fail = (path: string, code: string, tab?: SkillTab): never =>
+  redirect(`${path}?error=${encodeURIComponent(code)}${tab ? `&tab=${tab}` : ''}`);
+
+/** A skill that is gone goes back to the list; any other refusal to the skill's own page. */
+const failSkill = (id: string, code: string, tab: SkillTab = 'mine'): never =>
+  code === 'not_found' ? fail('/skills', code, tab) : fail(`/skills/${id}`, code);
 
 /** Copies a built-in skill into an editable one of the user's, and opens it. */
 export async function copyBuiltinSkillAction(key: string): Promise<void> {
   const actor = await requireActor();
   const r = await copyBuiltinSkill(services().db, actor, key, new Date(), await locale());
-  if (!r.ok) fail('/skills', r.code);
+  if (!r.ok) fail('/skills', r.code, 'library');
   else redirect(`/skills/${r.id}`);
 }
 
@@ -36,9 +41,9 @@ export async function copyBuiltinSkillAction(key: string): Promise<void> {
  */
 export async function forkSkillAction(id: string): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
+  if (!isUuid(id)) return fail('/skills', 'not_found', 'shared');
   const r = await forkSkill(services().db, actor, id, new Date(), await locale());
-  if (!r.ok) fail(`/skills/${id}`, r.code);
+  if (!r.ok) failSkill(id, r.code, 'shared');
   else redirect(`/skills/${r.id}`);
 }
 
@@ -49,7 +54,7 @@ export async function setSkillVisibilityAction(
   const actor = await requireActor();
   if (!isUuid(id)) return fail('/skills', 'not_found');
   const r = await setSkillVisibility(services().db, actor, id, visibility);
-  if (!r.ok) return fail(`/skills/${id}`, r.code);
+  if (!r.ok) return failSkill(id, r.code);
   revalidatePath('/skills');
   revalidatePath(`/skills/${id}`);
 }
@@ -58,7 +63,7 @@ export async function setSkillEnabledAction(id: string, enabled: boolean): Promi
   const actor = await requireActor();
   if (!isUuid(id)) return fail('/skills', 'not_found');
   const r = await setSkillEnabled(services().db, actor, id, enabled, new Date());
-  if (!r.ok) return fail(`/skills/${id}`, r.code);
+  if (!r.ok) return failSkill(id, r.code);
   revalidatePath('/skills');
   revalidatePath(`/skills/${id}`);
 }
@@ -67,7 +72,7 @@ export async function deleteSkillAction(id: string): Promise<void> {
   const actor = await requireActor();
   if (!isUuid(id)) return fail('/skills', 'not_found');
   const r = await deleteSkill(services().db, actor, id);
-  if (!r.ok) return fail(`/skills/${id}`, r.code);
+  if (!r.ok) return failSkill(id, r.code);
   revalidatePath('/skills');
   redirect('/skills');
 }
