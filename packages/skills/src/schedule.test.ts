@@ -13,6 +13,8 @@ describe('schedules', () => {
     ['@daily', 'UTC', 'cron_invalid'],
     ['0 25 * * *', 'UTC', 'cron_invalid'],
     ['0 8 * * 1', 'Nowhere/City', 'timezone_invalid'],
+    ['', 'UTC', 'cron_invalid'],
+    ['   ', 'UTC', 'cron_invalid'],
   ])('checkCron(%s, %s) → %s', (cron, tz, issue) => {
     expect(checkCron(cron, tz)).toBe(issue);
   });
@@ -63,5 +65,61 @@ describe('schedules', () => {
     expect(
       dueScheduledTime(paris, new Date('2026-12-01T00:00:00Z'), new Date('2026-12-01T07:01:00Z')),
     ).toEqual(new Date('2026-12-01T07:00:00Z'));
+  });
+});
+
+/** Every run a worker ticking each 5 minutes would start, moving the cursor like the planner. */
+function runsOver(
+  schedule: { cron: string; timezone: string },
+  from: string,
+  to: string,
+): string[] {
+  const runs: string[] = [];
+  let cursor = new Date(from);
+  for (let t = new Date(from).getTime(); t <= new Date(to).getTime(); t += 5 * 60_000) {
+    const due = dueScheduledTime(schedule, cursor, new Date(t));
+    if (due) {
+      runs.push(due.toISOString());
+      cursor = due;
+    }
+  }
+  return runs;
+}
+
+describe('daylight-saving transitions (Europe/Paris, 5-minute ticks)', () => {
+  const daily = { cron: '30 2 * * *', timezone: 'Europe/Paris' };
+  const hourly = { cron: '0 * * * *', timezone: 'Europe/Paris' };
+
+  it('runs a daily 02:30 once on the fall-back day', () => {
+    expect(runsOver(daily, '2026-10-24T20:00:00Z', '2026-10-25T20:00:00Z')).toEqual([
+      '2026-10-25T00:30:00.000Z',
+    ]);
+  });
+
+  it('skips a daily 02:30 that does not exist on the spring-forward day', () => {
+    expect(runsOver(daily, '2026-03-28T20:00:00Z', '2026-03-29T20:00:00Z')).toEqual([]);
+  });
+
+  it('runs an hourly schedule once per local hour on the fall-back day', () => {
+    const runs = runsOver(hourly, '2026-10-24T21:30:00Z', '2026-10-25T04:30:00Z');
+    expect(runs).toEqual([
+      '2026-10-24T22:00:00.000Z',
+      '2026-10-24T23:00:00.000Z',
+      '2026-10-25T00:00:00.000Z', // 02:00 CEST; 02:00 CET (01:00Z) is the same local time
+      '2026-10-25T02:00:00.000Z',
+      '2026-10-25T03:00:00.000Z',
+      '2026-10-25T04:00:00.000Z',
+    ]);
+  });
+
+  it('runs an hourly schedule once per existing local hour on the spring-forward day', () => {
+    const runs = runsOver(hourly, '2026-03-28T22:30:00Z', '2026-03-29T03:30:00Z');
+    expect(runs).toEqual([
+      '2026-03-28T23:00:00.000Z',
+      '2026-03-29T00:00:00.000Z',
+      '2026-03-29T01:00:00.000Z', // 03:00 CEST; 02:00 does not exist
+      '2026-03-29T02:00:00.000Z',
+      '2026-03-29T03:00:00.000Z',
+    ]);
   });
 });

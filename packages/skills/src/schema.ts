@@ -22,7 +22,7 @@ const oneLine = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    .refine((v) => !/[\p{Cc}‪-‮⁦-⁩]/u.test(v), 'control characters');
+    .refine((v) => !/[\p{Cc}\p{Cf}]/u.test(v), 'control characters');
 
 /** 1–64 characters: lowercase letters, digits and inner dashes (Agent Skills naming). */
 export const SKILL_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -41,7 +41,12 @@ export const alertConditionSchema = z
   .strict()
   .superRefine((a, ctx) => {
     if (!alertWidget(a)) ctx.addIssue({ code: 'custom', path: ['params'], message: 'invalid' });
-  });
+  })
+  // Keep what the catalog made of the params (defaults filled, unknown keys dropped), not the raw input.
+  .transform((a) => ({
+    ...a,
+    params: (alertWidget(a)?.params ?? {}) as Record<string, unknown>,
+  }));
 
 export type AlertCondition = z.output<typeof alertConditionSchema>;
 

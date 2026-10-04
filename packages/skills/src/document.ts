@@ -51,14 +51,24 @@ const KNOWN = new Set<SkillIssueCode>([
 
 const FRONTMATTER = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/;
 
-function issuesOf(error: z.ZodError): SkillIssue[] {
+/** The raw value at a zod issue path (a missing value is `required`, a wrong one `invalid`). */
+function valueAt(data: unknown, path: readonly PropertyKey[]): unknown {
+  let value = data;
+  for (const key of path) {
+    if (value === null || typeof value !== 'object') return undefined;
+    value = (value as Record<PropertyKey, unknown>)[key];
+  }
+  return value;
+}
+
+function issuesOf(error: z.ZodError, data: unknown): SkillIssue[] {
   const out: SkillIssue[] = [];
   for (const i of error.issues) {
     const field = i.path.map(String).join('.') || undefined;
     if (i.code === 'unrecognized_keys') {
       for (const key of i.keys)
         out.push({ code: 'unknown_field', field: field ? `${field}.${key}` : key });
-    } else if (i.code === 'invalid_type' && i.input === undefined) {
+    } else if (i.code === 'invalid_type' && valueAt(data, i.path) === undefined) {
       out.push({ code: 'required', field });
     } else {
       const code = KNOWN.has(i.message as SkillIssueCode)
@@ -76,7 +86,7 @@ function issuesOf(error: z.ZodError): SkillIssue[] {
  */
 export function parseSkillDocument(text: string): ParseResult {
   if (text.length > MAX_DOCUMENT_CHARS) return { ok: false, issues: [{ code: 'too_long' }] };
-  const match = FRONTMATTER.exec(text.replace(/^﻿/, ''));
+  const match = FRONTMATTER.exec(text.replace(/^\uFEFF/, ''));
   if (!match) return { ok: false, issues: [{ code: 'missing_frontmatter' }] };
   const doc = parseDocument(match[1] ?? '', {
     schema: 'core',
@@ -96,7 +106,7 @@ export function parseSkillDocument(text: string): ParseResult {
   }
   const parsed = skillFrontmatterSchema.safeParse(data);
   const instructions = (match[2] ?? '').trim();
-  const issues = parsed.success ? [] : issuesOf(parsed.error);
+  const issues = parsed.success ? [] : issuesOf(parsed.error, data);
   if (!instructions) issues.push({ code: 'empty_instructions' });
   else if (instructions.length > MAX_INSTRUCTIONS_CHARS) issues.push({ code: 'too_long' });
   if (!parsed.success || issues.length > 0) return { ok: false, issues };

@@ -113,8 +113,30 @@ describe('SKILL.md documents', () => {
       [{ code: 'invalid', field: 'alert.params' }],
     ],
     [
+      'a description with a zero-width space',
+      doc('name: a\ndescription: "safe\\u200Bevil"'),
+      [{ code: 'invalid', field: 'description' }],
+    ],
+    [
+      'a description with an Arabic letter mark',
+      doc('name: a\ndescription: "safe\\u061Cevil"'),
+      [{ code: 'invalid', field: 'description' }],
+    ],
+    [
+      'a description with a byte-order mark inside',
+      doc('name: a\ndescription: "safe\\uFEFFevil"'),
+      [{ code: 'invalid', field: 'description' }],
+    ],
+    [
+      'an infinite alert value',
+      doc(
+        'name: a\ndescription: x\ntrigger: alert\nalert:\n  metric: wip\n  op: ">"\n  value: .inf',
+      ),
+      [{ code: 'invalid', field: 'alert.value' }],
+    ],
+    [
       'a description with a bidi override',
-      doc('name: a\ndescription: "safe‮evil"'),
+      doc('name: a\ndescription: "safe\u202eevil"'),
       [{ code: 'invalid', field: 'description' }],
     ],
   ])('refuses %s with a code', (_label, text, issues) => {
@@ -122,10 +144,11 @@ describe('SKILL.md documents', () => {
   });
 
   it('refuses YAML alias bombs and oversized documents', () => {
+    // Only valid keys: the refusal must come from the alias limit, not from unknown fields.
     const bomb = doc(
-      `name: a\ndescription: x\nx0: &a [1,1,1,1,1,1,1,1,1,1]\n${Array.from({ length: 12 }, (_, i) => `x${i + 1}: &a${i + 1} [*a, *a, *a]`).join('\n')}`,
+      `name: a\ndescription: &a x\n${Array.from({ length: 12 }, () => 'description: *a').join('\n')}`,
     );
-    expect(parseSkillDocument(bomb).ok).toBe(false);
+    expect(parseSkillDocument(bomb)).toEqual({ ok: false, issues: [{ code: 'invalid_yaml' }] });
     expect(parseSkillDocument(doc('name: a\ndescription: x', 'x'.repeat(24_001)))).toEqual({
       ok: false,
       issues: [{ code: 'too_long' }],
@@ -160,6 +183,15 @@ describe('alert conditions', () => {
       params: { windowDays: 90, percentile: 85 },
     });
     expect(alertWidget({ metric: 'velocity' })).toBeNull();
+  });
+
+  it('stores the catalog-normalised params', () => {
+    const r = parseSkillDocument(
+      doc(
+        'name: a\ndescription: x\ntrigger: alert\nalert:\n  metric: cycle_time\n  op: ">"\n  value: 5',
+      ),
+    );
+    expect(r.ok && r.skill.frontmatter.alert?.params).toEqual({ windowDays: 90, percentile: 85 });
   });
 
   it('compares deterministically; no data never matches', () => {

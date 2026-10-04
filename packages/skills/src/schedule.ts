@@ -51,11 +51,36 @@ export function checkCron(cron: string, timezone: string): CronIssue | null {
 /** How late a run may start after its scheduled time (worker down, queue busy) before it is skipped. */
 export const MISSED_RUN_GRACE_MINUTES = 60;
 
+const wallClockFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** The local date and time (to the minute) of an instant in a time zone, e.g. `2026-10-25 02:30`. */
+function wallClock(date: Date, timezone: string): string {
+  let format = wallClockFormats.get(timezone);
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    wallClockFormats.set(timezone, format);
+  }
+  return format.format(date);
+}
+
 /**
  * The scheduled time a skill should run for now, or null. Pure. `after` is the later of the last
  * scheduled time already handled and the moment the schedule was saved, so saving a skill never
  * fires a run for a time before it existed, and each scheduled time runs once. A time older than
  * the grace period is skipped (no burst of catch-up runs after an outage).
+ *
+ * Each LOCAL wall-clock occurrence runs at most once: when clocks go back, the repeated local time
+ * (e.g. 02:30 happening at 00:30Z and again at 01:30Z) equals the cursor's local time and is
+ * skipped. When clocks go forward, a local time that does not exist (02:30 on the spring-forward
+ * day) never occurs, so that day's run is skipped.
  */
 export function dueScheduledTime(
   schedule: { cron: string; timezone: string },
@@ -74,6 +99,7 @@ export function dueScheduledTime(
     return null;
   }
   if (previous.getTime() <= after.getTime()) return null;
+  if (wallClock(previous, schedule.timezone) === wallClock(after, schedule.timezone)) return null;
   if (now.getTime() - previous.getTime() > MISSED_RUN_GRACE_MINUTES * MINUTE) return null;
   return previous;
 }
