@@ -25,19 +25,21 @@ export function createLanguageModel(
     fetch?: typeof fetch;
   } = {},
 ): LanguageModel {
+  // Fixed vendor hosts: a redirect would carry the tenant's key to wherever it points.
+  const fetch = fetchNoRedirect;
   switch (cfg.provider) {
     case 'anthropic':
-      return createAnthropic({ apiKey: cfg.apiKey })(cfg.model);
+      return createAnthropic({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'openai':
-      return createOpenAI({ apiKey: cfg.apiKey })(cfg.model);
+      return createOpenAI({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'google':
-      return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(cfg.model);
+      return createGoogleGenerativeAI({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'mistral':
-      return createMistral({ apiKey: cfg.apiKey })(cfg.model);
+      return createMistral({ apiKey: cfg.apiKey, fetch })(cfg.model);
     case 'azure':
       if (!AZURE_RESOURCE_NAME.test(cfg.resourceName))
         throw new TypeError('Invalid Azure resource name');
-      return createAzure({ apiKey: cfg.apiKey, resourceName: cfg.resourceName })(cfg.model);
+      return createAzure({ apiKey: cfg.apiKey, resourceName: cfg.resourceName, fetch })(cfg.model);
     case 'openai_compatible':
       return createOpenAICompatible({
         name: 'openai_compatible',

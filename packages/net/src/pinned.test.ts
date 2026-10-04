@@ -8,6 +8,7 @@ import {
   createOutboundFetch,
   createPinnedAgents,
   isBlockedAddressError,
+  outboundDispatcher,
 } from './pinned';
 
 /** Answers the first call with a public address, every later call with the local server. */
@@ -132,5 +133,30 @@ describe('DNS-pinned outbound requests', () => {
     });
     const err = await blocked(`http://jira.corp.test.:${port}/ok`).catch((e: unknown) => e);
     expect(isBlockedAddressError(err)).toBe(true);
+  });
+
+  it('shares one dispatcher per policy: repeated clients leave no idle sockets behind', async () => {
+    const resolve: Resolver = async () => ['127.0.0.1'];
+    const policy = () => ({ allowedPrivateHosts: ['corp.test', 'Jira.Corp.Test.'], resolve });
+    expect(outboundDispatcher(policy())).toBe(
+      outboundDispatcher({ allowedPrivateHosts: ['jira.corp.test', 'corp.test'], resolve }),
+    );
+    expect(outboundDispatcher(policy())).not.toBe(
+      outboundDispatcher({ ...policy(), resolve: undefined }),
+    );
+    expect(outboundDispatcher(policy())).not.toBe(
+      outboundDispatcher({ allowedPrivateHosts: ['corp.test'], resolve }),
+    );
+    const sockets = () =>
+      process.getActiveResourcesInfo().filter((r) => r === 'TCPSocketWrap').length;
+    // One request per client, as the agent makes one client per Jira tool call or chat turn.
+    const once = async () => {
+      const res = await createOutboundFetch(policy())(`http://jira.corp.test:${port}/ok`);
+      await res.text();
+    };
+    await once();
+    const before = sockets();
+    for (let i = 0; i < 20; i++) await once();
+    expect(sockets() - before).toBeLessThanOrEqual(1);
   });
 });

@@ -101,12 +101,37 @@ function assertLiteralAllowed(hostname: string, policy: OutboundPolicy) {
   if (!isPublicAddress(host)) throw new BlockedAddressError(host);
 }
 
+// One dispatcher per policy, reused by every client built from it: a fresh undici Agent per call
+// would keep its idle keep-alive sockets open until they time out. Keyed by the resolver (weakly:
+// a test's resolver goes away with it) and the normalised allowlist (deployment settings: few).
+const dispatchers = new WeakMap<Resolver, Map<string, Agent>>();
+
+/** The shared undici dispatcher (pinned lookup) for this outbound policy. */
+export function outboundDispatcher(policy: OutboundPolicy): Agent {
+  const resolve = policy.resolve ?? systemResolve;
+  let byHosts = dispatchers.get(resolve);
+  if (!byHosts) {
+    byHosts = new Map();
+    dispatchers.set(resolve, byHosts);
+  }
+  const hosts = [...new Set(policy.allowedPrivateHosts.map(normalizeHost))].sort();
+  const key = hosts.join(',');
+  let agent = byHosts.get(key);
+  if (!agent) {
+    agent = new Agent({
+      connect: { lookup: createPinnedLookup({ allowedPrivateHosts: hosts, resolve }) },
+    });
+    byHosts.set(key, agent);
+  }
+  return agent;
+}
+
 /**
  * `fetch` for user-supplied hosts: never follows redirects (like `fetchNoRedirect`) and connects
  * only to addresses the policy allows, pinned at connect time. Accepts a string or URL.
  */
 export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
-  const dispatcher = new Agent({ connect: { lookup: createPinnedLookup(policy) } });
+  const dispatcher = outboundDispatcher(policy);
   return (async (input: string | URL | Request, init?: RequestInit) => {
     if (input instanceof Request)
       throw new TypeError('createOutboundFetch takes a URL, not a Request');
