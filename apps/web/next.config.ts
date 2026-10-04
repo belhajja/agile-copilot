@@ -28,6 +28,8 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: repoRoot,
   transpilePackages: [
+    '@agile/agent',
+    '@agile/analytics-mcp',
     '@agile/auth',
     '@agile/config',
     '@agile/connections',
@@ -35,6 +37,7 @@ const config: NextConfig = {
     '@agile/dashboards',
     '@agile/db',
     '@agile/jira',
+    '@agile/jira-tools',
     '@agile/llm',
     '@agile/metrics',
     '@agile/net',

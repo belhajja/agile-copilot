@@ -23,6 +23,8 @@ export const serverEnvSchema = z
     ALLOWED_PRIVATE_HOSTS: hostList,
     ATLASSIAN_OAUTH_CLIENT_ID: optionalString,
     ATLASSIAN_OAUTH_CLIENT_SECRET: optionalString,
+    /** Shared mcp-atlassian instance (streamable HTTP endpoint) for the agent's live Jira tools. */
+    MCP_ATLASSIAN_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   })
   .refine(
     (e) => Boolean(e.ATLASSIAN_OAUTH_CLIENT_ID) === Boolean(e.ATLASSIAN_OAUTH_CLIENT_SECRET),

@@ -28,6 +28,17 @@ describe('parseServerEnv', () => {
     expect(env.ALLOWED_PRIVATE_HOSTS).toEqual([]);
   });
 
+  it('reads the optional mcp-atlassian URL', () => {
+    expect(parseServerEnv({ ...valid, MCP_ATLASSIAN_URL: '' }).MCP_ATLASSIAN_URL).toBeUndefined();
+    expect(
+      parseServerEnv({ ...valid, MCP_ATLASSIAN_URL: 'http://mcp-atlassian:8000/mcp' })
+        .MCP_ATLASSIAN_URL,
+    ).toBe('http://mcp-atlassian:8000/mcp');
+    expect(() => parseServerEnv({ ...valid, MCP_ATLASSIAN_URL: 'not a url' })).toThrow(
+      /MCP_ATLASSIAN_URL/,
+    );
+  });
+
   it('normalises the private host allowlist', () => {
     const env = parseServerEnv({
       ...valid,

@@ -47,12 +47,28 @@ export async function requireSignedIn() {
   return session;
 }
 
-export async function requireActor(): Promise<SessionActor> {
-  const session = await requireSignedIn();
-  const orgId = session.session.activeOrganizationId;
-  if (!orgId) redirect('/onboarding');
+type Session = Awaited<ReturnType<typeof loadSession>>;
+
+async function actorOf(session: Session): Promise<SessionActor | null> {
+  const orgId = session?.session.activeOrganizationId;
+  if (!session || !orgId) return null;
   const roles = await getMemberRoles(services().db, orgId, session.user.id);
-  if (roles.length === 0) redirect('/onboarding');
+  if (roles.length === 0) return null;
   const { id, name, email } = session.user;
   return { orgId, userId: id, roles, user: { id, name, email } };
+}
+
+/**
+ * For Route Handlers: the signed-in member of the active workspace, or null (the route answers
+ * 401). Reads the session from the request's own headers, without React `cache` (request-scoped
+ * only while rendering Server Components) or `headers()`.
+ */
+export async function currentActor(requestHeaders: Headers): Promise<SessionActor | null> {
+  return actorOf(await services().auth.api.getSession({ headers: requestHeaders }));
+}
+
+export async function requireActor(): Promise<SessionActor> {
+  const actor = await actorOf(await requireSignedIn());
+  if (!actor) redirect('/onboarding');
+  return actor;
 }
