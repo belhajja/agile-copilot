@@ -197,6 +197,8 @@ async function planAlert(
         },
         now,
         dailyLimit: deps.dailyLimit,
+        // Re-evaluated on every tick while it matches: one skipped row per limit and day.
+        oneSkipPerDay: true,
       });
       // A run skipped by a limit did not fire: the boards stay new and the cooldown does not
       // start, so the alert fires on a later tick once there is room (M2).

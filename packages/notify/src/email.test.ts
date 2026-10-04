@@ -195,6 +195,26 @@ describe('email over SMTP (in-process server)', () => {
     }
   });
 
+  it('sends nothing when the signal aborts while the host is being resolved', async () => {
+    const stop = new AbortController();
+    const mails = open.mails.length;
+    const sending = sendEmail({ ...secret(open.port), host: 'mail.corp.test' }, message, {
+      outbound: {
+        ...outbound,
+        resolve: async () => {
+          stop.abort();
+          await new Promise((r) => setTimeout(r, 50));
+          return ['127.0.0.1'];
+        },
+      },
+      signal: stop.signal,
+    }).catch((e: unknown) => e);
+    expect(await sending).toBeInstanceOf(DeliveryInterruptedError);
+    // The resolution finishes after the abort: no connection is opened, no mail goes out.
+    await new Promise((r) => setTimeout(r, 500));
+    expect(open.mails.length).toBe(mails);
+  });
+
   it('reports a refused recipient as rejected', async () => {
     const strict = await startMockSmtp({ rejectRecipients: true });
     try {

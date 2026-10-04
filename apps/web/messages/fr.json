@@ -852,6 +852,7 @@
       "internal_error": "Erreur interne",
       "owner_limit": "Part quotidienne du propriétaire atteinte",
       "user_limit": "Limite « Exécuter maintenant » atteinte",
+      "skill_deleted": "Compétence supprimée",
       "unknown": "Échec"
     },
     "delivered": "{channel} : {outcome}",

@@ -852,6 +852,7 @@
       "internal_error": "Internal error",
       "owner_limit": "Owner's daily share reached",
       "user_limit": "\"Run now\" limit reached",
+      "skill_deleted": "Skill deleted",
       "unknown": "Failed"
     },
     "delivered": "{channel}: {outcome}",

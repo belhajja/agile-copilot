@@ -1,6 +1,6 @@
 import { type Db, deliveryChannels, isUuid, skillRuns, skills, type Tx, withOrg } from '@agile/db';
 import type { SkillActor } from '@agile/skills';
-import { and, desc, eq, gte, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { RunResultCode, RunSkipCode } from './codes';
 
 /** Background runs per workspace and rolling 24 hours (schedules, alerts and "Run now"). */
@@ -51,17 +51,17 @@ const PRE_MODEL_FAILURES = [
 
 /**
  * Runs of the last 24 hours that cost (or may cost) a model call: in the workspace, of this
- * owner's skills, and of their "Run now" requests ("Run now" is the owner's only).
+ * owner's skills, and of their "Run now" requests ("Run now" is the owner's only). Counted from
+ * the runs alone, by the owner recorded on each: runs of deleted skills still count (P4-R31).
  */
 async function runsToday(tx: Tx, orgId: string, ownerUserId: string, now: Date) {
   const [row] = await tx
     .select({
       workspace: sql<number>`count(*)::int`,
-      owner: sql<number>`(count(*) filter (where ${skills.ownerUserId} = ${ownerUserId}))::int`,
-      manual: sql<number>`(count(*) filter (where ${skills.ownerUserId} = ${ownerUserId} and ${skillRuns.trigger} = 'manual'))::int`,
+      owner: sql<number>`(count(*) filter (where ${skillRuns.ownerUserId} = ${ownerUserId}))::int`,
+      manual: sql<number>`(count(*) filter (where ${skillRuns.ownerUserId} = ${ownerUserId} and ${skillRuns.trigger} = 'manual'))::int`,
     })
     .from(skillRuns)
-    .innerJoin(skills, eq(skills.id, skillRuns.skillId))
     .where(
       and(
         eq(skillRuns.orgId, orgId),
@@ -113,6 +113,11 @@ export async function createRun(
     now: Date;
     dailyLimit: number;
     skip?: RunSkipCode | 'owner_left';
+    /**
+     * Over a limit, record at most one skipped run per skill and limit in 24 hours (alerts, which
+     * are evaluated on every tick): a later one returns that run instead of adding another.
+     */
+    oneSkipPerDay?: boolean;
   },
 ): Promise<{ id: string; queued: boolean; skipped: RunSkipCode | 'owner_left' | null } | null> {
   if (!isUuid(input.skillId)) return null;
@@ -149,11 +154,28 @@ export async function createRun(
       input.trigger,
       input.dailyLimit,
     );
+  if (skipCode && input.oneSkipPerDay) {
+    const [recorded] = await tx
+      .select({ id: skillRuns.id })
+      .from(skillRuns)
+      .where(
+        and(
+          eq(skillRuns.orgId, orgId),
+          eq(skillRuns.skillId, input.skillId),
+          eq(skillRuns.status, 'skipped'),
+          eq(skillRuns.resultCode, skipCode),
+          gte(skillRuns.createdAt, new Date(input.now.getTime() - 24 * 3_600_000)),
+        ),
+      )
+      .limit(1);
+    if (recorded) return { id: recorded.id, queued: false, skipped: skipCode };
+  }
   const [row] = await tx
     .insert(skillRuns)
     .values({
       orgId,
       skillId: input.skillId,
+      ownerUserId: skill.ownerUserId,
       version: input.version,
       trigger: input.trigger,
       scheduledFor: input.scheduledFor ?? null,
@@ -201,7 +223,7 @@ export async function finishRun(
   now: Date,
   outcome: {
     status: 'succeeded' | 'failed' | 'skipped';
-    resultCode?: string | null;
+    resultCode?: RunResultCode | null;
     output?: string | null;
     deliveries?: Record<string, string>;
   },
@@ -235,7 +257,7 @@ export async function closeStaleRuns(db: Db, orgId: string, now: Date): Promise<
   const rows = await withOrg(db, orgId, (tx) =>
     tx
       .update(skillRuns)
-      .set({ status: 'failed', resultCode: 'interrupted', finishedAt: now })
+      .set({ status: 'failed', resultCode: 'interrupted' satisfies RunResultCode, finishedAt: now })
       .where(
         and(
           eq(skillRuns.orgId, orgId),
@@ -266,6 +288,8 @@ export async function queuedRunsToResend(db: Db, orgId: string, now: Date): Prom
         and(
           eq(skillRuns.orgId, orgId),
           eq(skillRuns.status, 'queued'),
+          // A run whose skill was deleted has nothing to run: the stale sweep closes it.
+          isNotNull(skillRuns.skillId),
           lt(skillRuns.createdAt, new Date(now.getTime() - RESEND_QUEUED_MINUTES * 60_000)),
         ),
       )

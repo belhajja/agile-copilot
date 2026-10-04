@@ -109,9 +109,13 @@ export const skillRuns = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     orgId: text('org_id').notNull(),
-    skillId: uuid('skill_id')
-      .notNull()
-      .references(() => skills.id, { onDelete: 'cascade' }),
+    /**
+     * The skill run. Deleting the skill clears it (SET NULL, P4-R31): the run history outlives
+     * the skill, so deleting and re-creating a skill never resets the daily caps.
+     */
+    skillId: uuid('skill_id').references(() => skills.id, { onDelete: 'set null' }),
+    /** Snapshot of the skill's owner when the run was recorded: whose caps it counts against. */
+    ownerUserId: text('owner_user_id').notNull(),
     version: integer('version').notNull(),
     trigger: skillRunTrigger('trigger').notNull(),
     status: skillRunStatus('status').notNull().default('queued'),

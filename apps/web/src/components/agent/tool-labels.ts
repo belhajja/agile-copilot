@@ -3,7 +3,7 @@ import { allowedCode } from '@/lib/error-code';
 /**
  * Tool names with a translated label (`agent.tools.*`). Tool names come from the model (an invalid
  * call keeps the name it made up), so labels are looked up in this list, never with `t.has`.
- * A test ties it to the messages and to the agent's tools.
+ * A test ties it to the `agent.tools` messages (EN and FR); a tool without a label is shown by name.
  */
 export const TOOL_LABELS = [
   'list_boards',

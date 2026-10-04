@@ -41,20 +41,23 @@ async function loadRun(deps: AutomationDeps, orgId: string, runId: string) {
       })
       .from(skillRuns)
       .where(and(eq(skillRuns.orgId, orgId), eq(skillRuns.id, runId)));
-    if (!run) return null;
+    // Its skill was deleted since it was recorded (the run history outlives it, P4-R31).
+    if (!run?.skillId) return null;
+    const skillId = run.skillId;
     // The shared joined loader (skill + current document); internal use, scoped to this skill.
     const [loaded] = await loadSkillsWithDocuments(
       tx,
-      and(eq(skills.orgId, orgId), eq(skills.id, run.skillId)),
+      and(eq(skills.orgId, orgId), eq(skills.id, skillId)),
     );
     if (!loaded) return null;
     // The version recorded on the run: the current one unless the skill was edited meanwhile.
     const document =
       loaded.skill.currentVersion === run.version
         ? loaded.document
-        : await currentDocument(tx, run.skillId, run.version);
+        : await currentDocument(tx, skillId, run.version);
     return {
       ...run,
+      skillId,
       ownerUserId: loaded.skill.ownerUserId,
       enabled: loaded.skill.enabled,
       locale: loaded.skill.locale,
@@ -194,7 +197,8 @@ export async function executeSkillRun(
   };
   try {
     const run = await loadRun(deps, orgId, runId);
-    if (!run) return { status: 'not_claimed' };
+    // Claimed, but its skill is gone: end it rather than leave it running.
+    if (!run) return end('skipped', 'skill_deleted');
     if (!run.enabled) return end('skipped', 'disabled');
     // The owner's role today, not when the skill was saved (they may have left or been demoted).
     const roles = await getMemberRoles(deps.db, orgId, run.ownerUserId);

@@ -366,6 +366,24 @@ describe('executing a run: owner, read-only report, delivery', () => {
     expect(await runRow(leaverRun)).toMatchObject({ status: 'skipped', resultCode: 'owner_left' });
   });
 
+  it('ends a run whose skill was deleted while it waited (P4-R31)', async () => {
+    const id = await skillFor(owner(), 'deleted-while-queued', 'email');
+    const runId = await queue(id);
+    await h.rawDb.delete(skills).where(eq(skills.id, id));
+    const calls = h.llm.requests.length;
+    expect(await executeSkillRun(h.deps, 'org_a', runId)).toEqual({
+      status: 'skipped',
+      code: 'skill_deleted',
+    });
+    expect(h.llm.requests.length).toBe(calls);
+    expect(await runRow(runId)).toMatchObject({
+      skillId: null,
+      ownerUserId: owner().userId,
+      status: 'skipped',
+      resultCode: 'skill_deleted',
+    });
+  });
+
   it('reports a model failure on the run, delivering nothing', async () => {
     const id = await skillFor(owner(), 'no-model', 'email');
     const runId = await queue(id);

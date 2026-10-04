@@ -7,7 +7,7 @@ import {
   skills,
   withOrg,
 } from '@agile/db';
-import { createSkill, serializeSkill, setSkillVisibility } from '@agile/skills';
+import { createSkill, deleteSkill, serializeSkill, setSkillVisibility } from '@agile/skills';
 import { member, owner } from '@agile/sync/testing';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -442,6 +442,63 @@ describe('planning background runs (schedules, alerts, limits)', () => {
       queued: false,
       skipped: 'daily_limit',
     });
+  });
+
+  it('keeps the caps when a skill is deleted and created again (P4-R31)', async () => {
+    const org = 'org_delete_cap';
+    const t0 = at('2026-11-07T08:00:00Z');
+    const doc = { name: 'reborn', trigger: 'schedule', schedule: { cron: '0 6 * * *' } };
+    const first = await createIn(org, doc, t0);
+    for (let i = 0; i < SKILL_MANUAL_RUNS_PER_USER; i++) {
+      expect((await runIn(org, first, minutes(t0, i)))?.queued).toBe(true);
+    }
+    expect((await deleteSkill(h.db, owner(org), first)).ok).toBe(true);
+    // The history stays (no skill any more), still counted for its owner.
+    const kept = await h.rawDb.select().from(skillRuns).where(eq(skillRuns.orgId, org));
+    expect(kept.map((r) => [r.skillId, r.ownerUserId])).toEqual(
+      Array(SKILL_MANUAL_RUNS_PER_USER).fill([null, owner(org).userId]),
+    );
+    const again = await createIn(org, doc, t0);
+    expect(await runIn(org, again, minutes(t0, 30))).toMatchObject({
+      queued: false,
+      skipped: 'user_limit',
+    });
+    // The owner's share too: 10 runs used of max(5, ceil(10 / 2)) = 5.
+    expect(
+      await runIn(org, again, minutes(t0, 31), { trigger: 'schedule', dailyLimit: 10 }),
+    ).toMatchObject({ queued: false, skipped: 'daily_limit' });
+    expect(
+      await runIn(org, again, minutes(t0, 32), { trigger: 'schedule', dailyLimit: 20 }),
+    ).toMatchObject({ queued: false, skipped: 'owner_limit' });
+  });
+
+  it('records an alert skipped by a limit once per limit and day, not on every tick', async () => {
+    // Before the other org_a alert test's days: the daily window has no upper bound.
+    const t0 = at('2026-11-01T08:00:00Z');
+    const id = await create(
+      {
+        name: 'capped-alert-once',
+        trigger: 'alert',
+        alert: { metric: 'wip', op: '>=', value: 1 },
+        output: 'chat',
+      },
+      t0,
+    );
+    const seed = await create(
+      { name: 'cap-seed-once', trigger: 'schedule', schedule: { cron: '0 6 * * *' } },
+      t0,
+    );
+    await disable(seed);
+    const used = await runIn('org_a', seed, minutes(t0, -30), { dailyLimit: 1 });
+    await h.rawDb
+      .update(skillRuns)
+      .set({ status: 'succeeded' })
+      .where(eq(skillRuns.id, used?.id ?? ''));
+    for (let tick = 0; tick < 4; tick++) {
+      expect(await planIn('org_a', minutes(t0, tick * 5), 1)).toEqual([]);
+    }
+    expect(await outcomes(id)).toEqual(['daily_limit']);
+    await disable(id);
   });
 
   it('holds the "Run now" limit when two runs are requested at the same time', async () => {

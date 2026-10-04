@@ -113,6 +113,9 @@ async function withTransport(
   let transport: Transporter | undefined;
   const work = (async () => {
     transport = await transportFor(secret, opts);
+    // Aborted while resolving or creating the transport: the caller has already given up, so
+    // nothing may be sent after the fact.
+    if (opts.signal?.aborted) throw new DeliveryInterruptedError();
     await action(transport);
   })();
   // If the deadline wins, the work may still finish later: close whatever it opened then.

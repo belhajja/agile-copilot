@@ -44,6 +44,7 @@ async function seed(tx: Tx, orgId: string) {
   await tx.insert(skillRuns).values({
     orgId,
     skillId: skill.id,
+    ownerUserId: 'user_1',
     version: 1,
     trigger: 'schedule',
     scheduledFor: new Date('2026-10-05T08:00:00Z'),
@@ -153,6 +154,7 @@ describe('Phase 4 tenant tables (as app_user)', () => {
           tx.insert(skillRuns).values({
             orgId: 'org_a',
             skillId: skillA,
+            ownerUserId: 'user_1',
             version: 1,
             trigger: 'schedule',
             scheduledFor: new Date('2026-10-05T08:00:00Z'),
@@ -161,7 +163,13 @@ describe('Phase 4 tenant tables (as app_user)', () => {
       ),
     ).toEqual({ code: '23505', constraint: 'skill_runs_skill_scheduled_uq' });
     await withOrg(app.db, 'org_a', async (tx) => {
-      const manual = { orgId: 'org_a', skillId: skillA, version: 1, trigger: 'manual' as const };
+      const manual = {
+        orgId: 'org_a',
+        skillId: skillA,
+        ownerUserId: 'user_1',
+        version: 1,
+        trigger: 'manual' as const,
+      };
       const rows = await tx.insert(skillRuns).values([manual, manual]).returning();
       expect(rows).toHaveLength(2);
       for (const r of rows) await tx.delete(skillRuns).where(eq(skillRuns.id, r.id));
@@ -185,6 +193,7 @@ describe('Phase 4 tenant tables (as app_user)', () => {
         .values({
           orgId: 'org_a',
           skillId: skillA,
+          ownerUserId: 'user_1',
           version: 1,
           trigger: 'manual',
           status: 'skipped',
@@ -287,9 +296,13 @@ describe('Phase 4 tenant tables (as app_user)', () => {
         ),
       skill_runs: () =>
         withOrg(app.db, 'org_b', (tx) =>
-          tx
-            .insert(skillRuns)
-            .values({ orgId: 'org_a', skillId: skillA, version: 1, trigger: 'manual' }),
+          tx.insert(skillRuns).values({
+            orgId: 'org_a',
+            skillId: skillA,
+            ownerUserId: 'u',
+            version: 1,
+            trigger: 'manual',
+          }),
         ),
       delivery_channels: () =>
         withOrg(app.db, 'org_b', (tx) =>
@@ -328,15 +341,20 @@ describe('Phase 4 tenant tables (as app_user)', () => {
     expect(await countAll('org_a')).toEqual(before);
   });
 
-  it('deleting a skill removes its versions and runs, not the channel or builder calls', async () => {
+  it('deleting a skill removes its versions, keeps its runs (P4-R31), not the channel or builder calls', async () => {
     await withOrg(app.db, 'org_a', (tx) => tx.delete(skills).where(eq(skills.id, skillA)));
     expect(await countAll('org_a')).toEqual({
       delivery_channels: 1,
       skill_builder_calls: 1,
-      skill_runs: 0,
+      skill_runs: 1,
       skill_versions: 0,
       skills: 0,
     });
+    // The run history outlives the skill (the daily caps count it), detached from it.
+    const runs = await withOrg(app.db, 'org_a', (tx) =>
+      tx.select({ skillId: skillRuns.skillId, owner: skillRuns.ownerUserId }).from(skillRuns),
+    );
+    expect(runs).toEqual([{ skillId: null, owner: 'user_1' }]);
   });
 
   it('purging an org empties every Phase 4 table for it and only it', async () => {
