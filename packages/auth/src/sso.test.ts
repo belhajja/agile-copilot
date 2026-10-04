@@ -308,6 +308,34 @@ describe('SSO (OIDC) and the password policy', () => {
     expect(accepted?.member).toMatchObject({ organizationId, role: 'viewer' });
   });
 
+  it('creates a break-glass account only through createBreakGlassAccount, never a bare server-side sign-up (A-m2)', async () => {
+    const auth = createAuth({ ...options, breakGlassEmails: ['ops3@example.com'] });
+    // An in-process call without the CLI's marker (a future server action, say) is refused like
+    // an HTTP sign-up: no request is not proof of the operator.
+    await expect(
+      auth.api.signUpEmail({
+        body: { email: 'ops3@example.com', password: 'break-glass-pass', name: 'Ops' },
+      }),
+    ).rejects.toMatchObject({ body: { code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' } });
+    const strict = createAuth({
+      ...options,
+      passwordLogin: 'admin_only',
+      breakGlassEmails: ['ops3@example.com'],
+    });
+    await expect(
+      strict.api.signUpEmail({
+        body: { email: 'ops3@example.com', password: 'break-glass-pass', name: 'Ops' },
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SIGN_UP_NOT_ALLOWED' } });
+    expect(await userRow('ops3@example.com')).toBeUndefined();
+    await createBreakGlassAccount(strict, ['ops3@example.com'], {
+      email: 'ops3@example.com',
+      password: 'break-glass-pass',
+      name: 'Ops',
+    });
+    expect(await userRow('ops3@example.com')).toBeDefined();
+  });
+
   it('with PASSWORD_LOGIN=admin_only, passwords work for break-glass accounts only', async () => {
     const auth = createAuth({ ...options, passwordLogin: 'admin_only' });
     // Nobody creates a break-glass account over HTTP, whatever the mode.

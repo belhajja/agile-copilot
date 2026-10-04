@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { APIError } from 'better-auth/api';
 import { type GenericOAuthConfig, keycloak } from 'better-auth/plugins/generic-oauth';
@@ -83,9 +84,16 @@ const addressTaken = () =>
   });
 
 /**
+ * Set only while `createBreakGlassAccount` (the operator's CLI) signs a break-glass account up
+ * (A-m2). An explicit, process-internal marker: neither a browser nor an in-process call that
+ * merely lacks an HTTP request (a server action, say) can claim to be the operator.
+ */
+export const breakGlassCreation = new AsyncLocalStorage<true>();
+
+/**
  * Before-hook for the password policy. It never tells who is a platform administrator (P5-R39):
  * - Sign-up: break-glass accounts are created server-side only (the `break-glass:create` CLI, which
- *   calls the API without an HTTP request). Over HTTP, with `PASSWORD_LOGIN=admin_only` every
+ *   calls the API without an HTTP request inside `breakGlassCreation`). Anywhere else, with `PASSWORD_LOGIN=admin_only` every
  *   sign-up gets the same refusal; with `all`, a break-glass address reads like any taken address.
  * - Sign-in with `admin_only`: a non-break-glass address is answered like an unknown address
  *   (better-auth hashes, then 401 `INVALID_EMAIL_OR_PASSWORD`), even with the right password.
@@ -101,7 +109,7 @@ export function guardPasswordLogin(
   const admin =
     typeof body?.email === 'string' && isBreakGlass(body.email, policy.breakGlassEmails);
   if (ctx.path === '/sign-up/email') {
-    if (admin && !ctx.request) return; // the operator's CLI
+    if (admin && !ctx.request && breakGlassCreation.getStore() === true) return; // the CLI
     if (policy.passwordLogin === 'admin_only') throw signUpRefused();
     if (admin) throw addressTaken();
     return;
@@ -140,16 +148,6 @@ export function guardSsoStart(ctx: { path?: string; body?: unknown }): void {
     });
   }
 }
-
-/**
- * Kept for its call site: the break-glass sign-up rule now lives in `guardPasswordLogin`, which
- * knows the password mode and so can answer every refused sign-up alike (P5-R39).
- * @deprecated
- */
-export function guardBreakGlassSignUp(
-  _ctx: { path?: string; body?: unknown; request?: Request },
-  _breakGlassEmails: readonly string[],
-): void {}
 
 /**
  * The address an ID token vouches for, when its `email_verified` claim is true. Only called on

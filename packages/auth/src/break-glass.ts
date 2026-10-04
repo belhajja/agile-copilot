@@ -1,13 +1,14 @@
 import type { Auth } from './server';
-import { isBreakGlass, normalizeEmail } from './sso';
+import { breakGlassCreation, isBreakGlass, normalizeEmail } from './sso';
 
 /** The address is not in BREAK_GLASS_EMAILS. */
 export const NOT_BREAK_GLASS = 'NOT_BREAK_GLASS';
 
 /**
  * Creates a break-glass account (a platform admin who signs in with a password when the IdP is
- * down). Server-side only: it calls the auth API without an HTTP request, which is the one way
- * such an account can be created (HTTP sign-up refuses these addresses). The session sign-up
+ * down). Server-side only: it calls the auth API without an HTTP request and inside the
+ * `breakGlassCreation` marker, the one way such an account can be created (any other sign-up of
+ * these addresses is refused, A-m2). The session sign-up
  * opens is closed again, so no usable token is left behind.
  */
 export async function createBreakGlassAccount(
@@ -17,10 +18,12 @@ export async function createBreakGlassAccount(
 ): Promise<{ email: string }> {
   const email = normalizeEmail(account.email);
   if (!isBreakGlass(email, breakGlassEmails)) throw new Error(NOT_BREAK_GLASS);
-  const { headers, response } = await auth.api.signUpEmail({
-    body: { email, password: account.password, name: account.name },
-    returnHeaders: true,
-  });
+  const { headers, response } = await breakGlassCreation.run(true, () =>
+    auth.api.signUpEmail({
+      body: { email, password: account.password, name: account.name },
+      returnHeaders: true,
+    }),
+  );
   const cookie = headers
     .getSetCookie()
     .map((c) => c.split(';')[0])

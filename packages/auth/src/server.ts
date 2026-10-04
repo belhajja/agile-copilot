@@ -25,7 +25,6 @@ import {
 } from './hooks';
 import { seatsInUse } from './members';
 import {
-  guardBreakGlassSignUp,
   guardPasswordLogin,
   guardSsoStart,
   isBreakGlass,
@@ -120,7 +119,6 @@ export function createAuth(
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
         guardSsoStart(ctx);
-        guardBreakGlassSignUp(ctx, breakGlassEmails);
         guardPasswordLogin(ctx, policy);
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);
