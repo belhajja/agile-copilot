@@ -1,0 +1,1 @@
+ALTER TABLE "personal_data_exports" ADD COLUMN "kind" text DEFAULT 'personal' NOT NULL;

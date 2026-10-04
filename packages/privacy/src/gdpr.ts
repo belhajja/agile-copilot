@@ -622,14 +622,19 @@ export type OpenExportResult =
     }
   | { ok: false; code: 'not_found' | 'export_in_progress' | 'export_rate_limited' };
 
+/** Export kinds throttled separately (column `kind` of `personal_data_exports`). */
+export type ExportKind = 'personal' | 'audit';
+
 /**
- * Starts a personal data export, throttled: one running per person, at most `EXPORTS_PER_HOUR`
- * an hour (an export reads every workspace the person was in). The person's row is locked while
- * deciding, so two requests at once cannot both start.
+ * Starts a throttled export of `kind`: one running per person, at most `EXPORTS_PER_HOUR` an
+ * hour. The person's row is locked while deciding, so two requests at once cannot both start.
+ * `produce` makes the document; the export is marked finished when it ends or is closed.
  */
-export async function openUserExport(
+export async function openThrottledExport(
   db: Db,
   userId: string,
+  kind: ExportKind,
+  produce: () => AsyncGenerator<string> | Promise<AsyncGenerator<string>>,
   now: Date = new Date(),
 ): Promise<OpenExportResult> {
   const opened = await db.transaction(
@@ -649,6 +654,7 @@ export async function openUserExport(
         .where(
           and(
             eq(personalDataExports.userId, userId),
+            eq(personalDataExports.kind, kind),
             gt(personalDataExports.startedAt, new Date(now.getTime() - HOUR_MS)),
           ),
         );
@@ -659,7 +665,7 @@ export async function openUserExport(
       if (recent.length >= EXPORTS_PER_HOUR) return { ok: false, code: 'export_rate_limited' };
       const [row] = await tx
         .insert(personalDataExports)
-        .values({ userId, startedAt: now })
+        .values({ userId, kind, startedAt: now })
         .returning({ id: personalDataExports.id });
       if (!row) throw new Error('export insert returned nothing');
       return { ok: true, id: row.id };
@@ -675,12 +681,30 @@ export async function openUserExport(
       .set({ finishedAt: new Date() })
       .where(eq(personalDataExports.id, opened.id));
   };
+  let source: AsyncGenerator<string>;
+  try {
+    source = await produce();
+  } catch (e) {
+    await finish();
+    throw e;
+  }
   const chunks = (async function* () {
     try {
-      yield* exportUserData(db, userId);
+      yield* source;
     } finally {
       await finish();
     }
   })();
   return { ok: true, chunks, finish };
+}
+
+/**
+ * Starts a personal data export, throttled (an export reads every workspace the person was in).
+ */
+export function openUserExport(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<OpenExportResult> {
+  return openThrottledExport(db, userId, 'personal', () => exportUserData(db, userId), now);
 }

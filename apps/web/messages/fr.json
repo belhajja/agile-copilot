@@ -116,7 +116,9 @@
     "delivery": "Diffusion",
     "account": "Compte",
     "members": "Membres",
-    "billing": "Facturation"
+    "billing": "Facturation",
+    "workspace": "Espace",
+    "audit": "Journal d'audit"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -1036,5 +1038,50 @@
       "no_checkout_url": "Stripe n'a pas ouvert de page de paiement. Réessayez.",
       "stripe_error": "Stripe est injoignable. Réessayez."
     }
+  },
+  "audit": {
+    "title": "Journal d'audit",
+    "intro": "Chaque modification des connexions, des membres, des réglages et de Jira faite par l'assistant.",
+    "forbidden": "Seuls les propriétaires et les administrateurs consultent le journal d'audit.",
+    "exportTitle": "Export",
+    "exportHint": "Téléchargez le journal d'une période (jours UTC, bornes incluses ; vide = tout). Chaque export est inscrit au journal.",
+    "from": "Du",
+    "to": "Au",
+    "downloadCsv": "Télécharger en CSV",
+    "downloadJson": "Télécharger en JSON",
+    "when": "Quand",
+    "action": "Action",
+    "who": "Qui",
+    "formerMember": "Ancien membre",
+    "system": "Système"
+  },
+  "workspace": {
+    "title": "Réglages de l'espace",
+    "intro": "Durées de conservation des données et accès des clients d'IA externes.",
+    "readOnlyNotice": "Seuls les propriétaires et les administrateurs modifient ces réglages.",
+    "retentionTitle": "Conservation des données",
+    "retentionHint": "Une tâche quotidienne supprime ce qui dépasse ces durées.",
+    "conversationRetentionDays": "Conversations (jours après le dernier message)",
+    "conversationRetentionDaysHint": "Entre {min} et {max} jours. Supprimées avec leurs messages et leurs approbations.",
+    "usageRetentionDays": "Relevés de consommation (jours)",
+    "usageRetentionDaysHint": "Entre {min} et {max} jours. Jetons et coûts de la page Consommation.",
+    "auditRetentionDays": "Journal d'audit (jours)",
+    "auditRetentionDaysHint": "Entre {min} et {max} jours. Les entrées de moins de {min} jours ne sont jamais supprimées.",
+    "externalMcp": "Autoriser les clients d'IA externes (MCP)",
+    "externalMcpHint": "Les membres peuvent alors créer des jetons personnels permettant à Claude Desktop ou à d'autres clients MCP de lire les indicateurs de cet espace (lecture seule).",
+    "save": "Enregistrer",
+    "saved": "Réglages enregistrés.",
+    "errors": {
+      "forbidden_role": "Seuls les propriétaires et les administrateurs modifient ces réglages.",
+      "invalid_input": "Vérifiez les nombres : chacun doit rester dans sa plage.",
+      "plan_required": "Les clients d'IA externes (MCP) font partie de l'offre Team.",
+      "unknown": "Une erreur est survenue."
+    },
+    "deleteTitle": "Supprimer cet espace",
+    "deleteDescription": "Supprime ses connexions, données synchronisées, conversations, skills et réglages pour tout le monde, et arrête son abonnement. Le journal d'audit est conservé 90 jours comme trace de la suppression. Action irréversible.",
+    "deleteConfirmLabel": "Saisissez {name} pour confirmer",
+    "deleteMismatch": "Saisissez exactement le nom de l'espace pour confirmer.",
+    "deleteButton": "Supprimer l'espace",
+    "externalMcpNotInPlan": "Inclus dans l'offre Team. Passez à l'offre Team depuis la page Facturation pour l'activer."
   }
 }

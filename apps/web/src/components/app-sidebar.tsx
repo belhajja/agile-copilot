@@ -3,11 +3,13 @@
 import {
   Bot,
   CreditCard,
+  FileClock,
   LayoutDashboard,
   MessagesSquare,
   PlugZap,
   ReceiptText,
   Send,
+  Settings2,
   Sparkles,
   Users,
 } from 'lucide-react';
@@ -43,6 +45,8 @@ export function AppSidebar({
     { title: t('delivery'), url: '/settings/delivery', icon: Send },
     { title: t('usage'), url: '/settings/usage', icon: ReceiptText },
     { title: t('members'), url: '/settings/members', icon: Users },
+    { title: t('workspace'), url: '/settings/workspace', icon: Settings2 },
+    { title: t('audit'), url: '/settings/audit', icon: FileClock },
     ...(billing ? [{ title: t('billing'), url: '/settings/billing', icon: CreditCard }] : []),
   ];
   return (

@@ -116,7 +116,9 @@
     "delivery": "Delivery",
     "account": "Account",
     "members": "Members",
-    "billing": "Billing"
+    "billing": "Billing",
+    "workspace": "Workspace",
+    "audit": "Audit log"
   },
   "dashboard": {
     "title": "Get started",
@@ -1036,5 +1038,50 @@
       "no_checkout_url": "Stripe did not open a payment page. Try again.",
       "stripe_error": "Stripe could not be reached. Try again."
     }
+  },
+  "audit": {
+    "title": "Audit log",
+    "intro": "Every change to connections, members, settings and Jira made through the assistant.",
+    "forbidden": "Only owners and admins see the audit log.",
+    "exportTitle": "Export",
+    "exportHint": "Download the log for a period (UTC days, both included; empty = everything). Each export is recorded in the log.",
+    "from": "From",
+    "to": "To",
+    "downloadCsv": "Download CSV",
+    "downloadJson": "Download JSON",
+    "when": "When",
+    "action": "Action",
+    "who": "Who",
+    "formerMember": "Former member",
+    "system": "System"
+  },
+  "workspace": {
+    "title": "Workspace settings",
+    "intro": "How long data is kept, and access from external AI clients.",
+    "readOnlyNotice": "Only owners and admins change these settings.",
+    "retentionTitle": "Data retention",
+    "retentionHint": "A daily job deletes what is older than these periods.",
+    "conversationRetentionDays": "Conversations (days after the last message)",
+    "conversationRetentionDaysHint": "Between {min} and {max} days. Deleted with their messages and approvals.",
+    "usageRetentionDays": "Usage records (days)",
+    "usageRetentionDaysHint": "Between {min} and {max} days. Token counts and costs on the Usage page.",
+    "auditRetentionDays": "Audit log (days)",
+    "auditRetentionDaysHint": "Between {min} and {max} days. Entries younger than {min} days are never deleted.",
+    "externalMcp": "Allow external AI clients (MCP)",
+    "externalMcpHint": "Members can then create personal tokens that let Claude Desktop or other MCP clients read this workspace's metrics (read-only).",
+    "save": "Save settings",
+    "saved": "Settings saved.",
+    "errors": {
+      "forbidden_role": "Only owners and admins change these settings.",
+      "invalid_input": "Check the numbers: each must be within its range.",
+      "plan_required": "External AI clients (MCP) are part of the Team plan.",
+      "unknown": "Something went wrong."
+    },
+    "deleteTitle": "Delete this workspace",
+    "deleteDescription": "Deletes its connections, synced data, conversations, skills and settings for everyone, and stops its subscription. The audit log is kept 90 days as the record of the deletion. This cannot be undone.",
+    "deleteConfirmLabel": "Type {name} to confirm",
+    "deleteMismatch": "Type the workspace name exactly to confirm.",
+    "deleteButton": "Delete workspace",
+    "externalMcpNotInPlan": "Included in the Team plan. Upgrade on the Billing page to switch it on."
   }
 }
