@@ -109,6 +109,15 @@ describe('mock Jira: issue detail and writes', () => {
     expect(jira.writes.length).toBe(before + 2);
   });
 
+  it('lists the system fields the agent edits, like Jira', async () => {
+    // mcp-atlassian maps edit fields through /field and silently drops unknown ones.
+    const fields = (await call('GET', '/rest/api/2/field')).body as { id: string }[];
+    expect(fields.map((f) => f.id)).toEqual(
+      expect.arrayContaining(['summary', 'description', 'labels', 'issuetype', 'assignee']),
+    );
+    expect(new Set(fields.map((f) => f.id)).size).toBe(fields.length);
+  });
+
   it('edits fields, refuses read-only ones and bumps updated', async () => {
     const before = jira.writes.length;
     const old = (await call('GET', '/rest/api/2/issue/DEMO-4')).body.fields.updated;

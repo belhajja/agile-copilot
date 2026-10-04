@@ -96,6 +96,19 @@ const DC_SERVER_INFO = {
   serverTitle: 'Corp Jira',
 };
 
+/** System fields every Jira lists in /field (besides the dataset's), with their schema type. */
+const SYSTEM_FIELDS = [
+  { id: 'summary', name: 'Summary', schema: { type: 'string', system: 'summary' } },
+  { id: 'description', name: 'Description', schema: { type: 'string', system: 'description' } },
+  {
+    id: 'labels',
+    name: 'Labels',
+    schema: { type: 'array', items: 'string', system: 'labels' },
+  },
+  { id: 'issuetype', name: 'Issue Type', schema: { type: 'issuetype', system: 'issuetype' } },
+  { id: 'assignee', name: 'Assignee', schema: { type: 'user', system: 'assignee' } },
+];
+
 const CATEGORY = {
   new: { id: 2, name: 'To Do' },
   indeterminate: { id: 4, name: 'In Progress' },
@@ -264,16 +277,17 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
       );
     }
     if (path === `${prefix}/rest/api/${api}/field`) {
-      return json(
-        res,
-        200,
-        ds.fields.map((f) => ({
+      // Like Jira, the system fields are always listed (mcp-atlassian drops unlisted edit fields).
+      const listed = new Set(ds.fields.map((f) => f.id));
+      return json(res, 200, [
+        ...ds.fields.map((f) => ({
           id: f.id,
           name: f.name,
           custom: f.custom,
           ...(f.schemaCustom ? { schema: { type: 'any', custom: f.schemaCustom } } : {}),
         })),
-      );
+        ...SYSTEM_FIELDS.filter((f) => !listed.has(f.id)).map((f) => ({ ...f, custom: false })),
+      ]);
     }
     const categoryOf = (statusId: unknown) => {
       const key = ds.statuses.find((st) => st.id === statusId)?.categoryKey ?? 'new';
