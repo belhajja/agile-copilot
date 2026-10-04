@@ -65,13 +65,28 @@ const issueKeyOf = (input: unknown) => {
 };
 
 /** Closes a proposal in the stored messages (the AI SDK then runs or skips the tool call). */
-function respond(part: ApprovalPart, approvalId: string, approved: boolean, superseded: boolean) {
+/** Why a proposal was closed without the user's yes. */
+export type DecisionReason = 'superseded' | 'forbidden_role';
+
+/** What the model is told when a proposal closes for a reason (fixed sentences). */
+const REASON_TEXT: Record<DecisionReason, string> = {
+  superseded: 'The user moved on without approving.',
+  forbidden_role:
+    'Not approved: Jira changes are not available for this user’s role (forbidden_role).',
+};
+
+function respond(
+  part: ApprovalPart,
+  approvalId: string,
+  approved: boolean,
+  reason: DecisionReason | undefined,
+) {
   part.state = 'approval-responded';
   part.approval = {
     ...part.approval,
     id: approvalId,
     approved,
-    ...(superseded ? { reason: 'The user moved on without approving.' } : {}),
+    ...(reason ? { reason: REASON_TEXT[reason] } : {}),
   };
 }
 
@@ -141,14 +156,15 @@ export class DecisionError extends Error {
  * `reason: 'superseded'` closes proposals the user moved past, always as not approved: a pending
  * row is denied; a row already decided is left as it is (even 'approved': it is never claimed,
  * since the part no longer asks the SDK to run it); a proposal that never got a row (its stream
- * was not stored) is audited as rejected, `recorded: false`.
+ * was not stored) is audited as rejected, `recorded: false`. `reason: 'forbidden_role'` denies a
+ * proposal its user may no longer approve (demoted since it was made).
  */
 export async function applyDecisions(
   tx: Tx,
   actor: AgentActor,
   conversationId: string,
   messages: UIMessage[],
-  decisions: { approvalId: string; approved: boolean; reason?: 'superseded' }[],
+  decisions: { approvalId: string; approved: boolean; reason?: DecisionReason }[],
 ): Promise<UIMessage[]> {
   await requireOwnConversation(tx, actor, conversationId);
   const parts = new Map(pendingApprovalParts(messages).map((p) => [p.approval?.id ?? '', p]));
@@ -185,7 +201,7 @@ export async function applyDecisions(
       }
       // Already decided: the row keeps the recorded decision, but the stale part is closed as
       // NOT approved (P3-R18) so the SDK never runs an approved-but-unexecuted change later.
-      respond(part, d.approvalId, false, true);
+      respond(part, d.approvalId, false, 'superseded');
       parts.delete(d.approvalId);
       continue;
     }
@@ -216,7 +232,7 @@ export async function applyDecisions(
         ...(d.reason ? { reason: d.reason } : {}),
       },
     });
-    respond(part, d.approvalId, d.approved, superseded);
+    respond(part, d.approvalId, d.approved, d.reason);
     parts.delete(d.approvalId);
   }
   return messages;

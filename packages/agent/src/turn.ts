@@ -24,15 +24,17 @@ import {
   beginTurn,
   ConversationNotFoundError,
   endTurn,
+  holdsTurn,
   loadConversation,
   openOrCreateConversation,
   releaseTurn,
   saveConversation,
   TurnInProgressError,
+  TurnLostError,
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
 import { jiraSitesData, systemPrompt } from './prompt';
-import { AgentToolError, buildAgentTools } from './tools';
+import { AgentToolError, buildAgentTools, canWriteJira } from './tools';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**
@@ -138,7 +140,15 @@ export async function handleAgentRequest(
       // The history is read under the lock, after taking the turn lease.
       let messages = await beginTurn(tx, actor, conversationId, turnId);
       if (req.approvals) {
-        messages = await applyDecisions(tx, actor, conversationId, messages, req.approvals);
+        // A user no longer allowed to change Jira (demoted since the proposal) can only deny it.
+        const decisions = canWriteJira(actor)
+          ? req.approvals
+          : req.approvals.map((d) => ({
+              ...d,
+              approved: false,
+              reason: 'forbidden_role' as const,
+            }));
+        messages = await applyDecisions(tx, actor, conversationId, messages, decisions);
       } else if (req.message) {
         const message = req.message;
         if (messages.some((m) => m.id === message.id)) throw new DuplicateMessageError();
@@ -207,53 +217,104 @@ export async function handleAgentRequest(
     throw e;
   }
 
-  const result = streamText({
-    model,
-    system: systemPrompt({ now: now(), jiraSites: sites, liveJira: sites.length > 0, jiraWrites }),
-    messages: modelMessages,
-    tools,
-    toolApproval,
-    stopWhen: stepCountIs(deps.maxSteps ?? 8),
-    onEnd: async ({ totalUsage }) => {
-      try {
-        await recordUsage(deps.db, actor, {
-          conversationId,
-          llmConnectionId: llm.id,
-          provider: llm.config.provider,
-          model: llm.config.model,
-          usage: tokenUsageOf(totalUsage),
-          prices: llm.prices,
-        });
-      } catch (e) {
-        // Includes CostOverflowError: metering must never fail the turn.
-        deps.onError?.(e, 'usage_not_recorded');
-      }
-    },
-    onError: ({ error }) => deps.onError?.(error, 'agent_stream'),
-  });
-  // Finish (and persist) the reply even if the browser goes away mid-stream.
-  result.consumeStream({ onError: () => {} });
+  // Steps' usage, summed as they end: `totalUsage` is empty when a later step fails.
+  const used = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+  let metered = false;
+  const meter = async () => {
+    if (metered) return;
+    metered = true;
+    try {
+      await recordUsage(deps.db, actor, {
+        conversationId,
+        llmConnectionId: llm.id,
+        provider: llm.config.provider,
+        model: llm.config.model,
+        usage: { ...used },
+        prices: llm.prices,
+      });
+    } catch (e) {
+      // Includes CostOverflowError: metering must never fail the turn.
+      deps.onError?.(e, 'usage_not_recorded');
+    }
+  };
+  // Stops a run whose conversation was taken over (it ran past its lease): no more steps or tools.
+  const abort = new AbortController();
 
-  return result.toUIMessageStreamResponse({
-    originalMessages: prepared,
-    generateMessageId: randomUUID,
-    // Awaited before the response ends: once the browser sees the end of the stream, the reply
-    // and its approval requests are stored, so an immediate Approve finds them.
-    onEnd: async ({ messages }: { messages: UIMessage[] }) => {
-      try {
-        await withOrg(deps.db, actor.orgId, async (tx) => {
-          await endTurn(tx, actor, conversationId, turnId);
-          await saveConversation(tx, actor, conversationId, messages);
-          await recordApprovalRequests(tx, actor, conversationId, messages);
-        });
-      } catch (e) {
-        deps.onError?.(e, 'persist_failed');
-        await release();
-        throw e;
-      } finally {
-        await close();
-      }
-    },
-    onError: safeErrorText,
-  });
+  try {
+    const result = streamText({
+      model,
+      system: systemPrompt({
+        now: now(),
+        jiraSites: sites,
+        liveJira: sites.length > 0,
+        jiraWrites,
+      }),
+      messages: modelMessages,
+      tools,
+      toolApproval,
+      stopWhen: stepCountIs(deps.maxSteps ?? 8),
+      abortSignal: abort.signal,
+      onStepEnd: async ({ usage }) => {
+        const u = tokenUsageOf(usage);
+        used.inputTokens += u.inputTokens;
+        used.outputTokens += u.outputTokens;
+        used.cachedInputTokens += u.cachedInputTokens;
+        try {
+          if (!(await holdsTurn(deps.db, actor, conversationId, turnId))) abort.abort();
+        } catch (e) {
+          deps.onError?.(e, 'turn_check_failed');
+        }
+      },
+      onEnd: meter,
+      onAbort: meter,
+      onError: ({ error }) => deps.onError?.(error, 'agent_stream'),
+    });
+    // Finish (and persist) the reply even if the browser goes away mid-stream.
+    result.consumeStream({ onError: () => {} });
+
+    return result.toUIMessageStreamResponse({
+      originalMessages: prepared,
+      generateMessageId: randomUUID,
+      // The SSE stream is drained on the server whatever the browser does: a closed tab does not
+      // cancel it, so `onEnd` runs once, after the model and its tools are done, with every part.
+      consumeSseStream: ({ stream }) => drain(stream),
+      // Awaited before the response ends: once the browser sees the end of the stream, the reply
+      // and its approval requests are stored, so an immediate Approve finds them.
+      onEnd: async ({ messages }: { messages: UIMessage[] }) => {
+        await meter();
+        try {
+          await withOrg(deps.db, actor.orgId, async (tx) => {
+            await endTurn(tx, actor, conversationId, turnId);
+            await saveConversation(tx, actor, conversationId, messages);
+            await recordApprovalRequests(tx, actor, conversationId, messages);
+          });
+        } catch (e) {
+          if (e instanceof TurnLostError) abort.abort();
+          deps.onError?.(e, 'persist_failed');
+          await release();
+          throw e;
+        } finally {
+          await close();
+        }
+      },
+      onError: safeErrorText,
+    });
+  } catch (e) {
+    abort.abort();
+    await close();
+    await release();
+    throw e;
+  }
+}
+
+/** Reads a stream to its end, ignoring its content. */
+async function drain(stream: ReadableStream<unknown>): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    while (!(await reader.read()).done) {
+      // keep reading
+    }
+  } catch {
+    // The stream's errors are handled where it is produced (onError / onEnd).
+  }
 }

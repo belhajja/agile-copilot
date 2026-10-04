@@ -6,12 +6,13 @@ import {
   auditLog,
   jiraConnections,
 } from '@agile/db';
-import { createLanguageModel } from '@agile/llm';
+import { createLanguageModel, type LlmConfig } from '@agile/llm';
 import { agentDemoScript, type MockChatMessage, type MockScript } from '@agile/llm/testing';
 import { createOutboundFetch } from '@agile/net';
 import { member, owner } from '@agile/sync/testing';
 import type { LanguageModel } from 'ai';
-import { eq } from 'drizzle-orm';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApprovalRequiredError, claimApprovedExecution } from './approvals';
 import { loadConversation } from './conversations';
@@ -41,8 +42,74 @@ const script: MockScript = (req) => {
       ],
     };
   }
+  const ask = String(lastUser?.content);
+  const assign = /assign ([A-Z][A-Z0-9]+-\d+) to (.+)$/i.exec(ask);
+  if (last?.role === 'user' && assign && req.tools.includes('jira_assign_issue')) {
+    return {
+      toolCalls: [
+        { name: 'jira_assign_issue', args: { issueKey: assign[1], assignee: assign[2] } },
+      ],
+    };
+  }
+  // "…then break": the model call after the first tool result fails (HTTP 500).
+  if (last?.role === 'tool' && /then break/i.test(ask)) throw new Error('scripted failure');
   return agentDemoScript(req);
 };
+
+/** The real model (mock LLM over HTTP), its model calls from the `from`-th on held until `open()`. */
+function gatedModel(from: number) {
+  let open = () => {};
+  const gate = new Promise<void>((r) => {
+    open = r;
+  });
+  let reachedGate = () => {};
+  const reached = new Promise<void>((r) => {
+    reachedGate = r;
+  });
+  let calls = 0;
+  const createModel = (config: LlmConfig) => {
+    const model = createLanguageModel(config, {
+      fetch: createOutboundFetch({ allowedPrivateHosts: ['127.0.0.1'] }),
+    }) as unknown as { doStream: (o: unknown) => Promise<unknown> };
+    return new Proxy(model, {
+      get: (target, prop) =>
+        prop === 'doStream'
+          ? async (o: unknown) => {
+              if (++calls >= from) {
+                reachedGate();
+                await gate;
+              }
+              return target.doStream(o);
+            }
+          : Reflect.get(target, prop),
+    }) as unknown as LanguageModel;
+  };
+  return { createModel, open: () => open(), reached };
+}
+
+/** A scripted in-process model (AI SDK mock): one stream of parts per model call. */
+function scriptedModel(steps: unknown[][]) {
+  let n = 0;
+  return () =>
+    new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({ chunks: (steps[n++] ?? []) as never[] }),
+      }),
+    });
+}
+
+const usageOf = (input: number, output: number) => ({
+  inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: output, text: output, reasoning: 0 },
+});
+
+async function waitFor(check: () => Promise<boolean>, ms = 10_000) {
+  const until = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > until) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
 
 const contentOf = (m: MockChatMessage | undefined) =>
   typeof m?.content === 'string' ? m.content : JSON.stringify(m?.content ?? '');
@@ -293,45 +360,210 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(after?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   });
 
-  it('does not store a reply whose turn lost its conversation, and reports persist_failed', async () => {
+  it('a turn that lost its conversation stops and stores nothing (persist_failed)', async () => {
     const id = randomUUID();
-    let open = () => {};
-    const gate = new Promise<void>((r) => {
-      open = r;
-    });
+    const g = gatedModel(1);
     const errors: string[] = [];
     const deps: AgentDeps = {
       ...h.deps,
       onError: (_e, code) => errors.push(code),
-      // The real model, held until the test has taken the conversation's lease away.
-      createModel: (config) => {
-        const model = createLanguageModel(config, {
-          fetch: createOutboundFetch({ allowedPrivateHosts: ['127.0.0.1'] }),
-        }) as unknown as { doStream: (o: unknown) => Promise<unknown> };
-        return new Proxy(model, {
-          get: (target, prop) =>
-            prop === 'doStream'
-              ? async (o: unknown) => {
-                  await gate;
-                  return target.doStream(o);
-                }
-              : Reflect.get(target, prop),
-        }) as unknown as LanguageModel;
-      },
+      createModel: g.createModel,
     };
+    const before = h.llm.requests.length;
     const res = await handleAgentRequest(deps, owner(), {
       conversationId: id,
-      message: { id: 'm1', text: 'hello' },
+      message: { id: 'm1', text: 'What is our velocity?' },
     });
     await h.rawDb
       .update(agentConversations)
       .set({ turnId: randomUUID() })
       .where(eq(agentConversations.id, id));
-    open();
-    await expect(res.text()).rejects.toThrow();
-    expect(errors).toContain('persist_failed');
+    g.open();
+    await res.text().catch(() => '');
+    await waitFor(async () => errors.includes('persist_failed'));
+    // Aborted after its first step: the model was not called again.
+    expect(h.llm.requests.length - before).toBe(1);
     const convo = await loadConversation(h.db, owner(), id);
     expect(convo?.messages.map((m) => m.role)).toEqual(['user']);
+  });
+
+  it('a closed tab does not cut the turn: the full reply is stored, then the lease ends', async () => {
+    const id = randomUUID();
+    const g = gatedModel(2);
+    const res = await handleAgentRequest({ ...h.deps, createModel: g.createModel }, owner(), {
+      conversationId: id,
+      message: { id: 'm1', text: 'What is our velocity?' },
+    });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    await reader.read();
+    await reader.cancel();
+    await g.reached;
+    await new Promise((r) => setTimeout(r, 100));
+    const lease = async () =>
+      (
+        await h.rawDb
+          .select({ turnId: agentConversations.turnId })
+          .from(agentConversations)
+          .where(eq(agentConversations.id, id))
+      )[0]?.turnId ?? null;
+    // Still running: the lease is held and no partial reply is stored.
+    expect(await lease()).not.toBeNull();
+    expect((await loadConversation(h.db, owner(), id))?.messages.map((m) => m.role)).toEqual([
+      'user',
+    ]);
+    g.open();
+    await waitFor(async () => (await lease()) === null);
+    const convo = await loadConversation(h.db, owner(), id);
+    expect(convo?.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+    const parts = (convo?.messages[1]?.parts ?? []) as { type: string; state?: string }[];
+    expect(parts.filter((p) => p.type.startsWith('tool-')).map((p) => [p.type, p.state])).toEqual([
+      ['tool-list_boards', 'output-available'],
+      ['tool-get_metric', 'output-available'],
+    ]);
+    expect(JSON.stringify(parts)).toContain('19 points');
+    expect((await h.ask(owner(), id, 'Thanks')).status).toBe(200);
+  });
+
+  it('meters the steps that finished when a later model call fails', async () => {
+    const id = randomUUID();
+    const r = await h.ask(owner(), id, 'What is our velocity? Answer, then break');
+    expect(r.status).toBe(200);
+    const [usage] = await h.rawDb
+      .select()
+      .from(agentUsage)
+      .where(eq(agentUsage.conversationId, id));
+    expect(usage).toMatchObject({ inputTokens: 120, outputTokens: 30, costMicros: 810 });
+  });
+
+  it('meters the steps that finished when the stream reports an error mid-way', async () => {
+    const id = randomUUID();
+    const createModel = scriptedModel([
+      [
+        { type: 'stream-start', warnings: [] },
+        { type: 'tool-call', toolCallId: 'c1', toolName: 'list_boards', input: '{}' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+          usage: usageOf(120, 30),
+        },
+      ],
+      [
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't' },
+        { type: 'text-delta', id: 't', delta: 'Partial' },
+        { type: 'error', error: new Error('provider dropped the stream') },
+      ],
+    ]);
+    const r = await h.sendWith({ ...h.deps, createModel }, owner(), {
+      conversationId: id,
+      message: { id: 'm1', text: 'hello' },
+    });
+    expect(r.status).toBe(200);
+    const [usage] = await h.rawDb
+      .select()
+      .from(agentUsage)
+      .where(eq(agentUsage.conversationId, id));
+    expect(usage).toMatchObject({ inputTokens: 120, outputTokens: 30 });
+  });
+
+  it('a cost overflow does not fail the turn', async () => {
+    const id = randomUUID();
+    const errors: string[] = [];
+    const createModel = scriptedModel([
+      [
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't' },
+        { type: 'text-delta', id: 't', delta: 'Expensive answer.' },
+        { type: 'text-end', id: 't' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: usageOf(Number.MAX_SAFE_INTEGER, 1),
+        },
+      ],
+    ]);
+    const r = await h.sendWith(
+      { ...h.deps, createModel, onError: (_e, code) => errors.push(code) },
+      owner(),
+      { conversationId: id, message: { id: 'm1', text: 'hello' } },
+    );
+    expect(r.status).toBe(200);
+    expect(textOf(r.chunks)).toBe('Expensive answer.');
+    expect(errors).toEqual(['usage_not_recorded']);
+    const convo = await loadConversation(h.db, owner(), id);
+    expect(convo?.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+  });
+
+  it('a failing outcome record is logged by code and never hides the Jira error', async () => {
+    const id = randomUUID();
+    await h.ask(owner(), id, 'Please comment on DEMO-999: Nobody home');
+    const { approvalId } = await approvalPartOf(id);
+    await h.rawDb.execute(sql`
+      create or replace function test_fail_finish() returns trigger language plpgsql as $$
+      begin
+        if new.result_code is not null then raise exception 'finish broken'; end if;
+        return new;
+      end $$`);
+    await h.rawDb.execute(sql`
+      create trigger test_fail_finish before update on agent_approvals
+      for each row execute function test_fail_finish()`);
+    const logged: unknown[][] = [];
+    try {
+      const r = await h.sendWith({ ...h.deps, onError: (...args) => logged.push(args) }, owner(), {
+        conversationId: id,
+        approvals: [{ approvalId, approved: true }],
+      });
+      expect(r.status).toBe(200);
+    } finally {
+      await h.rawDb.execute(sql`drop trigger test_fail_finish on agent_approvals`);
+      await h.rawDb.execute(sql`drop function test_fail_finish()`);
+    }
+    expect(logged.map(([, code]) => code)).toEqual(['approval_finish_failed', 'not_found']);
+    expect(logged.every((args) => args.length === 2)).toBe(true);
+    // The model was told about the Jira failure, not the bookkeeping one.
+    const tool = h.llm.requests.at(-1)?.messages.find((m) => m.role === 'tool');
+    expect(contentOf(tool)).toContain('The Jira request failed (not_found).');
+    expect(contentOf(tool)).not.toContain('finish broken');
+  });
+
+  it('shows the model an ambiguous assignee’s candidates as data', async () => {
+    const id = randomUUID();
+    await h.ask(owner(), id, 'Please assign DEMO-2 to Ale');
+    const { approvalId } = await approvalPartOf(id, 'jira_assign_issue');
+    await h.send(owner(), { conversationId: id, approvals: [{ approvalId, approved: true }] });
+    const tool = h.llm.requests.at(-1)?.messages.find((m) => m.role === 'tool');
+    expect(contentOf(tool)).toContain('The Jira request failed (ambiguous_user).');
+    expect(contentOf(tool)).toContain('<data source="jira_assign_issue_error">');
+    expect(contentOf(tool)).toContain('"candidates":[{"id":"alex","displayName":"Alex Martin"}]');
+    expect((await approvalRows(id))[0]).toMatchObject({
+      status: 'failed',
+      resultCode: 'ambiguous_user',
+    });
+  });
+
+  it('an owner demoted after a proposal can only deny it', async () => {
+    const id = randomUUID();
+    h.mock.writes.length = 0;
+    await h.ask(owner(), id, 'Please comment on DEMO-6: Before the demotion');
+    const { approvalId } = await approvalPartOf(id);
+    const demoted = { ...owner(), roles: ['member'] };
+    const r = await h.send(demoted, {
+      conversationId: id,
+      approvals: [{ approvalId, approved: true }],
+    });
+    expect(r.status).toBe(200);
+    expect(textOf(r.chunks)).toBe('Understood, I did not post the comment.');
+    expect(h.mock.writes).toEqual([]);
+    expect((await approvalRows(id))[0]?.status).toBe('denied');
+    const convo = await loadConversation(h.db, owner(), id);
+    const part = convo?.messages
+      .flatMap((m) => m.parts)
+      .find((p) => p.type === 'tool-jira_add_comment') as {
+      approval?: { approved?: boolean; reason?: string };
+    };
+    expect(part?.approval).toMatchObject({ approved: false });
+    expect(part?.approval?.reason).toContain('forbidden_role');
+    expect((await h.ask(demoted, id, 'OK, thanks')).status).toBe(200);
   });
 
   it('reaches a user-supplied model URL only through the pinned outbound fetch', async () => {

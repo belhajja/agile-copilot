@@ -126,6 +126,8 @@ export function canWriteJira(actor: AgentActor): boolean {
   }
 }
 
+const WRITE_DONE_UNREADABLE = 'The change was made in Jira; its result could not be shown.';
+
 /** The stored outcome of a failed Jira call (kept in step with `ExecutionResultCode`). */
 const codeOf = (e: unknown): ExecutionResultCode =>
   e instanceof JiraToolError || e instanceof SyncError ? e.code : 'jira_error';
@@ -189,13 +191,22 @@ export function jiraTools(
               e instanceof JiraToolError ? frame(`${name}_error`, e.toData(), 'jira') : undefined,
           });
         }
+        // Framed before the outcome is stored: a write that happened is never reported as failed.
+        let framed: string;
+        try {
+          framed = frame(name, out, 'jira');
+        } catch (e) {
+          if (!gate) throw e;
+          deps.onError?.(e, 'unserializable');
+          framed = asUntrustedData(name, { ok: true, note: WRITE_DONE_UNREADABLE });
+        }
         try {
           await gate?.finish('ok');
         } catch (finishError) {
           // The write happened: report it to the model; only the stored outcome is missing.
           deps.onError?.(finishError, 'approval_finish_failed');
         }
-        return frame(name, out, 'jira');
+        return framed;
       },
     }) as Tool;
   }

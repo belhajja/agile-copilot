@@ -179,6 +179,22 @@ export async function endTurn(tx: Tx, actor: AgentActor, id: string, turnId: str
   if (released.length === 0) throw new TurnLostError();
 }
 
+/** Whether the turn still holds its conversation (checked between model steps). */
+export async function holdsTurn(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+  turnId: string,
+): Promise<boolean> {
+  const [row] = await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .select({ turnId: agentConversations.turnId })
+      .from(agentConversations)
+      .where(ownedBy(actor, id)),
+  );
+  return row?.turnId === turnId;
+}
+
 /** Best-effort release of a turn that ends without storing a reply (setup or storage failed). */
 export async function releaseTurn(db: Db, actor: AgentActor, id: string, turnId: string) {
   await withOrg(db, actor.orgId, (tx) =>
