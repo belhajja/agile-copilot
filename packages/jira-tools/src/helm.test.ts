@@ -326,6 +326,22 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     );
   });
 
+  it('trusts one proxy hop behind the chart ingress, none without it, or the configured count', () => {
+    const hops = (m: Manifest[], d: string) =>
+      pod(m, 'Deployment', d).containers[0]?.env?.find((e) => e.name === 'TRUSTED_PROXY_HOPS')
+        ?.value;
+    // Without the chart's ingress nothing is known about the proxies: X-Forwarded-For is not
+    // trusted (a client exposed directly could otherwise choose its own address).
+    expect(hops(ms, 'web')).toBe('0');
+    const withIngress = render('ingress.enabled=true');
+    expect(hops(withIngress, 'web')).toBe('1');
+    expect(hops(withIngress, 'worker')).toBe('1');
+    // An explicit value wins, 0 included (e.g. a CDN in front of the ingress: 2).
+    expect(hops(render('ingress.enabled=true', 'config.trustedProxyHops=2'), 'web')).toBe('2');
+    expect(hops(render('ingress.enabled=true', 'config.trustedProxyHops=0'), 'web')).toBe('0');
+    expect(hops(render('config.trustedProxyHops=1'), 'web')).toBe('1');
+  });
+
   it('runs mcp-atlassian with the allowlists and no operator Jira credentials', () => {
     const env = (name: string) =>
       Object.fromEntries(

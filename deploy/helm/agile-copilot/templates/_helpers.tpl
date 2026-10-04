@@ -22,6 +22,19 @@ app.kubernetes.io/component: {{ .component }}
 {{- .repository }}{{ with .tag }}:{{ . }}{{ end }}{{ with .digest }}@{{ . }}{{ end -}}
 {{- end -}}
 
+{{/*
+TRUSTED_PROXY_HOPS: config.trustedProxyHops when set; otherwise 1 behind the chart's ingress (the
+ingress controller appends the client address to X-Forwarded-For) and 0 without it.
+*/}}
+{{- define "agile.trustedProxyHops" -}}
+{{- $hops := .Values.config.trustedProxyHops -}}
+{{- if or (kindIs "invalid" $hops) (eq (toString $hops) "") -}}
+{{- ternary 1 0 .Values.ingress.enabled -}}
+{{- else -}}
+{{- $hops -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "agile.secret" -}}
 {{- required "secrets.existingSecret is required (a Secret you create; see values.yaml)" .Values.secrets.existingSecret -}}
 {{- end -}}
@@ -56,6 +69,7 @@ app's (packages/config/src/worker-env.ts), which require them together. Accepted
 - { name: ATLASSIAN_OAUTH_CLIENT_ID, value: {{ .Values.config.atlassianOAuthClientId | quote }} }
 - { name: SKILL_RUNS_DAILY_LIMIT, value: {{ .Values.config.skillRunsDailyLimit | quote }} }
 - { name: MCP_RATE_LIMIT_PER_MINUTE, value: {{ .Values.config.mcpRateLimitPerMinute | quote }} }
+- { name: TRUSTED_PROXY_HOPS, value: {{ include "agile.trustedProxyHops" . | quote }} }
 - { name: LANGFUSE_BASE_URL, value: {{ .Values.config.langfuseBaseUrl | quote }} }
 - { name: STRIPE_PRICE_TEAM, value: {{ .Values.config.stripePriceTeam | quote }} }
 {{- if .Values.mcpAtlassian.enabled }}

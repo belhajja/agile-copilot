@@ -30,8 +30,14 @@ config:
   # mcp-atlassian: Data Center hosts that resolve to private addresses (also list them in
   # networkPolicy.jiraPrivateCidrs). Once set, it is an allowlist for every Data Center host.
   mcpAllowedUrlDomains: ""
-  # External MCP clients: requests per personal token per minute.
+  # External MCP clients: requests per person per minute (all of a person's tokens together).
   mcpRateLimitPerMinute: 60
+  # Proxies in front of the web pods that append the client address to X-Forwarded-For (used by
+  # the per-address limit of /api/mcp before authentication). Empty: 1 when `ingress.enabled`
+  # (the ingress controller), else 0 (the header is not trusted). Set 2 for a CDN or external
+  # load balancer in front of the ingress. Never more than the proxies really there: each extra
+  # hop lets clients choose the address they are counted under.
+  trustedProxyHops: ""
   langfuseBaseUrl: https://cloud.langfuse.com
   # Stripe price of the Team plan (saas; set together with the Stripe keys in the Secret).
   stripePriceTeam: ""

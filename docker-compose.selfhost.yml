@@ -37,6 +37,25 @@ services:
       ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-}
       ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
       ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
+      # Single sign-on and the password policy (README "Single sign-on"). Web only: the worker
+      # signs nobody in.
+      OIDC_PROVIDER: ${OIDC_PROVIDER:-keycloak}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISPLAY_NAME: ${OIDC_DISPLAY_NAME:-SSO}
+      PASSWORD_LOGIN: ${PASSWORD_LOGIN:-all}
+      BREAK_GLASS_EMAILS: ${BREAK_GLASS_EMAILS:-}
+      # External AI clients (README "External AI clients (MCP)"): requests per person per minute,
+      # and the proxies in front of the app that append the client address to X-Forwarded-For
+      # (0: the app is published directly, as here; 1 behind one reverse proxy).
+      MCP_RATE_LIMIT_PER_MINUTE: ${MCP_RATE_LIMIT_PER_MINUTE:-60}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+      # Optional LLM tracing (Langfuse); off unless both keys are set.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      # No Stripe setting: self-host builds never bill (no plan limits).
       # The internal service only: the app sends users' Jira credentials to this URL.
       MCP_ATLASSIAN_URL: http://mcp-atlassian:8000/mcp
       # Skill previews read Jira through the read-only twin only.
@@ -64,8 +83,8 @@ services:
     # terminationGracePeriodSeconds: 200.
     stop_grace_period: 200s
     # Only what the worker needs: never the owner credentials (POSTGRES_PASSWORD,
-    # DATABASE_OWNER_URL). BETTER_AUTH_* are required by its env schema (the OAuth callback URL is
-    # derived from BETTER_AUTH_URL).
+    # DATABASE_OWNER_URL), the SSO client secret or the password policy. BETTER_AUTH_* are
+    # required by its env schema (the OAuth callback URL is derived from BETTER_AUTH_URL).
     environment:
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-selfhost}
       DATABASE_URL: postgres://app_user:${APP_DB_PASSWORD}@postgres:5432/agile
@@ -75,6 +94,10 @@ services:
       ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-}
       ATLASSIAN_OAUTH_CLIENT_ID: ${ATLASSIAN_OAUTH_CLIENT_ID:-}
       ATLASSIAN_OAUTH_CLIENT_SECRET: ${ATLASSIAN_OAUTH_CLIENT_SECRET:-}
+      # Optional LLM tracing of skill runs (Langfuse); off unless both keys are set.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
       SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
       # Scheduled and alert skill runs: read-only Jira tools only, through the read-only twin.
       MCP_ATLASSIAN_READONLY_URL: http://mcp-atlassian-readonly:8000/mcp

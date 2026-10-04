@@ -72,7 +72,7 @@ export const serverEnvSchema = z
       emptyToUndefined,
       z.url().default('https://cloud.langfuse.com'),
     ),
-    /** External MCP clients: requests per personal token per minute. */
+    /** External MCP clients: requests per person per minute (all of their tokens together). */
     MCP_RATE_LIMIT_PER_MINUTE: z.preprocess(
       emptyToUndefined,
       z.coerce.number().int().min(1).max(10_000).default(60),

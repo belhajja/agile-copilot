@@ -26,3 +26,77 @@ describe('development Keycloak (docker-compose.yml)', () => {
     expect(selfhost).not.toContain('quay.io/keycloak');
   });
 });
+
+/** Keys of a zod object schema in a source file: `  KEY: z…` lines at the given indentation. */
+const schemaKeys = (file: string, indent: number) =>
+  [...read(file).matchAll(new RegExp(`^ {${indent}}([A-Z][A-Z0-9_]+):`, 'gm'))].map(
+    (m) => m[1] ?? '',
+  );
+
+describe('self-host settings (docker-compose.selfhost.yml, .env.example)', () => {
+  const services = (
+    parse(read('docker-compose.selfhost.yml')) as {
+      services: Record<string, { environment?: Record<string, string> }>;
+    }
+  ).services;
+  const env = (name: string) => Object.keys(services[name]?.environment ?? {}).sort();
+  const server = schemaKeys('packages/config/src/env.ts', 4);
+  const workerExtras = schemaKeys('packages/config/src/worker-env.ts', 2);
+  // Self-host builds never bill: no Stripe setting reaches them. NODE_ENV is set by the image.
+  const web = server.filter((k) => k !== 'NODE_ENV' && !k.startsWith('STRIPE_'));
+
+  it('reads the env schemas it checks against', () => {
+    expect(server).toEqual(
+      expect.arrayContaining(['DATABASE_URL', 'OIDC_ISSUER', 'TRUSTED_PROXY_HOPS']),
+    );
+    expect(workerExtras).toEqual([
+      'SYNC_INTERVAL_MINUTES',
+      'WORKER_HEALTH_PORT',
+      'WORKER_HEALTH_HOST',
+    ]);
+  });
+
+  it('passes every server setting except Stripe to the web app, and nothing else', () => {
+    expect(env('web')).toEqual([...web].sort());
+  });
+
+  it('passes the worker only what it uses: no SSO, password policy, MCP or Stripe settings', () => {
+    const webOnly = [
+      'MCP_ATLASSIAN_URL',
+      'OIDC_PROVIDER',
+      'OIDC_ISSUER',
+      'OIDC_CLIENT_ID',
+      'OIDC_CLIENT_SECRET',
+      'OIDC_DISPLAY_NAME',
+      'PASSWORD_LOGIN',
+      'BREAK_GLASS_EMAILS',
+      'MCP_RATE_LIMIT_PER_MINUTE',
+      'TRUSTED_PROXY_HOPS',
+    ];
+    expect(env('worker')).toEqual(
+      [...web.filter((k) => !webOnly.includes(k)), ...workerExtras].sort(),
+    );
+  });
+
+  it('keeps the schema defaults, so an empty .env behaves like the code', () => {
+    const webEnv = services.web?.environment ?? {};
+    /** `${KEY:-fallback}`: the value Compose takes from .env, with its default. */
+    const fromEnv = (key: string, fallback: string) => `\${${key}:-${fallback}}`;
+    expect(webEnv).toMatchObject({
+      OIDC_PROVIDER: fromEnv('OIDC_PROVIDER', 'keycloak'),
+      OIDC_DISPLAY_NAME: fromEnv('OIDC_DISPLAY_NAME', 'SSO'),
+      PASSWORD_LOGIN: fromEnv('PASSWORD_LOGIN', 'all'),
+      MCP_RATE_LIMIT_PER_MINUTE: fromEnv('MCP_RATE_LIMIT_PER_MINUTE', '60'),
+      LANGFUSE_BASE_URL: fromEnv('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com'),
+      // The app is published directly by default: X-Forwarded-For is not trusted.
+      TRUSTED_PROXY_HOPS: fromEnv('TRUSTED_PROXY_HOPS', '0'),
+    });
+  });
+
+  it('documents every setting in .env.example', () => {
+    const example = read('.env.example');
+    for (const key of [...server.filter((k) => k !== 'NODE_ENV'), ...workerExtras]) {
+      expect(example, key).toMatch(new RegExp(`^(# )?${key}=`, 'm'));
+    }
+  });
+});
