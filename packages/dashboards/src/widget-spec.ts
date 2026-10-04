@@ -39,11 +39,17 @@ const widget = <M extends string, C extends readonly [string, ...string[]], P ex
   params: P,
 ) =>
   z.object({
-    id: z.string().min(1).max(64),
+    id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     metric: z.literal(metric),
     chart: z.enum(charts),
     /** Optional free-text title; without one the UI shows the metric's translated name. */
-    title: z.string().trim().min(1).max(80).optional(),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .refine((v) => !/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u.test(v))
+      .optional(),
     params,
   });
 
@@ -68,6 +74,19 @@ export const widgetSpecSchema = z.discriminatedUnion('metric', [
   widget('forecast_when', ['table'], p.when),
   widget('hygiene', ['table'], p.hygiene),
 ]);
+
+/** A dashboard's widgets: at most 40, unique ids (the UI keys widgets by id). */
+export const widgetListSchema = widgetSpecSchema
+  .array()
+  .max(40)
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, w] of list.entries()) {
+      if (seen.has(w.id))
+        ctx.addIssue({ code: 'custom', path: [index, 'id'], message: 'duplicate id' });
+      seen.add(w.id);
+    }
+  });
 
 export type WidgetSpec = z.infer<typeof widgetSpecSchema>;
 export type WidgetSpecInput = z.input<typeof widgetSpecSchema>;

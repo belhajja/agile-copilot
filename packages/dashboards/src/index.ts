@@ -14,5 +14,6 @@ export {
   parseWidgets,
   type WidgetSpec,
   type WidgetSpecInput,
+  widgetListSchema,
   widgetSpecSchema,
 } from './widget-spec';

@@ -63,7 +63,12 @@ export function toMetricIssue(
     const at = from.getTime() < created.getTime() ? created : from;
     const last = periods.at(-1);
     if (last && last.category === m.category && last.blocked === m.blocked) return;
-    if (last && last.from.getTime() === at.getTime()) periods.pop();
+    if (last && last.from.getTime() === at.getTime()) {
+      periods.pop();
+      // Dropping the zero-length period can leave the new neighbour with the same mapping.
+      const prev = periods.at(-1);
+      if (prev && prev.category === m.category && prev.blocked === m.blocked) return;
+    }
     periods.push({ from: at, category: m.category, blocked: m.blocked });
   };
   push(created, transitions[0]?.fromStatusId ?? transitions[0]?.toStatusId ?? issue.statusId);
@@ -139,6 +144,10 @@ export async function loadBoardDataset(
       })
       .from(jiraIssueTransitions)
       .innerJoin(jiraBoardIssues, onBoard(jiraIssueTransitions.issueId))
+      .innerJoin(
+        jiraIssues,
+        and(eq(jiraIssues.id, jiraIssueTransitions.issueId), eq(jiraIssues.isSubtask, false)),
+      )
       .orderBy(asc(jiraIssueTransitions.issueId), asc(jiraIssueTransitions.seq));
     const changes = await tx
       .select({
@@ -155,6 +164,10 @@ export async function loadBoardDataset(
           eq(jiraBoardIssues.boardId, boardId),
           eq(jiraBoardIssues.issueId, jiraIssueChanges.issueId),
         ),
+      )
+      .innerJoin(
+        jiraIssues,
+        and(eq(jiraIssues.id, jiraIssueChanges.issueId), eq(jiraIssues.isSubtask, false)),
       )
       .orderBy(asc(jiraIssueChanges.issueId), asc(jiraIssueChanges.seq));
 
@@ -182,13 +195,18 @@ export async function loadBoardDataset(
               ),
             );
 
-    const group = <T extends { issueId: string }>(rows: T[]) => {
-      const byIssue = new Map<string, T[]>();
-      for (const r of rows) byIssue.set(r.issueId, [...(byIssue.get(r.issueId) ?? []), r]);
-      return byIssue;
+    const group = <T, K>(rows: T[], key: (row: T) => K) => {
+      const by = new Map<K, T[]>();
+      for (const r of rows) {
+        const list = by.get(key(r));
+        if (list) list.push(r);
+        else by.set(key(r), [r]);
+      }
+      return by;
     };
-    const transitionsBy = group(transitions);
-    const changesBy = group(changes);
+    const transitionsBy = group(transitions, (r) => r.issueId);
+    const changesBy = group(changes, (r) => r.issueId);
+    const membersBy = group(membership, (m) => m.jiraSprintId);
 
     return {
       hasEstimates: board.estimationFieldId !== null,
@@ -203,8 +221,8 @@ export async function loadBoardDataset(
           startAt: s.startAt,
           endAt: s.endAt,
           completeAt: s.completeAt,
-          members: membership
-            .filter((m) => m.jiraSprintId === s.jiraSprintId && ids.has(m.issueId))
+          members: (membersBy.get(s.jiraSprintId) ?? [])
+            .filter((m) => ids.has(m.issueId))
             .map((m) => ({ issueId: m.issueId, addedAt: m.addedAt, removedAt: m.removedAt })),
         }),
       ),

@@ -23,12 +23,28 @@ describe('computeWidget on a board without history', () => {
     }
   });
 
-  it('gives a null throughput KPI-safe value and a zero WIP', () => {
+  it('gives null/zero KPIs and empty data for the remaining widgets', () => {
+    expect(
+      computeWidget(spec({ id: 't', metric: 'throughput_rate', chart: 'kpi' }), emptyDs, NOW),
+    ).toMatchObject({ kind: 'kpi', value: 0 });
     expect(
       computeWidget(spec({ id: 'w', metric: 'wip', chart: 'kpi' }), emptyDs, NOW),
     ).toMatchObject({
       kind: 'kpi',
       value: 0,
     });
+    for (const w of [
+      { id: 's', metric: 'scope_change', chart: 'kpi' },
+      { id: 'u', metric: 'sprint_burnup', chart: 'line' },
+    ]) {
+      expect(computeWidget(spec(w), emptyDs, NOW)).toEqual({ kind: 'empty', reason: 'no_sprint' });
+    }
+    for (const w of [
+      { id: 'a', metric: 'aging_wip', chart: 'table' },
+      { id: 'h', metric: 'hygiene', chart: 'table' },
+      { id: 'f', metric: 'flow_efficiency', chart: 'kpi' },
+    ]) {
+      expect(computeWidget(spec(w), emptyDs, NOW)).toEqual({ kind: 'empty', reason: 'no_data' });
+    }
   });
 });

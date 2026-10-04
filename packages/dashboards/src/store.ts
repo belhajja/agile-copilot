@@ -1,7 +1,7 @@
 import { type Db, dashboards, jiraBoards, withOrg } from '@agile/db';
 import { and, asc, eq } from 'drizzle-orm';
 import { defaultDashboards } from './layouts';
-import { parseWidgets, type WidgetSpec, widgetSpecSchema } from './widget-spec';
+import { parseWidgets, type WidgetSpec, widgetListSchema } from './widget-spec';
 
 export interface DashboardView {
   id: string;
@@ -15,19 +15,20 @@ export async function ensureDefaultDashboards(
   db: Db,
   orgId: string,
   userId: string,
-  board: { id: string; type: 'scrum' | 'kanban' | 'simple' },
+  /** `type` is ignored: the layouts follow the stored board's type. */
+  board: { id: string; type?: 'scrum' | 'kanban' | 'simple' },
 ): Promise<void> {
   await withOrg(db, orgId, async (tx) => {
     // A foreign key check ignores RLS, so confirm the board belongs to this tenant first.
     const [own] = await tx
-      .select({ id: jiraBoards.id })
+      .select({ id: jiraBoards.id, type: jiraBoards.type })
       .from(jiraBoards)
       .where(and(eq(jiraBoards.id, board.id), eq(jiraBoards.orgId, orgId)));
     if (!own) return;
     await tx
       .insert(dashboards)
       .values(
-        defaultDashboards(board.type).map((d, position) => ({
+        defaultDashboards(own.type).map((d, position) => ({
           orgId,
           userId,
           boardId: board.id,
@@ -70,7 +71,7 @@ export async function saveDashboardWidgets(
   dashboardId: string,
   widgets: unknown[],
 ): Promise<{ ok: true } | { ok: false; code: 'invalid_widget' | 'not_found' }> {
-  const parsed = widgetSpecSchema.array().max(40).safeParse(widgets);
+  const parsed = widgetListSchema.safeParse(widgets);
   if (!parsed.success) return { ok: false, code: 'invalid_widget' };
   const updated = await withOrg(db, orgId, (tx) =>
     tx

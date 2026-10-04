@@ -106,6 +106,31 @@ describe('default dashboards on the synced demo data', () => {
     );
   });
 
+  it('seeds layouts by the stored board type, not the caller-supplied one', async () => {
+    await ensureDefaultDashboards(h.db, 'org_a', 'user_3', { id: kanbanId, type: 'scrum' });
+    expect((await listDashboards(h.db, 'org_a', 'user_3', kanbanId)).map((d) => d.kind)).toEqual([
+      'kanban',
+    ]);
+  });
+
+  it('rejects duplicate or malformed widget ids', async () => {
+    const [dash] = await listDashboards(h.db, 'org_a', 'user_1', kanbanId);
+    const id = dash?.id ?? '';
+    const w = { metric: 'wip', chart: 'kpi' };
+    for (const widgets of [
+      [
+        { id: 'a', ...w },
+        { id: 'a', ...w },
+      ],
+      [{ id: 'a b', ...w }],
+    ]) {
+      expect(await saveDashboardWidgets(h.db, 'org_a', 'user_1', id, widgets)).toEqual({
+        ok: false,
+        code: 'invalid_widget',
+      });
+    }
+  });
+
   it('only stores valid widgets', async () => {
     const [dash] = await listDashboards(h.db, 'org_a', 'user_1', kanbanId);
     const id = dash?.id ?? '';

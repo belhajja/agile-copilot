@@ -44,6 +44,13 @@ describe('widget specs', () => {
       'a non-integer parameter',
       { id: 'x', metric: 'throughput', chart: 'bar', params: { weeks: 1.5 } },
     ],
+    ['an id with spaces', { id: 'a b', metric: 'wip', chart: 'kpi' }],
+    ['an id with markup', { id: '<x>', metric: 'wip', chart: 'kpi' }],
+    [
+      'a title with a control character',
+      { id: 'x', metric: 'wip', chart: 'kpi', title: 'a\u0007b' },
+    ],
+    ['a title with a bidi override', { id: 'x', metric: 'wip', chart: 'kpi', title: 'a\u202Eb' }],
     ['a missing id', { metric: 'wip', chart: 'kpi' }],
     ['an overlong title', { id: 'x', metric: 'wip', chart: 'kpi', title: 'x'.repeat(81) }],
   ])('rejects %s', (_case, input) => {

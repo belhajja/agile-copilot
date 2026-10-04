@@ -53,6 +53,21 @@ describe('toMetricIssue', () => {
     expect(m.assignee).toBe('u-1');
   });
 
+  it('never leaves two adjacent periods with the same category', () => {
+    const m = toMetricIssue(
+      issue,
+      [
+        { at: t('2026-01-02T00:00:00Z'), fromStatusId: '1', toStatusId: '2' },
+        { at: t('2026-01-02T00:00:00Z'), fromStatusId: '2', toStatusId: '1' },
+      ],
+      [],
+      mappings,
+    );
+    expect(m.statusPeriods).toEqual([
+      { from: t('2026-01-01T00:00:00Z'), category: 'todo', blocked: false },
+    ]);
+  });
+
   it('uses the current status when the issue never moved', () => {
     expect(toMetricIssue({ ...issue, statusId: '2' }, [], [], mappings).statusPeriods).toEqual([
       { from: t('2026-01-01T00:00:00Z'), category: 'in_progress', blocked: false },
