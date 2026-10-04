@@ -55,6 +55,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Deterministic mock model; plumbing checks only. No secret is passed to this job.
+      # promptfoo is not a workspace dependency: the script fetches the pinned 0.123.1 (`pnpm dlx`).
       - run: pnpm --filter @agile/evals eval
   evals-live:
     if: github.event_name == 'workflow_dispatch'

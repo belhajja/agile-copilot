@@ -60,6 +60,8 @@ evals:
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
   script:
+    # promptfoo is not a dependency of the workspace: the script fetches the pinned 0.123.1 itself
+    # (`pnpm dlx`, ~1.7 GB), only in the evals jobs.
     - pnpm --filter @agile/evals eval
 
 # The same evals against real providers: manual and opt-in, on protected branches only. The keys are
@@ -83,6 +85,7 @@ evals-live:
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
   script:
+    # Fetches the pinned promptfoo itself (`pnpm dlx`), as the evals job does.
     - pnpm --filter @agile/evals eval:live
 
 e2e:

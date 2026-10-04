@@ -14,8 +14,7 @@ COPY e2e/package.json e2e/
 COPY evals/package.json evals/
 COPY packages/ packages/
 RUN find packages -type f ! -name package.json -delete
-# The evals workspace (promptfoo, ~1.7 GB installed) is not part of any image.
-RUN pnpm install --frozen-lockfile --filter '!@agile/evals'
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
