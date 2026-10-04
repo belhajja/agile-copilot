@@ -1,13 +1,11 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { useActionState, useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { type FormState, setLlmPricesAction } from './actions';
-
-const fromMicros = (v: number | null) => (v === null ? '' : String(v / 1_000_000));
 
 /** Prices per million tokens for the cost meter (optional; tokens are counted either way). */
 export function LlmPriceForm({
@@ -20,6 +18,11 @@ export function LlmPriceForm({
   outputMicros: number | null;
 }) {
   const t = useTranslations('llm');
+  const format = useFormatter();
+  // Locale decimal separator (French "3,00"); the server parser accepts both "." and ",".
+  const decimal = (v: number) =>
+    format.number(v, { minimumFractionDigits: 2, maximumFractionDigits: 6, useGrouping: false });
+  const fromMicros = (v: number | null) => (v === null ? '' : decimal(v / 1_000_000));
   const [state, action, pending] = useActionState<FormState, FormData>(
     setLlmPricesAction.bind(null, id),
     { status: 'idle' },
@@ -45,7 +48,7 @@ export function LlmPriceForm({
           name="input"
           inputMode="decimal"
           defaultValue={fromMicros(inputMicros)}
-          placeholder="3.00"
+          placeholder={decimal(3)}
         />
       </Field>
       <Field className="w-36">
@@ -55,7 +58,7 @@ export function LlmPriceForm({
           name="output"
           inputMode="decimal"
           defaultValue={fromMicros(outputMicros)}
-          placeholder="15.00"
+          placeholder={decimal(15)}
         />
       </Field>
       <Button type="submit" variant="outline" size="sm" disabled={pending}>

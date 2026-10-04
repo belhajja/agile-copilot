@@ -39,7 +39,7 @@ export default async function UsagePage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground">
           {t(allUsers ? 'introAll' : 'introOwn', {
-            month: format.dateTime(since, { month: 'long', year: 'numeric' }),
+            month: format.dateTime(since, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
           })}
         </p>
       </div>
