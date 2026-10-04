@@ -7,6 +7,7 @@ type Json = any;
 // The agent's Jira tools (and mcp-atlassian in the contract test) read issues and write to them.
 describe('mock Jira: issue detail and writes', () => {
   let jira: MockJira;
+  const dataset = demoDataset(new Date('2026-10-04T00:00:00Z'));
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await fetch(jira.url + path, {
       method,
@@ -21,7 +22,12 @@ describe('mock Jira: issue detail and writes', () => {
       flavor: 'datacenter',
       validAuthorization: 'Bearer pat',
       pathPrefix: '/jira',
-      dataset: demoDataset(new Date('2026-10-04T00:00:00Z')),
+      dataset,
+      // Every read of the clock is one second later, so each write moves `updated` forward.
+      now: (() => {
+        let t = Date.parse('2026-10-04T08:00:00Z');
+        return () => new Date((t += 1000));
+      })(),
     });
   });
   afterAll(async () => jira?.close());
@@ -134,15 +140,20 @@ describe('mock Jira: issue detail and writes', () => {
     }
     expect((await call('PUT', '/rest/api/2/issue/DEMO-4', { fields: 'nope' })).status).toBe(400);
     expect((await call('PUT', '/rest/api/2/issue/DEMO-4', [1])).status).toBe(400);
-    // Extra, unknown top-level keys (e.g. `update`) are tolerated like Jira does.
-    expect(
-      (
-        await call('PUT', '/rest/api/2/issue/DEMO-4', {
-          fields: { __proto__: { polluted: true }, labels: ['a'] },
-          update: {},
-        })
-      ).status,
-    ).toBe(204);
+    // Extra, unknown top-level keys (e.g. `update`) are tolerated like Jira does. The body is sent
+    // as raw text: an object literal's `__proto__` would set its prototype and never reach the wire.
+    const raw = await fetch(`${jira.url}/rest/api/2/issue/DEMO-4`, {
+      method: 'PUT',
+      headers: { authorization: 'Bearer pat', 'content-type': 'application/json' },
+      body: '{"fields":{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}},"labels":["a"]},"update":{}}',
+    });
+    expect(raw.status).toBe(204);
+    const stored = dataset.issues.find((i) => i.key === 'DEMO-4')?.fields as Json;
+    expect(stored.labels).toEqual(['a']);
+    // Neither the stored issue nor any other object gained the key.
+    expect(Object.getPrototypeOf(stored)).toBe(Object.prototype);
+    expect(stored.polluted).toBeUndefined();
+    expect(Object.hasOwn(stored, 'constructor')).toBe(false);
     expect(({} as Json).polluted).toBeUndefined();
     expect(jira.writes.length).toBe(before + 2);
   });
@@ -183,13 +194,14 @@ describe('mock Jira: issue detail and writes', () => {
   });
 
   it('a transition adds a status history entry and bumps updated', async () => {
+    const before = (await call('GET', '/rest/api/2/issue/DEMO-5')).body.fields.updated;
     const t = (await call('GET', '/rest/api/2/issue/DEMO-5/transitions')).body.transitions;
     const done = t.find((x: { name: string }) => x.name === 'Done');
     await call('POST', '/rest/api/2/issue/DEMO-5/transitions', { transition: { id: done.id } });
     const issue = (await call('GET', '/rest/api/2/issue/DEMO-5')).body;
     const last = issue.changelog.histories.at(-1);
     expect(last.items[0]).toMatchObject({ field: 'status', fieldtype: 'jira', toString: 'Done' });
-    expect(Date.parse(issue.fields.updated)).toBeGreaterThan(Date.parse('2026-10-03T00:00:00Z'));
+    expect(Date.parse(issue.fields.updated)).toBeGreaterThan(Date.parse(before));
   });
 
   it('refuses unknown issues and invalid writes', async () => {

@@ -14,14 +14,20 @@ describe('markdownToJiraWiki (mcp-atlassian 0.23.1 compatible)', () => {
     );
   });
 
-  it('runs in linear time: 10k pathological characters convert in under 50 ms each', () => {
+  it('runs in linear time: 40k pathological characters convert in well under a second each', () => {
+    // A quadratic pattern took ~0.6 s at 10k characters, so ~10 s at 40k; linear code takes a few
+    // ms. The bound sits far from both, so a loaded machine cannot fail it and a regression cannot
+    // pass it. The best of three runs filters out a GC pause or a descheduled worker.
     markdownToJiraWiki(generatedMarkdown(50).join('')); // warm up the JIT
     const slow: Record<string, number> = {};
-    for (const [name, input] of Object.entries(pathologicalMarkdown(10_000))) {
-      const start = performance.now();
-      markdownToJiraWiki(input);
-      const ms = performance.now() - start;
-      if (ms >= 50) slow[name] = Math.round(ms);
+    for (const [name, input] of Object.entries(pathologicalMarkdown(40_000))) {
+      let best = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        markdownToJiraWiki(input);
+        best = Math.min(best, performance.now() - start);
+      }
+      if (best >= 1_000) slow[name] = Math.round(best);
     }
     expect(slow).toEqual({});
   });
