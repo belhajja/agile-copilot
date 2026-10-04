@@ -283,7 +283,8 @@
     "openSettings": "Ouvrir les réglages du tableau",
     "kinds": {
       "scrum": "Sprint",
-      "kanban": "Flux"
+      "kanban": "Flux",
+      "pinned": "Épinglés"
     },
     "metrics": {
       "average_velocity": {
@@ -418,7 +419,14 @@
     },
     "notEnoughData": "Pas encore assez de données",
     "cappedDays": "≥ {days} jours",
-    "truncated": "{shown} sur {total}"
+    "truncated": "{shown} sur {total}",
+    "removeWidget": "Retirer de ce tableau de bord",
+    "insights": "Encarts de vos compétences",
+    "insightWhen": "Mis à jour {when}",
+    "removeErrors": {
+      "not_found": "Ce graphique n'a pas pu être retiré. Il a peut-être déjà disparu.",
+      "unknown": "Une erreur est survenue lors du retrait du graphique."
+    }
   },
   "agent": {
     "title": "Assistant",

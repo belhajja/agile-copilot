@@ -283,7 +283,8 @@
     "openSettings": "Open board settings",
     "kinds": {
       "scrum": "Sprint",
-      "kanban": "Flow"
+      "kanban": "Flow",
+      "pinned": "Pinned"
     },
     "metrics": {
       "average_velocity": {
@@ -418,7 +419,14 @@
     },
     "notEnoughData": "Not enough data yet",
     "cappedDays": "≥ {days} days",
-    "truncated": "{shown} of {total}"
+    "truncated": "{shown} of {total}",
+    "removeWidget": "Remove from this dashboard",
+    "insights": "Insights from your skills",
+    "insightWhen": "Updated {when}",
+    "removeErrors": {
+      "not_found": "This chart could not be removed. It may already be gone.",
+      "unknown": "Something went wrong removing the chart."
+    }
   },
   "agent": {
     "title": "Assistant",

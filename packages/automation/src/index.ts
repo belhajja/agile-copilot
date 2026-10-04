@@ -1,5 +1,6 @@
 export type { AutomationDeps } from './deps';
 export { executeSkillRun, type RunOutcome } from './execute';
+export { type Insight, insightsFor } from './insights';
 export { ALERT_COOLDOWN_HOURS, type PlanDeps, planSkillRuns } from './plan';
 export {
   createSkillQueues,

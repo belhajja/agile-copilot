@@ -2,12 +2,13 @@
 
 import type { ToolUIPart } from 'ai';
 import { ChevronDown, Wrench } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { CodeBlock } from '@/components/ai-elements/code-block';
 import { Tool, ToolContent } from '@/components/ai-elements/tool';
 import { Badge } from '@/components/ui/badge';
 import { CollapsibleTrigger } from '@/components/ui/collapsible';
-import { readableOutput, readToolError } from './tool-output';
+import { pinnedBoardId, readableOutput, readToolError } from './tool-output';
 
 /** A failed tool call, translated from its code (plus the people Jira matched, if ambiguous). */
 export function ToolError({ errorText }: { errorText: string | undefined }) {
@@ -30,6 +31,32 @@ export function ToolError({ errorText }: { errorText: string | undefined }) {
 export function ToolCall({ part, toolName }: { part: ToolUIPart; toolName: string }) {
   const t = useTranslations('agent');
   const running = part.state === 'input-streaming' || part.state === 'input-available';
+  const pinnedTo =
+    toolName === 'pin_widget' && part.state === 'output-available'
+      ? pinnedBoardId(part.output)
+      : undefined;
+  return (
+    <>
+      <ToolDetails part={part} toolName={toolName} running={running} />
+      {pinnedTo && (
+        <Link href={`/boards/${pinnedTo}`} className="text-sm underline" data-pinned-board>
+          {t('openDashboard')}
+        </Link>
+      )}
+    </>
+  );
+}
+
+function ToolDetails({
+  part,
+  toolName,
+  running,
+}: {
+  part: ToolUIPart;
+  toolName: string;
+  running: boolean;
+}) {
+  const t = useTranslations('agent');
   return (
     <Tool data-tool={toolName} className="mb-0 min-w-0">
       <CollapsibleTrigger className="flex w-full min-w-0 items-center justify-between gap-2 p-3 text-left">

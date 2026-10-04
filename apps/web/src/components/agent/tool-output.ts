@@ -1,5 +1,6 @@
 import { type ToolErrorCode, toolErrorCodeOf } from '@agile/agent/tool-errors';
 import { parseUntrustedData } from '@agile/agent/untrusted';
+import { z } from 'zod';
 
 /**
  * Tool results and errors as the agent stores them: JSON framed in the `<data source="…">`
@@ -41,4 +42,15 @@ export function assignedTo(output: unknown): string | undefined {
     | undefined;
   const name = value?.assignee?.displayName;
   return typeof name === 'string' ? name : undefined;
+}
+
+/** The board a `pin_widget` result pinned to (to link its dashboard); only a well-formed id. */
+export function pinnedBoardId(output: unknown): string | undefined {
+  if (typeof output !== 'string') return undefined;
+  const value = parseUntrustedData(output)?.value as
+    | { pinned?: unknown; boardId?: unknown }
+    | undefined;
+  return value?.pinned === true && z.uuid().safeParse(value.boardId).success
+    ? (value.boardId as string)
+    : undefined;
 }

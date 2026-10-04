@@ -1,10 +1,17 @@
 import { getTranslations } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { RemoveWidget, type WidgetRemoval } from './remove-widget';
 import type { RenderedWidget } from './types';
 import { WidgetChart } from './widget-chart';
 import { WidgetTable } from './widget-table';
 
-export async function WidgetCard({ widget }: { widget: RenderedWidget }) {
+export async function WidgetCard({
+  widget,
+  removal,
+}: {
+  widget: RenderedWidget;
+  removal?: WidgetRemoval;
+}) {
   const t = await getTranslations('dashboards');
   const { spec, data } = widget;
   const title =
@@ -19,6 +26,7 @@ export async function WidgetCard({ widget }: { widget: RenderedWidget }) {
         {t.has(`metrics.${spec.metric}.description`) && (
           <CardDescription>{t(`metrics.${spec.metric}.description`)}</CardDescription>
         )}
+        {removal && <RemoveWidget removal={removal} widgetId={spec.id} />}
       </CardHeader>
       <CardContent className="overflow-x-auto px-2 sm:px-6">
         {data.kind === 'series' && (

@@ -1,6 +1,6 @@
 import { asUntrustedData } from '@agile/agent/untrusted';
 import { describe, expect, it } from 'vitest';
-import { assignedTo, readableOutput, readToolError } from './tool-output';
+import { assignedTo, pinnedBoardId, readableOutput, readToolError } from './tool-output';
 
 describe('readableOutput', () => {
   it('pretty-prints the JSON inside the untrusted-data envelope', () => {
@@ -92,5 +92,23 @@ describe('assignedTo', () => {
   it('is undefined when the output has no person', () => {
     expect(assignedTo(asUntrustedData('jira_assign_issue', { ok: true }))).toBeUndefined();
     expect(assignedTo('done')).toBeUndefined();
+  });
+});
+
+describe('pinnedBoardId', () => {
+  const board = '5f0c6a3e-8a1b-4c2d-9e3f-0a1b2c3d4e5f';
+  it('reads the board of a pinned widget', () => {
+    expect(pinnedBoardId(asUntrustedData('pin_widget', { pinned: true, boardId: board }))).toBe(
+      board,
+    );
+  });
+  it('ignores anything that is not a well-formed pin result', () => {
+    expect(
+      pinnedBoardId(asUntrustedData('pin_widget', { pinned: true, boardId: '../settings' })),
+    ).toBeUndefined();
+    expect(
+      pinnedBoardId(asUntrustedData('pin_widget', { pinned: false, boardId: board })),
+    ).toBeUndefined();
+    expect(pinnedBoardId('plain text')).toBeUndefined();
   });
 });
