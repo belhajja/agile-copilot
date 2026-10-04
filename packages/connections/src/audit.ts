@@ -8,7 +8,11 @@ export type AuditAction =
   | 'llm_connection.created'
   | 'llm_connection.retested'
   | 'llm_connection.deleted'
-  | 'llm_connection.default_changed';
+  | 'llm_connection.default_changed'
+  | 'jira_boards.discovered'
+  | 'jira_boards.selection_changed'
+  | 'jira_status_mapping.updated'
+  | 'jira_sync.requested';
 
 /** metadata must never contain secrets — pass only non-sensitive descriptors. */
 export async function recordAudit(
