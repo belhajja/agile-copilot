@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { recordAudit } from '@agile/connections';
 import { type Db, dashboards, isUuid, jiraBoards, withOrg } from '@agile/db';
 import { and, eq, sql } from 'drizzle-orm';
-import { parseWidgets, type WidgetSpec, widgetListSchema, widgetSpecSchema } from './widget-spec';
+import { type WidgetSpec, widgetSpecSchema } from './widget-spec';
+
+const MAX_WIDGETS = 40;
 
 /** The custom dashboard that collects widgets pinned from the assistant (one per user and board). */
 export const PINNED_DASHBOARD_NAME = 'Pinned';
@@ -69,7 +71,8 @@ export async function pinWidget(
     let [pinned] = await tx
       .select({ id: dashboards.id, widgets: dashboards.widgets })
       .from(dashboards)
-      .where(mine);
+      .where(mine)
+      .for('update');
     if (!pinned) {
       [pinned] = await tx
         .insert(dashboards)
@@ -85,9 +88,13 @@ export async function pinWidget(
         .returning({ id: dashboards.id, widgets: dashboards.widgets });
     }
     if (!pinned) throw new Error('pinned dashboard insert returned nothing');
-    const next = widgetListSchema.safeParse([...parseWidgets(pinned.widgets), widget]);
-    if (!next.success) return { ok: false, code: 'dashboard_full' } as const;
-    await tx.update(dashboards).set({ widgets: next.data }).where(eq(dashboards.id, pinned.id));
+    // Stored widgets are kept as they are (even ones that no longer validate): never dropped on write.
+    const stored: unknown[] = Array.isArray(pinned.widgets) ? pinned.widgets : [];
+    if (stored.length >= MAX_WIDGETS) return { ok: false, code: 'dashboard_full' } as const;
+    await tx
+      .update(dashboards)
+      .set({ widgets: [...stored, widget] as WidgetSpec[] })
+      .where(eq(dashboards.id, pinned.id));
     await recordAudit(tx, {
       orgId: owner.orgId,
       actorUserId: owner.userId,
@@ -120,10 +127,15 @@ export async function removeWidget(
       .where(and(eq(dashboards.id, dashboardId), eq(dashboards.userId, owner.userId)))
       .for('update');
     if (!row) return { ok: false, code: 'not_found' } as const;
-    const widgets = parseWidgets(row.widgets);
-    const kept = widgets.filter((w) => w.id !== widgetId);
+    // Owner-only; allowed on default dashboards too (the UI offers removal on Pinned only).
+    // Unparseable stored widgets are kept untouched.
+    const widgets: unknown[] = Array.isArray(row.widgets) ? row.widgets : [];
+    const kept = widgets.filter((w) => (w as { id?: unknown } | null)?.id !== widgetId);
     if (kept.length === widgets.length) return { ok: false, code: 'not_found' } as const;
-    await tx.update(dashboards).set({ widgets: kept }).where(eq(dashboards.id, dashboardId));
+    await tx
+      .update(dashboards)
+      .set({ widgets: kept as WidgetSpec[] })
+      .where(eq(dashboards.id, dashboardId));
     await recordAudit(tx, {
       orgId: owner.orgId,
       actorUserId: owner.userId,

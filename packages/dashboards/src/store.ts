@@ -78,12 +78,15 @@ export async function saveDashboardWidgets(
 ): Promise<{ ok: true } | { ok: false; code: 'invalid_widget' | 'not_found' }> {
   const parsed = widgetListSchema.safeParse(widgets);
   if (!parsed.success) return { ok: false, code: 'invalid_widget' };
-  const updated = await withOrg(db, orgId, (tx) =>
-    tx
-      .update(dashboards)
-      .set({ widgets: parsed.data })
+  return withOrg(db, orgId, async (tx) => {
+    // Same row lock as pin/remove, so a concurrent pin is not overwritten unseen.
+    const [row] = await tx
+      .select({ id: dashboards.id })
+      .from(dashboards)
       .where(and(eq(dashboards.id, dashboardId), eq(dashboards.userId, userId)))
-      .returning({ id: dashboards.id }),
-  );
-  return updated.length > 0 ? { ok: true } : { ok: false, code: 'not_found' };
+      .for('update');
+    if (!row) return { ok: false, code: 'not_found' } as const;
+    await tx.update(dashboards).set({ widgets: parsed.data }).where(eq(dashboards.id, row.id));
+    return { ok: true } as const;
+  });
 }
