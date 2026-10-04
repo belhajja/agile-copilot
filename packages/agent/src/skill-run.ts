@@ -36,7 +36,7 @@ export const SKILL_RUN_TIMEOUT_MS = 120_000;
 /** The builder's deadline (one forced tool call). */
 const DRAFT_TIMEOUT_MS = 60_000;
 
-export type SkillRunFailure = 'no_llm' | 'model_failed' | 'empty_output';
+export type SkillRunFailure = 'forbidden_role' | 'no_llm' | 'model_failed' | 'empty_output';
 
 /** The model a run uses: the background ("cheap") model for scheduled and alert skills. */
 function loadRunModel(deps: SkillRunDeps, orgId: string, skill: SkillDocument) {
@@ -46,6 +46,12 @@ function loadRunModel(deps: SkillRunDeps, orgId: string, skill: SkillDocument) {
 }
 
 const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+
+const addUsage = (a: TokenUsage, b: TokenUsage): TokenUsage => ({
+  inputTokens: a.inputTokens + b.inputTokens,
+  outputTokens: a.outputTokens + b.outputTokens,
+  cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
+});
 
 /**
  * Runs a skill once, without a conversation: for "Run now", schedules and alerts (worker) and the
@@ -66,6 +72,8 @@ export async function runSkill(
     signal?: AbortSignal;
   },
 ): Promise<{ ok: true; text: string } | { ok: false; code: SkillRunFailure }> {
+  // An actor without any role is no longer a member of the workspace: nothing runs for them.
+  if (actor.roles.length === 0) return { ok: false, code: 'forbidden_role' };
   const llm = await loadRunModel(deps, actor.orgId, req.skill);
   if (!llm) return { ok: false, code: 'no_llm' };
   const analytics = await analyticsTools(deps, actor);
@@ -116,13 +124,10 @@ export async function runSkill(
         abortSignal: AbortSignal.any(signals),
         // Steps' usage, summed as they end: the total is lost when a later step fails.
         onStepEnd: ({ usage: step }) => {
-          const u = tokenUsageOf(step);
-          usage = {
-            inputTokens: usage.inputTokens + u.inputTokens,
-            outputTokens: usage.outputTokens + u.outputTokens,
-            cachedInputTokens: usage.cachedInputTokens + u.cachedInputTokens,
-          };
+          usage = addUsage(usage, tokenUsageOf(step));
         },
+        // No automatic retry (cost control): a failed call fails the run.
+        maxRetries: 0,
       });
       const text = result.text.trim();
       if (!text) return { ok: false, code: 'empty_output' };
@@ -206,7 +211,11 @@ const slug = (s: string) =>
  * skills schema). An invalid trigger/output combination falls back to an on-demand chat skill;
  * null when even that is invalid.
  */
-export function draftToDocument(d: SkillDraft): string | null {
+export function draftToDocument(
+  d: SkillDraft,
+  /** Told when a form is refused (code `skill_draft_fallback`); log the error name only. */
+  onError?: (error: unknown, code: string) => void,
+): string | null {
   const base = {
     name: slug(d.name),
     description: d.description.replace(/\s+/g, ' ').trim().slice(0, 300) || 'Custom skill',
@@ -229,8 +238,9 @@ export function draftToDocument(d: SkillDraft): string | null {
   for (const frontmatter of attempts) {
     try {
       return serializeSkill({ frontmatter: frontmatter as never, instructions });
-    } catch {
-      // try the next, simpler form
+    } catch (e) {
+      // Visible in the logs; then the next, simpler form.
+      onError?.(e, 'skill_draft_fallback');
     }
   }
   return null;
@@ -249,25 +259,33 @@ export async function draftSkill(
   const llm = await loadDefaultLlm(deps, actor.orgId);
   if (!llm) return { ok: false, code: 'no_llm' };
   let usage = NO_USAGE;
+  let called = false;
   try {
+    const model = languageModelFor(deps, llm.config);
+    called = true;
     const result = await generateText({
-      model: languageModelFor(deps, llm.config),
+      model,
       system: BUILDER_PROMPT,
       prompt: request.slice(0, 2_000),
       tools: { propose_skill: tool({ inputSchema: draftSchema }) },
       toolChoice: { type: 'tool', toolName: 'propose_skill' },
       maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
       abortSignal: AbortSignal.timeout(DRAFT_TIMEOUT_MS),
+      // Usage summed as steps end, as in runs: kept when the call fails after a step.
+      onStepEnd: ({ usage: step }) => {
+        usage = addUsage(usage, tokenUsageOf(step));
+      },
+      // No automatic retry (cost control).
+      maxRetries: 0,
     });
-    usage = tokenUsageOf(result.totalUsage);
     const call = result.toolCalls.find((c) => c.toolName === 'propose_skill');
     const parsed = draftSchema.safeParse(call?.input);
-    const document = parsed.success ? draftToDocument(parsed.data) : null;
+    const document = parsed.success ? draftToDocument(parsed.data, deps.onError) : null;
     return document ? { ok: true, document } : { ok: false, code: 'model_failed' };
   } catch (e) {
     deps.onError?.(e, 'skill_draft_failed');
     return { ok: false, code: 'model_failed' };
   } finally {
-    await meter(deps, actor, llm, usage, null);
+    if (called) await meter(deps, actor, llm, usage, null);
   }
 }

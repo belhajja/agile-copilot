@@ -26,6 +26,14 @@ const script: MockScript = (req) => {
       : { text: 'No Jira tools.' };
   }
   if (/<skill name="breaks">/.test(ask)) throw new Error('scripted failure');
+  // Fails partway: one tool step, then the model errors.
+  if (/<skill name="half-way">/.test(ask)) {
+    if (last?.role === 'tool') throw new Error('scripted failure after a tool step');
+    return { toolCalls: [{ name: 'list_boards', args: {} }] };
+  }
+  if (req.tools.includes('propose_skill') && /break the builder/i.test(ask)) {
+    throw new Error('scripted draft failure');
+  }
   if (/<skill name="silent">/.test(ask)) return { text: '   ' };
   return agentDemoScript(req);
 };
@@ -170,6 +178,55 @@ describe('skill runs (background, read-only) and the skill builder', () => {
     });
   });
 
+  it('never retries a failed model call: a failing run or draft makes exactly one request', async () => {
+    const before = h.llm.requests.length;
+    expect(await runSkill(deps, owner(), { skill: skill('breaks') })).toEqual({
+      ok: false,
+      code: 'model_failed',
+    });
+    expect(h.llm.requests.length - before).toBe(1);
+    const draftBefore = h.llm.requests.length;
+    expect(await draftSkill(deps, owner(), 'Please break the builder')).toEqual({
+      ok: false,
+      code: 'model_failed',
+    });
+    expect(h.llm.requests.length - draftBefore).toBe(1);
+  });
+
+  it('meters a run that fails after a tool step against the run', async () => {
+    const runId = '7d7c5a3e-2222-4c2d-9e3f-0a1b2c3d4e5f';
+    expect(await runSkill(deps, owner(), { skill: skill('half-way'), skillRunId: runId })).toEqual({
+      ok: false,
+      code: 'model_failed',
+    });
+    expect(await lastUsage()).toMatchObject({
+      conversationId: null,
+      skillRunId: runId,
+      inputTokens: 120,
+      outputTokens: 30,
+    });
+  });
+
+  it('refuses an actor without any role (an owner who left), before any model call', async () => {
+    const before = h.llm.requests.length;
+    const usageBefore = (await h.rawDb.select().from(agentUsage)).length;
+    expect(await runSkill(deps, { ...owner(), roles: [] }, { skill: skill('x') })).toEqual({
+      ok: false,
+      code: 'forbidden_role',
+    });
+    expect(h.llm.requests.length).toBe(before);
+    expect((await h.rawDb.select().from(agentUsage)).length).toBe(usageBefore);
+  });
+
+  it('meters a draft only once its model call was made', async () => {
+    const usageBefore = (await h.rawDb.select().from(agentUsage)).length;
+    expect(await draftSkill(deps, owner('org_b'), 'Anything')).toEqual({
+      ok: false,
+      code: 'no_llm',
+    });
+    expect((await h.rawDb.select().from(agentUsage)).length).toBe(usageBefore);
+  });
+
   it("drafts a skill from the user's words, as a valid SKILL.md", async () => {
     const r = await draftSkill(
       deps,
@@ -190,14 +247,20 @@ describe('skill runs (background, read-only) and the skill builder', () => {
   });
 
   it('turns an invalid proposal into an on-demand chat skill rather than failing', () => {
-    const document = draftToDocument({
-      name: 'Too Often!',
-      description: 'Checks\nconstantly',
-      trigger: 'schedule',
-      cron: '*/5 * * * *',
-      output: 'slack',
-      instructions: 'Check.',
-    });
+    const logged: [string, string][] = [];
+    const document = draftToDocument(
+      {
+        name: 'Too Often!',
+        description: 'Checks\nconstantly',
+        trigger: 'schedule',
+        cron: '*/5 * * * *',
+        output: 'slack',
+        instructions: 'Check.',
+      },
+      (e, code) => logged.push([(e as Error).name, code]),
+    );
+    // The fallback is visible in the logs (by code and error name).
+    expect(logged).toEqual([['ZodError', 'skill_draft_fallback']]);
     const parsed = parseSkillDocument(document ?? '');
     expect(parsed.ok && parsed.skill.frontmatter).toEqual({
       name: 'too-often',
