@@ -126,8 +126,15 @@ export interface JiraSite extends PromptSite {
   usable: boolean;
 }
 
-/** The workspace's Jira connections, oldest first, each marked usable or not. */
-export async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<JiraSite[]> {
+/**
+ * The workspace's Jira connections, oldest first, each marked usable or not: API tokens always
+ * (built-in REST backend), PAT/OAuth only when `mcpUrl` names an mcp-atlassian instance.
+ */
+export async function jiraSites(
+  deps: AgentDeps,
+  actor: AgentActor,
+  mcpUrl: string | undefined,
+): Promise<JiraSite[]> {
   const rows = await withOrg(deps.db, actor.orgId, (tx) =>
     tx
       .select({
@@ -142,7 +149,7 @@ export async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<Jir
   );
   return rows.map((r) => ({
     ...r,
-    usable: r.authType === 'basic' || Boolean(deps.mcpAtlassianUrl),
+    usable: r.authType === 'basic' || Boolean(mcpUrl),
   }));
 }
 
@@ -162,7 +169,7 @@ export function canUseLiveJira(actor: AgentActor): boolean {
 }
 
 /** The stored outcome of a failed Jira call (one of `ExecutionResultCode`). */
-const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
+export const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
   if (e instanceof JiraToolError) return e.code;
   if (e instanceof SyncError && (CREDENTIAL_ERROR_CODES as readonly string[]).includes(e.code)) {
     return e.code as CredentialErrorCode;
@@ -171,17 +178,28 @@ const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
 };
 
 /**
- * The Jira tools of one reply, bound to the actor's workspace on the server. Every call names its
- * site (P3-R24): with several sites the model picks one from the server's list (an enum, never a
- * free id); with one, the server adds it to the input before it is proposed, hashed and approved,
- * and the model never sees the field. A call runs against exactly that connection, or fails
- * (`not_found` when it is gone, `unavailable` when its tools cannot run here): never another one.
+ * How the Jira tools are built: for a chat reply (reads, and writes behind the user's approval,
+ * bound to the conversation) or read-only for a skill run, where nobody can approve anything and
+ * no write tool exists at all. `mcpUrl` is the mcp-atlassian instance the tools call: the
+ * read-write one for the chat, the read-only twin for runs.
  */
-export function jiraTools(
+export type JiraToolMode =
+  | { readOnly: false; mcpUrl: string | undefined; conversationId: string }
+  | { readOnly: true; mcpUrl: string | undefined };
+
+/**
+ * The Jira tools, bound to the actor's workspace on the server. Every call names its site
+ * (P3-R24): with several sites the model picks one from the server's list (an enum, never a free
+ * id); with one, the server adds it to the input before it is proposed, hashed and approved, and
+ * the model never sees the field. A call runs against exactly that connection, or fails
+ * (`not_found` when it is gone, `unavailable` when its tools cannot run here): never another one.
+ * Owners and admins only (P3-R25); in read-only mode, write tools are never built.
+ */
+export function buildJiraToolSet(
   deps: AgentDeps,
   actor: AgentActor,
-  conversationId: string,
   sites: JiraSite[],
+  mode: JiraToolMode,
 ): ToolSet {
   const offered = sites.filter((s) => s.usable);
   const [first] = offered;
@@ -190,6 +208,7 @@ export function jiraTools(
   const tools: ToolSet = {};
   for (const name of JIRA_TOOL_NAMES) {
     const write = isJiraWriteTool(name);
+    if (write && mode.readOnly) continue;
     const def = JIRA_TOOLS[name];
     const inputSchema =
       offered.length > 1
@@ -200,10 +219,12 @@ export function jiraTools(
       inputSchema: inputSchema as unknown as z.ZodType<Record<string, unknown>>,
       execute: async (input, { toolCallId, abortSignal }) => {
         const { site, ...args } = input as { site?: string } & Record<string, unknown>;
-        const call = { conversationId, toolCallId, toolName: name, input };
+        const call = mode.readOnly
+          ? null
+          : { conversationId: mode.conversationId, toolCallId, toolName: name, input };
         // Refused before anything is sent; an approved write is closed, never left armed (M1).
         const refuse = async (code: 'forbidden_role' | 'not_found' | 'unavailable') => {
-          if (write) {
+          if (write && call) {
             try {
               await refuseApprovedExecution(deps.db, actor, call, code);
             } catch (e) {
@@ -219,6 +240,8 @@ export function jiraTools(
         if (!target.usable) throw await refuse('unavailable');
         let gate: Awaited<ReturnType<typeof claimApprovedExecution>> | null = null;
         if (write) {
+          // Unreachable without a conversation: read-only mode builds no write tool.
+          if (!call) throw new AgentToolError('approval_required');
           try {
             gate = await claimApprovedExecution(deps.db, actor, call);
           } catch (e) {
@@ -232,7 +255,7 @@ export function jiraTools(
         try {
           const creds = await resolveCredentials(deps, actor.orgId, target.id);
           const backend = createJiraToolBackend(creds, {
-            mcpAtlassianUrl: deps.mcpAtlassianUrl,
+            mcpAtlassianUrl: mode.mcpUrl,
             outbound: { allowedPrivateHosts: deps.allowedPrivateHosts, resolve: deps.resolve },
           });
           if (!backend) throw new JiraToolError('unavailable');
@@ -272,6 +295,20 @@ export function jiraTools(
   return tools;
 }
 
+/** The chat's Jira tools: reads, and writes behind approval, through the read-write instance. */
+export function jiraTools(
+  deps: AgentDeps,
+  actor: AgentActor,
+  conversationId: string,
+  sites: JiraSite[],
+): ToolSet {
+  return buildJiraToolSet(deps, actor, sites, {
+    readOnly: false,
+    mcpUrl: deps.mcpAtlassianUrl,
+    conversationId,
+  });
+}
+
 /**
  * The user's skill set, or none when the skills store cannot be read: a skills failure must
  * never break the chat, nor an approvals turn (P4-R6, P3-R26). Logged by code (and error name).
@@ -285,26 +322,43 @@ async function skillSetOrEmpty(deps: AgentDeps, actor: AgentActor): Promise<Skil
   }
 }
 
+/**
+ * The live Jira side of a reply or a run: its tools, the sites the model may name (none when it has
+ * no Jira tools) and what the system prompt says about Jira.
+ */
+export async function liveJira(deps: AgentDeps, actor: AgentActor, mode: JiraToolMode) {
+  const sites = await jiraSites(deps, actor, mode.mcpUrl);
+  const tools = buildJiraToolSet(deps, actor, sites, mode);
+  const offered = sites.filter((s) => s.usable);
+  return {
+    tools,
+    sites:
+      Object.keys(tools).length > 0
+        ? offered.map(({ id, name, deployment }): PromptSite => ({ id, name, deployment }))
+        : [],
+    access: (offered.length === 0
+      ? 'unavailable'
+      : canUseLiveJira(actor)
+        ? 'full'
+        : 'forbidden_role') as JiraAccess,
+  };
+}
+
 /** All tools of one reply, plus what the system prompt says about Jira and skills. */
 export async function buildAgentTools(deps: AgentDeps, actor: AgentActor, conversationId: string) {
   const analytics = await analyticsTools(deps, actor);
   try {
-    const sites = await jiraSites(deps, actor);
-    const jira = jiraTools(deps, actor, conversationId, sites);
-    const offered = sites.filter((s) => s.usable);
+    const jira = await liveJira(deps, actor, {
+      readOnly: false,
+      mcpUrl: deps.mcpAtlassianUrl,
+      conversationId,
+    });
     const skills = await skillSetOrEmpty(deps, actor);
     return {
-      tools: { ...analytics.tools, ...jira, ...skillTools(deps, actor, skills) },
+      tools: { ...analytics.tools, ...jira.tools, ...skillTools(deps, actor, skills) },
       /** The sites the model may name (none when it has no Jira tools). */
-      sites:
-        Object.keys(jira).length > 0
-          ? offered.map(({ id, name, deployment }) => ({ id, name, deployment }))
-          : [],
-      jira: (offered.length === 0
-        ? 'unavailable'
-        : canUseLiveJira(actor)
-          ? 'full'
-          : 'forbidden_role') as JiraAccess,
+      sites: jira.sites,
+      jira: jira.access,
       /** Skills catalog and standing preferences, as messages before the conversation. */
       skillMessages: skillContext(skills),
       close: analytics.close,

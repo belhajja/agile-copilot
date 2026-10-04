@@ -55,15 +55,28 @@ export function skillContext(set: SkillSet): ModelMessage[] {
       ),
     });
   }
-  if (set.preferences.length > 0) {
-    out.push({
-      role: 'user',
-      content: `My standing preferences (apply them to every answer unless I say otherwise in this chat):\n${set.preferences
-        .map((p) => asSkillText(p.name, p.instructions, { trigger: 'always' }))
-        .join('\n')}`,
-    });
-  }
+  const preferences = preferencesMessage(set, 'chat');
+  if (preferences) out.push(preferences);
   return out;
+}
+
+const PREFERENCES_LEAD = {
+  chat: 'My standing preferences (apply them to every answer unless I say otherwise in this chat):',
+  run: 'My standing preferences (apply them to this report):',
+} as const;
+
+/**
+ * The user's standing preferences (their own `always` skills), each in the fixed `<skill>`
+ * envelope, as one user message; null when there are none. Shared by chat replies and skill runs.
+ */
+export function preferencesMessage(set: SkillSet, use: 'chat' | 'run'): ModelMessage | null {
+  if (set.preferences.length === 0) return null;
+  return {
+    role: 'user',
+    content: `${PREFERENCES_LEAD[use]}\n${set.preferences
+      .map((p) => asSkillText(p.name, p.instructions, { trigger: 'always' }))
+      .join('\n')}`,
+  };
 }
 
 const CHARTS = ['kpi', 'bar', 'line', 'area', 'table'] as const;

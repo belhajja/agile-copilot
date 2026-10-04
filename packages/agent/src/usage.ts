@@ -62,7 +62,10 @@ export async function recordUsage(
   db: Db,
   actor: AgentActor,
   entry: {
-    conversationId: string;
+    /** The chat conversation, or null for skill runs and drafts. */
+    conversationId: string | null;
+    /** The skill run (runs only; null for chat replies, drafts and unrecorded runs). */
+    skillRunId?: string | null;
     llmConnectionId: string;
     provider: string;
     model: string;
@@ -75,6 +78,7 @@ export async function recordUsage(
       orgId: actor.orgId,
       userId: actor.userId,
       conversationId: entry.conversationId,
+      skillRunId: entry.skillRunId ?? null,
       llmConnectionId: entry.llmConnectionId,
       provider: entry.provider,
       model: entry.model,

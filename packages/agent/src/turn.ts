@@ -2,8 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { loadDefaultLlm } from '@agile/connections';
 import { withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
-import { createLanguageModel } from '@agile/llm';
-import { createOutboundFetch } from '@agile/net';
 import {
   convertToModelMessages,
   type ModelMessage,
@@ -35,6 +33,7 @@ import {
   TurnLostError,
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
+import { languageModelFor } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import { AgentToolError } from './tool-errors';
 import { buildAgentTools, canUseLiveJira } from './tools';
@@ -217,20 +216,10 @@ export async function handleAgentRequest(
   const { tools, sites, jira, skillMessages, close } = built;
   const now = deps.now ?? (() => new Date());
 
-  let model: ReturnType<NonNullable<AgentDeps['createModel']>>;
+  let model: ReturnType<typeof languageModelFor>;
   let modelMessages: ModelMessage[];
   try {
-    model = (
-      deps.createModel ??
-      ((config) =>
-        createLanguageModel(config, {
-          // A user-supplied model URL (OpenAI-compatible) is resolved once and pinned (DNS rebinding).
-          fetch: createOutboundFetch({
-            allowedPrivateHosts: deps.allowedPrivateHosts,
-            resolve: deps.resolve,
-          }),
-        }))
-    )(llm.config);
+    model = languageModelFor(deps, llm.config);
     modelMessages = await convertToModelMessages(prepared, { tools });
     // Admin-entered site names and user-written skills reach the model as messages, never in the
     // system prompt.
