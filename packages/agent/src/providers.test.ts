@@ -9,6 +9,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { type LanguageModel, streamText, type ToolSet } from 'ai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentDeps } from './deps';
+import { skillTools } from './skills';
 import { analyticsTools, jiraTools } from './tools';
 
 // Every provider adapter must accept the agent's tool schemas (zod for Jira, MCP JSON Schema for
@@ -70,6 +71,15 @@ describe('agent tool schemas through every provider adapter', () => {
         'c',
         sites,
       ),
+      ...skillTools(
+        deps as unknown as AgentDeps,
+        { orgId: 'o', userId: 'u', roles: [] },
+        {
+          catalog: [{ name: 'retro-prep', description: 'Retro facts', source: 'builtin' }],
+          preferences: [],
+          instructions: new Map([['retro-prep', 'Prepare the retro.']]),
+        },
+      ),
     };
     close = analytics.close;
   });
@@ -116,8 +126,9 @@ describe('agent tool schemas through every provider adapter', () => {
     ],
   ];
 
-  it('declares the 17 agent tools (6 analytics, 11 Jira)', () => {
-    expect(names()).toHaveLength(17);
+  it('declares the 19 agent tools (6 analytics, 11 Jira, load_skill, pin_widget)', () => {
+    expect(names()).toHaveLength(19);
+    expect(names()).toEqual(expect.arrayContaining(['load_skill', 'pin_widget']));
   });
 
   it.each(cases)('%s receives every tool definition', async (_name, model, toolNames) => {

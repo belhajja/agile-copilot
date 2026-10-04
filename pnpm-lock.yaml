@@ -238,6 +238,9 @@ importers:
       '@agile/connections':
         specifier: workspace:*
         version: link:../connections
+      '@agile/dashboards':
+        specifier: workspace:*
+        version: link:../dashboards
       '@agile/db':
         specifier: workspace:*
         version: link:../db
@@ -253,6 +256,9 @@ importers:
       '@agile/net':
         specifier: workspace:*
         version: link:../net
+      '@agile/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@agile/sync':
         specifier: workspace:*
         version: link:../sync

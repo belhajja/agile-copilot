@@ -982,13 +982,15 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     const before = h.llm.requests.length;
     const r = await h.ask(owner(), randomUUID(), 'What is our velocity?');
     expect(textOf(r.chunks)).toMatch(/19 points/);
-    const [system, data, question] = h.llm.requests[before]?.messages ?? [];
+    const [system, data, catalog, question] = h.llm.requests[before]?.messages ?? [];
     expect(system?.role).toBe('system');
     expect(contentOf(system)).not.toContain('Ops Jira');
     expect(contentOf(system)).not.toContain('Corp Jira');
     expect(data?.role).toBe('user');
     expect(contentOf(data)).toMatch(/^<data source="jira_sites">\n/);
     expect(contentOf(data)).toContain('Ops Jira');
+    // Then the skills catalog (Phase 4), also as data.
+    expect(contentOf(catalog)).toMatch(/^<data source="skills_catalog">\n/);
     expect(contentOf(question)).toBe('What is our velocity?');
   });
 });

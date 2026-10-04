@@ -213,7 +213,7 @@ export async function handleAgentRequest(
     await release();
     throw e;
   }
-  const { tools, sites, jira, close } = built;
+  const { tools, sites, jira, skillMessages, close } = built;
   const now = deps.now ?? (() => new Date());
 
   let model: ReturnType<NonNullable<AgentDeps['createModel']>>;
@@ -231,9 +231,14 @@ export async function handleAgentRequest(
         }))
     )(llm.config);
     modelMessages = await convertToModelMessages(prepared, { tools });
-    // Admin-entered site names reach the model as data, never in the system prompt.
+    // Admin-entered site names and user-written skills reach the model as messages, never in the
+    // system prompt.
     const sitesData = jiraSitesData(sites);
-    if (sitesData) modelMessages = [{ role: 'user', content: sitesData }, ...modelMessages];
+    modelMessages = [
+      ...(sitesData ? [{ role: 'user' as const, content: sitesData }] : []),
+      ...skillMessages,
+      ...modelMessages,
+    ];
   } catch (e) {
     await close();
     await settleStored();

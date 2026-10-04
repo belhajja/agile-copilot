@@ -5,9 +5,9 @@ import { AgentToolError } from './tools';
 import { asUntrustedData } from './untrusted';
 
 describe('tool error sentences', () => {
-  it('reads the code back from every sentence it writes (Jira and analytics)', () => {
+  it('reads the code back from every sentence it writes (every tool kind)', () => {
     for (const code of TOOL_ERROR_CODES) {
-      for (const tool of ['jira', 'analytics'] as const) {
+      for (const tool of ['jira', 'analytics', 'skill', 'dashboard'] as const) {
         const text = toolErrorText(code, tool);
         expect(toolErrorCodeOf(text)).toBe(code);
         // With data for the model after the sentence, too.
@@ -26,6 +26,21 @@ describe('tool error sentences', () => {
     expect(toolErrorText('not_found')).toBe('The Jira request failed (not_found).');
     expect(toolErrorText('unknown_board', 'analytics')).toBe(
       'The analytics tool failed (unknown_board).',
+    );
+  });
+
+  it('names load_skill and pin_widget failures for what they are (P4-R13)', () => {
+    expect(toolErrorText('unknown_skill', 'skill')).toBe(
+      'The skill could not be loaded (unknown_skill).',
+    );
+    expect(toolErrorText('invalid_widget', 'dashboard')).toBe(
+      'The chart could not be pinned (invalid_widget).',
+    );
+    expect(toolErrorText('dashboard_full', 'dashboard')).toBe(
+      'The chart could not be pinned (dashboard_full).',
+    );
+    expect(TOOL_ERROR_CODES).toEqual(
+      expect.arrayContaining(['unknown_skill', 'invalid_widget', 'dashboard_full']),
     );
   });
 

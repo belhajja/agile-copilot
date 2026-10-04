@@ -468,7 +468,9 @@
       "jira_transition_issue": "Move an issue",
       "jira_assign_issue": "Assign an issue",
       "jira_create_issue": "Create an issue",
-      "jira_update_issue": "Update an issue"
+      "jira_update_issue": "Update an issue",
+      "load_skill": "Load a skill",
+      "pin_widget": "Pin a chart"
     },
     "markupHint": "Formatting is converted to Jira markup when sent.",
     "assignedTo": "Assigned to {name}.",
@@ -509,7 +511,10 @@
       "internal_error": "The analytics tool failed. Try again in a moment.",
       "unknown_board": "This board is not synced in this workspace.",
       "invalid_params": "The metric settings were not valid.",
-      "candidates": "People found: {names}."
+      "candidates": "People found: {names}.",
+      "unknown_skill": "This skill is no longer in your skills.",
+      "invalid_widget": "This chart is not in the dashboard catalog.",
+      "dashboard_full": "This dashboard is full (40 charts). Remove one first."
     },
     "image": "Image",
     "forbiddenRole": "Not approved: Jira changes are not available for your role.",
@@ -549,7 +554,8 @@
       "copyLink": "Copy link",
       "copied": "Copied",
       "openLink": "Open link"
-    }
+    },
+    "openDashboard": "Open the dashboard"
   },
   "usage": {
     "title": "Assistant usage",

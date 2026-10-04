@@ -9,6 +9,7 @@ import {
   type JiraToolName,
 } from '@agile/jira-tools';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
+import { loadSkillSet, type SkillSet } from '@agile/skills';
 import { resolveCredentials, SyncError } from '@agile/sync';
 import { createMCPClient } from '@ai-sdk/mcp';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -24,12 +25,14 @@ import {
 } from './approvals';
 import type { AgentActor, AgentDeps } from './deps';
 import type { JiraAccess, PromptSite } from './prompt';
+import { EMPTY_SKILL_SET, skillContext, skillTools } from './skills';
 import {
   ANALYTICS_ERROR_CODES,
   type AnalyticsErrorCode,
   CREDENTIAL_ERROR_CODES,
   type CredentialErrorCode,
   type ToolErrorCode,
+  type ToolKind,
   toolErrorText,
 } from './tool-errors';
 import { asUntrustedData, UntrustedDataError } from './untrusted';
@@ -56,7 +59,7 @@ export class AgentToolError extends Error {
   override name = 'AgentToolError';
   constructor(
     readonly code: ToolErrorCode,
-    opts: { tool?: 'jira' | 'analytics'; data?: string } = {},
+    opts: { tool?: ToolKind; data?: string } = {},
   ) {
     super(`${toolErrorText(code, opts.tool)}${opts.data ? `\n${opts.data}` : ''}`);
   }
@@ -142,7 +145,7 @@ export interface JiraSite extends PromptSite {
 }
 
 /** The workspace's Jira connections, oldest first, each marked usable or not. */
-async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<JiraSite[]> {
+export async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<JiraSite[]> {
   const rows = await withOrg(deps.db, actor.orgId, (tx) =>
     tx
       .select({
@@ -287,15 +290,29 @@ export function jiraTools(
   return tools;
 }
 
-/** All tools of one reply, plus what the system prompt says about Jira. */
+/**
+ * The user's skill set, or none when the skills store cannot be read: a skills failure must
+ * never break the chat, nor an approvals turn (P4-R6, P3-R26). Logged by code (and error name).
+ */
+async function skillSetOrEmpty(deps: AgentDeps, actor: AgentActor): Promise<SkillSet> {
+  try {
+    return await loadSkillSet(deps.db, actor);
+  } catch (e) {
+    deps.onError?.(e, 'skills_unavailable');
+    return EMPTY_SKILL_SET;
+  }
+}
+
+/** All tools of one reply, plus what the system prompt says about Jira and skills. */
 export async function buildAgentTools(deps: AgentDeps, actor: AgentActor, conversationId: string) {
   const analytics = await analyticsTools(deps, actor);
   try {
     const sites = await jiraSites(deps, actor);
     const jira = jiraTools(deps, actor, conversationId, sites);
     const offered = sites.filter((s) => s.usable);
+    const skills = await skillSetOrEmpty(deps, actor);
     return {
-      tools: { ...analytics.tools, ...jira },
+      tools: { ...analytics.tools, ...jira, ...skillTools(deps, actor, skills) },
       /** The sites the model may name (none when it has no Jira tools). */
       sites:
         Object.keys(jira).length > 0
@@ -306,6 +323,8 @@ export async function buildAgentTools(deps: AgentDeps, actor: AgentActor, conver
         : canUseLiveJira(actor)
           ? 'full'
           : 'forbidden_role') as JiraAccess,
+      /** Skills catalog and standing preferences, as messages before the conversation. */
+      skillMessages: skillContext(skills),
       close: analytics.close,
     };
   } catch (e) {

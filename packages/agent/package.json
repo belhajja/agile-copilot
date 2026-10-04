@@ -14,11 +14,13 @@
   "dependencies": {
     "@agile/analytics-mcp": "workspace:*",
     "@agile/connections": "workspace:*",
+    "@agile/dashboards": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/jira": "workspace:*",
     "@agile/jira-tools": "workspace:*",
     "@agile/llm": "workspace:*",
     "@agile/net": "workspace:*",
+    "@agile/skills": "workspace:*",
     "@agile/sync": "workspace:*",
     "@ai-sdk/mcp": "2.0.66",
     "@modelcontextprotocol/sdk": "1.32.0",

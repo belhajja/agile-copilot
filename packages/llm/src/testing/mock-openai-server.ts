@@ -49,23 +49,81 @@ function toolPayload(content: string): unknown {
   return parse(wrapped?.[1] ?? content);
 }
 
+/** Names of the standing preferences (`<skill … trigger="always">`) the request carries. */
+function preferencesOf(messages: MockChatMessage[]): string[] {
+  const names = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    for (const match of textOf(m).matchAll(/<skill name="([a-z0-9-]+)" trigger="always">/g)) {
+      if (match[1]) names.add(match[1]);
+    }
+  }
+  return [...names];
+}
+
+/** The skill a background run or preview asks to run (`<skill name="…">` in the run request). */
+const runSkillOf = (text: string) =>
+  /Run this skill now/.test(text) ? (/<skill name="([a-z0-9-]+)">/.exec(text)?.[1] ?? null) : null;
+
 /**
  * Deterministic stand-in for a tool-calling model, used by the agent tests and e2e:
  * - "velocity" → list_boards → get_metric(average_velocity) on "DEMO Scrum" → states the number;
  * - "comment on KEY-1: text" → jira_add_comment (needs approval) → reports approved or rejected;
+ * - "pin … cycle time" → list_boards → pin_widget(cycle_time kpi) on "DEMO Scrum";
+ * - "stand-up" (when load_skill is offered) → load_skill(daily-standup-brief) → a short brief;
+ * - a skill run ("Run this skill now" + `<skill name>`) → list_boards → "Report for <name>…";
+ * - a skill draft (propose_skill offered) → propose_skill with fields read from the request;
  * - anything else → a short text answer.
+ * Text answers end with "(preferences: a, b)" when standing preferences were sent.
  */
 export const agentDemoScript: MockScript = ({ messages, tools }) => {
+  const prefs = preferencesOf(messages);
+  const say = (text: string): MockTurn => ({
+    text: prefs.length > 0 ? `${text} (preferences: ${prefs.join(', ')})` : text,
+  });
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const ask = textOf(lastUser);
   const last = messages.at(-1);
+  if (tools.includes('propose_skill')) {
+    const weekly = /every monday/i.test(ask);
+    return {
+      toolCalls: [
+        {
+          name: 'propose_skill',
+          args: {
+            name: weekly ? 'monday-risks' : 'my-skill',
+            description: weekly
+              ? 'Stories at risk for the sprint goal, every Monday'
+              : 'A custom analysis',
+            trigger: weekly ? 'schedule' : 'on_demand',
+            ...(weekly ? { cron: '0 8 * * 1', timezone: 'UTC' } : {}),
+            output: weekly ? 'email' : 'chat',
+            instructions:
+              '1. Call list_boards.\n2. For each Scrum board, check the current sprint burndown and list the stories at risk.',
+          },
+        },
+      ],
+    };
+  }
+  const run = runSkillOf(ask);
   if (last?.role === 'tool') {
     const name = toolNameOf(messages, last.tool_call_id);
     const content = textOf(last);
     if (name === 'list_boards') {
       const boards = toolPayload(content) as { boards?: { id: string; name: string }[] };
+      if (run) return say(`Report for ${run}: ${boards?.boards?.length ?? 0} boards checked.`);
       const board = boards?.boards?.find((b) => b.name === 'DEMO Scrum') ?? boards?.boards?.[0];
-      if (!board) return { text: 'I could not find any synced board.' };
+      if (!board) return say('I could not find any synced board.');
+      if (/\bpin\b/i.test(ask) && tools.includes('pin_widget')) {
+        return {
+          toolCalls: [
+            {
+              name: 'pin_widget',
+              args: { boardId: board.id, metric: 'cycle_time', chart: 'kpi', title: 'Cycle time' },
+            },
+          ],
+        };
+      }
       return {
         toolCalls: [
           { name: 'get_metric', args: { boardId: board.id, metric: 'average_velocity' } },
@@ -74,21 +132,42 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
     }
     if (name === 'get_metric') {
       const metric = toolPayload(content) as { data?: { value?: number } };
-      return {
-        text: `The average velocity of DEMO Scrum is ${metric?.data?.value ?? 'unknown'} points per sprint.`,
-      };
+      return say(
+        `The average velocity of DEMO Scrum is ${metric?.data?.value ?? 'unknown'} points per sprint.`,
+      );
+    }
+    if (name === 'pin_widget') {
+      return /"pinned":true/.test(content)
+        ? say('Pinned: the cycle time is on your dashboard.')
+        : say('I could not pin that chart.');
+    }
+    if (name === 'load_skill') {
+      return /<skill name="daily-standup-brief">/.test(content)
+        ? say('Stand-up brief: nothing is blocked today.')
+        : say('I could not load that skill.');
     }
     if (name === 'jira_add_comment') {
       // "denied" mirrors the AI SDK's OpenAI-compatible adapter, which sends a denied approval
       // as the tool result "Tool call execution denied." (or the denial reason, when given).
       return /denied|rejected|not approved/i.test(content)
-        ? { text: 'Understood, I did not post the comment.' }
-        : { text: 'Done: the comment is posted.' };
+        ? say('Understood, I did not post the comment.')
+        : say('Done: the comment is posted.');
     }
-    return { text: 'Here is what I found.' };
+    return say('Here is what I found.');
   }
-  if (/velocity/i.test(ask) && tools.includes('list_boards')) {
+  if (run) {
+    return tools.includes('list_boards')
+      ? { toolCalls: [{ name: 'list_boards', args: {} }] }
+      : say(`Report for ${run}: no tools.`);
+  }
+  if (
+    (/velocity/i.test(ask) || (/\bpin\b/i.test(ask) && tools.includes('pin_widget'))) &&
+    tools.includes('list_boards')
+  ) {
     return { toolCalls: [{ name: 'list_boards', args: {} }] };
+  }
+  if (/stand-?up/i.test(ask) && tools.includes('load_skill')) {
+    return { toolCalls: [{ name: 'load_skill', args: { name: 'daily-standup-brief' } }] };
   }
   const comment = /comment on ([A-Z][A-Z0-9]+-\d+)\s*:\s*(.+)$/is.exec(ask);
   if (comment && tools.includes('jira_add_comment')) {
@@ -101,7 +180,7 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
       ],
     };
   }
-  return { text: 'I can answer questions about your boards and act in Jira with your approval.' };
+  return say('I can answer questions about your boards and act in Jira with your approval.');
 };
 
 const send = (res: ServerResponse, status: number, body: unknown) => {

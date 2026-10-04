@@ -44,18 +44,33 @@ const AGENT = [
   'unserializable',
 ] as const;
 
+/** `load_skill`: a name the catalog no longer holds. */
+const SKILL = ['unknown_skill'] as const;
+
+/** `pin_widget` refusals (`@agile/dashboards` pinWidget; `unknown_board` is shared with analytics). */
+const DASHBOARD = ['invalid_widget', 'dashboard_full'] as const;
+
 /** The analytics MCP server's failures (`@agile/analytics-mcp`). */
 export const ANALYTICS_ERROR_CODES = ['internal_error', 'unknown_board', 'invalid_params'] as const;
 
 export const TOOL_ERROR_CODES = Object.freeze([
-  ...new Set([...JIRA, ...CREDENTIAL_ERROR_CODES, ...AGENT, ...ANALYTICS_ERROR_CODES]),
+  ...new Set([
+    ...JIRA,
+    ...CREDENTIAL_ERROR_CODES,
+    ...AGENT,
+    ...ANALYTICS_ERROR_CODES,
+    ...SKILL,
+    ...DASHBOARD,
+  ]),
 ]) as readonly ToolErrorCode[];
 
 export type ToolErrorCode =
   | (typeof JIRA)[number]
   | (typeof CREDENTIAL_ERROR_CODES)[number]
   | (typeof AGENT)[number]
-  | (typeof ANALYTICS_ERROR_CODES)[number];
+  | (typeof ANALYTICS_ERROR_CODES)[number]
+  | (typeof SKILL)[number]
+  | (typeof DASHBOARD)[number];
 
 // Every JiraToolErrorCode is listed above (a new backend code fails the typecheck here).
 type MissingJiraCode = Exclude<JiraToolErrorCode, (typeof JIRA)[number]>;
@@ -72,12 +87,21 @@ const PLAIN: Partial<Record<ToolErrorCode, string>> = {
   approval_required: 'This Jira change was not approved by the user (approval_required).',
 };
 
+/** Which kind of tool failed: each names its failure in its own words (P4-R13). */
+export type ToolKind = 'jira' | 'analytics' | 'skill' | 'dashboard';
+
+const FAILED: Record<ToolKind, string> = {
+  jira: 'The Jira request failed',
+  analytics: 'The analytics tool failed',
+  /** `load_skill`. */
+  skill: 'The skill could not be loaded',
+  /** `pin_widget`. */
+  dashboard: 'The chart could not be pinned',
+};
+
 /** The fixed sentence for a tool failure (what the model reads and the stored history keeps). */
-export function toolErrorText(code: ToolErrorCode, tool: 'jira' | 'analytics' = 'jira'): string {
-  return (
-    PLAIN[code] ??
-    `${tool === 'analytics' ? 'The analytics tool failed' : 'The Jira request failed'} (${code}).`
-  );
+export function toolErrorText(code: ToolErrorCode, tool: ToolKind = 'jira'): string {
+  return PLAIN[code] ?? `${FAILED[tool]} (${code}).`;
 }
 
 const CODE_AT_END = /\(([a-z_]+)\)\.$/;
