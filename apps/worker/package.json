@@ -1,0 +1,22 @@
+{
+  "name": "@agile/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agile/config": "workspace:*",
+    "@agile/crypto": "workspace:*",
+    "@agile/db": "workspace:*",
+    "@agile/jira": "workspace:*",
+    "@agile/sync": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.0"
+  }
+}

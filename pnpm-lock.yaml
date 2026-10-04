@@ -121,6 +121,34 @@ importers:
         specifier: 4.3.3
         version: 4.3.3
 
+  apps/worker:
+    dependencies:
+      '@agile/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@agile/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@agile/jira':
+        specifier: workspace:*
+        version: link:../../packages/jira
+      '@agile/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+    devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
+
   e2e:
     devDependencies:
       '@agile/db':
