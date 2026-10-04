@@ -19,7 +19,6 @@ import {
   getEntitlements,
   handleStripeWebhook,
   openBillingPortal,
-  purgeStripeEvents,
   startCheckout,
   WebhookSignatureError,
 } from './billing';
@@ -662,19 +661,9 @@ describe('billing (stripe-mock + Postgres)', () => {
     }
   });
 
-  it('forgets processed event ids after 30 days', async () => {
+  it('leaves forgetting old event ids to the daily retention job (no purge per delivery)', async () => {
     const day = 86_400_000;
     const now = new Date();
-    await raw.db.insert(stripeEvents).values([
-      { id: 'evt_old', type: 'invoice.paid', receivedAt: new Date(now.getTime() - 31 * day) },
-      { id: 'evt_recent', type: 'invoice.paid', receivedAt: new Date(now.getTime() - 29 * day) },
-    ]);
-    expect(await purgeStripeEvents(app.db, now)).toBe(1);
-    const left = await raw.db.select({ id: stripeEvents.id }).from(stripeEvents);
-    expect(left.map((r) => r.id)).toContain('evt_recent');
-    expect(left.map((r) => r.id)).not.toContain('evt_old');
-
-    // Every webhook delivery does the same.
     await raw.db.insert(stripeEvents).values({
       id: 'evt_old2',
       type: 'invoice.paid',
@@ -688,7 +677,9 @@ describe('billing (stripe-mock + Postgres)', () => {
     });
     expect(await deliver(delivery)).toBe('ignored');
     const after = await raw.db.select({ id: stripeEvents.id }).from(stripeEvents);
-    expect(after.map((r) => r.id)).not.toContain('evt_old2');
+    // A webhook is a public endpoint: it never runs an unbounded delete. @agile/privacy does it,
+    // in batches (retention.test.ts).
+    expect(after.map((r) => r.id)).toContain('evt_old2');
     expect(after.map((r) => r.id)).toContain('evt_inv2');
   });
 

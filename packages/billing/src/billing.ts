@@ -10,7 +10,7 @@ import {
   type Tx,
   withOrg,
 } from '@agile/db';
-import { eq, lt } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Entitlements, entitlementsOf, SELFHOST } from './plans';
 
@@ -96,9 +96,6 @@ const UNDER_LOCK = { timeout: 5_000, maxNetworkRetries: 1 } satisfies Stripe.Req
 
 /** Checkout sessions expire after 30 minutes (Stripe's minimum), so a stale one never lingers. */
 const CHECKOUT_TTL_SECONDS = 30 * 60;
-
-/** Processed event ids are kept 30 days: Stripe retries a delivery for 3 days at most. */
-const STRIPE_EVENT_RETENTION_MS = 30 * 86_400_000;
 
 const enabled = (deps: BillingDeps): BillingConfig => {
   if (!deps.billing) throw new BillingError('billing_disabled');
@@ -297,16 +294,6 @@ async function firstDelivery(tx: Tx, event: Stripe.Event): Promise<boolean> {
   return inserted.length > 0;
 }
 
-/** Forgets processed event ids older than 30 days; runs after every webhook delivery. */
-export async function purgeStripeEvents(db: Db, now = new Date()): Promise<number> {
-  const before = new Date(now.getTime() - STRIPE_EVENT_RETENTION_MS);
-  const purged = await db
-    .delete(stripeEvents)
-    .where(lt(stripeEvents.receivedAt, before))
-    .returning({ id: stripeEvents.id });
-  return purged.length;
-}
-
 /** Logs a fixed code (no ids, no payload) and ignores the event. */
 const ignore = (code: string): WebhookOutcome => {
   console.warn(`[billing] ${code}`);
@@ -496,16 +483,8 @@ export async function handleStripeWebhook(
   } catch {
     throw new WebhookSignatureError('invalid signature');
   }
-  const outcome = await applyEvent(deps.db, config, stripe, event);
-  try {
-    await purgeStripeEvents(deps.db);
-  } catch (error) {
-    // The event is applied; the purge runs again on the next delivery.
-    console.error(
-      `[billing] stripe_events_purge_failed ${error instanceof Error ? error.name : 'UnknownError'}`,
-    );
-  }
-  return outcome;
+  // Processed ids are forgotten after 30 days by the daily retention job (@agile/privacy).
+  return applyEvent(deps.db, config, stripe, event);
 }
 
 async function applyEvent(

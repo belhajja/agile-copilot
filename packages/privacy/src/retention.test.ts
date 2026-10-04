@@ -12,10 +12,12 @@ import {
   mcpRateBuckets,
   mcpTokens,
   organization,
+  personalDataExports,
   session,
   skillBuilderCalls,
   skillRuns,
   skills,
+  stripeEvents,
   user,
   verification,
   withOrg,
@@ -26,8 +28,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applyRetention,
   INVITATIONS_RETENTION_DAYS,
+  PERSONAL_DATA_EXPORTS_RETENTION_DAYS,
   RETENTION_BATCH_SIZE,
   runRetention,
+  STRIPE_EVENTS_RETENTION_DAYS,
 } from './retention';
 import {
   DEFAULT_SETTINGS,
@@ -463,6 +467,8 @@ describe('retention and workspace settings', () => {
       sessions: 0,
       verifications: 0,
       invitations: 0,
+      personalDataExports: 0,
+      stripeEvents: 0,
       interrupted: true,
     });
   });
@@ -513,6 +519,8 @@ describe('retention and workspace settings', () => {
       sessions: 1,
       verifications: 1,
       invitations: 0,
+      personalDataExports: 0,
+      stripeEvents: 0,
       interrupted: false,
     });
     const remaining = await raw.db.select({ org: auditLog.orgId }).from(auditLog);
@@ -575,6 +583,52 @@ describe('retention and workspace settings', () => {
       'i_pending_live',
       'i_pending_recently_expired',
     ]);
+  });
+
+  it('forgets export and deletion-attempt records and Stripe event ids after 30 days, in batches', async () => {
+    expect(PERSONAL_DATA_EXPORTS_RETENTION_DAYS).toBe(30);
+    expect(STRIPE_EVENTS_RETENTION_DAYS).toBe(30);
+    await raw.db.insert(user).values({
+      id: 'u_exports',
+      name: 'E',
+      email: 'exports@example.com',
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const record = (kind: string, days: number) => ({
+      userId: 'u_exports',
+      kind,
+      startedAt: daysAgo(days),
+      finishedAt: daysAgo(days),
+    });
+    await raw.db
+      .insert(personalDataExports)
+      .values([
+        record('personal', 31),
+        record('audit', 40),
+        record('deletion', 60),
+        record('personal', 29),
+        record('deletion', 1),
+      ]);
+    await raw.db.insert(stripeEvents).values([
+      { id: 'evt_old_1', type: 'x', receivedAt: daysAgo(31) },
+      { id: 'evt_old_2', type: 'x', receivedAt: daysAgo(45) },
+      { id: 'evt_old_3', type: 'x', receivedAt: daysAgo(90) },
+      { id: 'evt_recent', type: 'x', receivedAt: daysAgo(29) },
+    ]);
+    const result = await runRetention(app.db, { now: NOW, batchSize: 2 });
+    expect(result).toMatchObject({ personalDataExports: 3, stripeEvents: 3 });
+    expect(result.failed.global).toBe(0);
+    const left = await raw.db
+      .select({ startedAt: personalDataExports.startedAt })
+      .from(personalDataExports)
+      .where(eq(personalDataExports.userId, 'u_exports'));
+    expect(left.map((r) => r.startedAt.getTime()).sort()).toEqual(
+      [daysAgo(29), daysAgo(1)].map((d) => d.getTime()).sort(),
+    );
+    expect(
+      (await raw.db.select({ id: stripeEvents.id }).from(stripeEvents)).map((r) => r.id),
+    ).toEqual(['evt_recent']);
   });
 
   it('deletes usage written for a deleted workspace after its purge (an in-flight run)', async () => {

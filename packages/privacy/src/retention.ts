@@ -8,9 +8,11 @@ import {
   mcpRateBuckets,
   mcpTokens,
   organization,
+  personalDataExports,
   session,
   skillBuilderCalls,
   skillRuns,
+  stripeEvents,
   type Tx,
   verification,
   withOrg,
@@ -41,6 +43,13 @@ export const MCP_TOKENS_RETENTION_DAYS = 90;
  * pending ones this long after they expired.
  */
 export const INVITATIONS_RETENTION_DAYS = 30;
+/**
+ * Export and account-deletion attempt records (the throttles count the last hour only) are
+ * deleted this long after they started: they say when a person exported their data.
+ */
+export const PERSONAL_DATA_EXPORTS_RETENTION_DAYS = 30;
+/** Processed Stripe event ids (deduplication; Stripe retries deliveries for 3 days). */
+export const STRIPE_EVENTS_RETENTION_DAYS = 30;
 /** Rows deleted per statement, each in its own short transaction. */
 export const RETENTION_BATCH_SIZE = 5000;
 
@@ -79,6 +88,10 @@ export interface RetentionRunResult {
   verifications: number;
   /** Invitations past `INVITATIONS_RETENTION_DAYS` (answered, withdrawn or long expired). */
   invitations: number;
+  /** Export and deletion-attempt records past `PERSONAL_DATA_EXPORTS_RETENTION_DAYS`. */
+  personalDataExports: number;
+  /** Stripe event ids past `STRIPE_EVENTS_RETENTION_DAYS`. */
+  stripeEvents: number;
   /** The worker stopped during the run (the next run picks up the rest). */
   interrupted: boolean;
 }
@@ -309,8 +322,8 @@ export async function applyRetention(
 }
 
 /**
- * Sessions and verifications more than a day past their expiry, and old invitations (not tenant
- * data). `expires_at`/`created_at` are timestamps without time zone holding UTC (better-auth
+ * Sessions and verifications more than a day past their expiry, old invitations, export and
+ * deletion-attempt records, and processed Stripe event ids (not tenant data). `expires_at`/`created_at` are timestamps without time zone holding UTC (better-auth
  * through drizzle), compared the same way.
  */
 async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
@@ -373,7 +386,51 @@ async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
       ).count,
     opts,
   );
-  return { sessions, verifications, invitations };
+  const exportsCutoff = new Date(now.getTime() - PERSONAL_DATA_EXPORTS_RETENTION_DAYS * DAY);
+  const personalDataExportsDeleted = await drain(
+    async (size) =>
+      (
+        await db
+          .delete(personalDataExports)
+          .where(
+            inArray(
+              personalDataExports.id,
+              db
+                .select({ id: personalDataExports.id })
+                .from(personalDataExports)
+                .where(lt(personalDataExports.startedAt, exportsCutoff))
+                .limit(size),
+            ),
+          )
+      ).count,
+    opts,
+  );
+  const stripeCutoff = new Date(now.getTime() - STRIPE_EVENTS_RETENTION_DAYS * DAY);
+  const stripeEventsDeleted = await drain(
+    async (size) =>
+      (
+        await db
+          .delete(stripeEvents)
+          .where(
+            inArray(
+              stripeEvents.id,
+              db
+                .select({ id: stripeEvents.id })
+                .from(stripeEvents)
+                .where(lt(stripeEvents.receivedAt, stripeCutoff))
+                .limit(size),
+            ),
+          )
+      ).count,
+    opts,
+  );
+  return {
+    sessions,
+    verifications,
+    invitations,
+    personalDataExports: personalDataExportsDeleted,
+    stripeEvents: stripeEventsDeleted,
+  };
 }
 
 /**
@@ -400,6 +457,8 @@ export async function runRetention(
     sessions: 0,
     verifications: 0,
     invitations: 0,
+    personalDataExports: 0,
+    stripeEvents: 0,
     interrupted: false,
   };
   const stopped = () => {

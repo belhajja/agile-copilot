@@ -41,6 +41,6 @@ export const stripeEvents = pgTable(
     type: text('type').notNull(),
     receivedAt: createdAt,
   },
-  // Ids older than 30 days are forgotten (purgeStripeEvents, on every webhook).
+  // Ids older than 30 days are forgotten by the daily retention job (@agile/privacy, batched).
   (t) => [index('stripe_events_created_at_idx').on(t.receivedAt)],
 );
