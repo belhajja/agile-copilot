@@ -218,3 +218,44 @@ describe('mock Jira: Cloud assignment', () => {
     }
   });
 });
+
+describe('mock Jira: user search', () => {
+  it('serves extra users with their active flag and Cloud account type', async () => {
+    const jira = await startMockJira({
+      flavor: 'cloud',
+      validAuthorization: 'Bearer pat',
+      dataset: demoDataset(new Date('2026-10-04T00:00:00Z')),
+      extraUsers: [
+        { accountId: 'u-alex-old', name: 'alex.old', displayName: 'Alex Martin', active: false },
+        { accountId: 'bot-1', name: 'bot', displayName: 'Release Bot', accountType: 'app' },
+      ],
+    });
+    try {
+      const search = async (query: string) =>
+        (await (
+          await fetch(`${jira.url}/rest/api/3/user/search?query=${encodeURIComponent(query)}`, {
+            headers: { authorization: 'Bearer pat' },
+          })
+        ).json()) as Json[];
+      expect(await search('alex martin')).toEqual([
+        {
+          accountId: 'u-alex',
+          displayName: 'Alex Martin',
+          active: true,
+          accountType: 'atlassian',
+        },
+        {
+          accountId: 'u-alex-old',
+          displayName: 'Alex Martin',
+          active: false,
+          accountType: 'atlassian',
+        },
+      ]);
+      expect(await search('release')).toEqual([
+        { accountId: 'bot-1', displayName: 'Release Bot', active: true, accountType: 'app' },
+      ]);
+    } finally {
+      await jira.close();
+    }
+  });
+});

@@ -46,6 +46,9 @@ describe('Jira tool allowlist', () => {
     ['jira_update_issue', { issueKey: 'DEMO-1' }],
     ['jira_update_issue', { issueKey: 'DEMO-1', labels: ['has space'] }],
     ['jira_search', { jql: '', limit: 10 }],
+    ['jira_transition_issue', { issueKey: 'DEMO-1', transitionId: 'Done' }],
+    ['jira_transition_issue', { issueKey: 'DEMO-1', transitionId: '31; x' }],
+    ['jira_update_issue', { issueKey: 'DEMO-1', labels: [] }],
   ] as const)('rejects bad %s input %o', (name, input) => {
     expect(parseJiraToolInput(name, input).success).toBe(false);
   });
@@ -92,9 +95,18 @@ describe('Jira tool allowlist', () => {
 
   it('is importable from the browser: the catalog depends on zod only', () => {
     const source = readFileSync(new URL('./catalog.ts', import.meta.url), 'utf8');
-    const imports = [...source.matchAll(/^\s*(?:import|export)\b[^;]*?from\s+'([^']+)'/gm)].map(
-      (m) => m[1],
-    );
-    expect(imports).toEqual(['zod']);
+    // `from '…'`, side-effect `import '…'`, dynamic `import('…')` and `require('…')`.
+    const specifiers = (code: string) =>
+      [
+        ...code.matchAll(
+          /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(?\s*['"]([^'"]+)['"]|\brequire\s*\(\s*['"]([^'"]+)['"]/g,
+        ),
+      ].map((m) => m[1] ?? m[2] ?? m[3]);
+    expect(
+      specifiers(
+        `import a from 'x';\nimport 'side';\nconst m = await import('dyn');\nrequire("req");`,
+      ),
+    ).toEqual(['x', 'side', 'dyn', 'req']);
+    expect(specifiers(source)).toEqual(['zod']);
   });
 });

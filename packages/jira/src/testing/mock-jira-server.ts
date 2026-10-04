@@ -34,6 +34,17 @@ export interface MockJiraOptions {
   searchChangelogLimit?: number;
   /** Clock for relative JQL dates. */
   now?: () => Date;
+  /** People known to user search besides the dataset's assignees (deactivated users, app accounts). */
+  extraUsers?: MockJiraUser[];
+}
+
+/** A Jira user as served by user search; `active` defaults to true, `accountType` to 'atlassian'. */
+export interface MockJiraUser {
+  accountId: string;
+  name: string;
+  displayName: string;
+  active?: boolean;
+  accountType?: 'atlassian' | 'app' | 'customer';
 }
 
 /** A write the agent's Jira tools sent (comment, transition, assignment, creation, edit). */
@@ -339,6 +350,7 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
       const a = i.fields.assignee as Record<string, unknown> | null;
       if (a && typeof a.accountId === 'string') users.set(a.accountId, a);
     }
+    for (const u of opts.extraUsers ?? []) users.set(u.accountId, { key: u.name, ...u });
     return users;
   };
 
@@ -389,8 +401,13 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
           )
           .map((u) =>
             opts.flavor === 'cloud'
-              ? { accountId: u.accountId, displayName: u.displayName, active: true }
-              : { key: u.key, name: u.name, displayName: u.displayName, active: true },
+              ? {
+                  accountId: u.accountId,
+                  displayName: u.displayName,
+                  active: u.active ?? true,
+                  accountType: u.accountType ?? 'atlassian',
+                }
+              : { key: u.key, name: u.name, displayName: u.displayName, active: u.active ?? true },
           ),
       );
       return true;

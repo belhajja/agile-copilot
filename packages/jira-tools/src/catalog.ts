@@ -105,7 +105,7 @@ export const JIRA_TOOLS = {
       'Move an issue through its workflow (call jira_get_transitions first for the id). Needs the user’s approval.',
     input: z.object({
       issueKey,
-      transitionId: z.string().trim().min(1).max(32).describe('Transition id'),
+      transitionId: numericId('transition'),
       comment: text(5000).optional().describe('Optional comment'),
     }),
     toMcp: (i) => ({
@@ -169,8 +169,10 @@ export const JIRA_TOOLS = {
               .trim()
               .regex(/^[^\s]{1,64}$/),
           )
+          .min(1)
           .max(20)
-          .optional(),
+          .optional()
+          .describe('The complete new label list (replaces the current labels; cannot be empty)'),
       })
       .refine((i) => i.summary ?? i.description ?? i.labels, 'Change at least one field'),
     toMcp: (i) => ({

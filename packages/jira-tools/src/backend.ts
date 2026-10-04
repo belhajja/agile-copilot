@@ -17,11 +17,31 @@ export type JiraToolErrorCode =
   | 'blocked_url'
   | 'jira_error';
 
-/** A failed Jira tool call. The message is a fixed English sentence: never Jira's raw text. */
+/** A person the model may pick instead (id = accountId on Cloud, username on Data Center). */
+export interface JiraUserCandidate {
+  id: string;
+  displayName: string;
+}
+
+/**
+ * A failed Jira tool call. The message is a fixed English sentence: never Jira's raw text.
+ * `candidates` (at most 5, no emails) is set for `ambiguous_user`: Jira data, to be handed to the
+ * model as untrusted data via `toData()`, never interpolated into the message.
+ */
 export class JiraToolError extends Error {
   override name = 'JiraToolError';
-  constructor(readonly code: JiraToolErrorCode) {
+  readonly candidates?: readonly JiraUserCandidate[];
+  constructor(
+    readonly code: JiraToolErrorCode,
+    opts?: { candidates?: readonly JiraUserCandidate[] },
+  ) {
     super(`Jira tool failed: ${code}`);
+    if (opts?.candidates?.length) this.candidates = opts.candidates;
+  }
+
+  /** The structured result to show the model (wrap it as untrusted data). */
+  toData(): { error: JiraToolErrorCode; candidates?: readonly JiraUserCandidate[] } {
+    return { error: this.code, ...(this.candidates ? { candidates: this.candidates } : {}) };
   }
 }
 

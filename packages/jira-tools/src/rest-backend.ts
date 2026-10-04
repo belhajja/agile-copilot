@@ -1,6 +1,11 @@
 import { type JiraCredentials, ResponseTooLargeError, readCapped } from '@agile/jira';
 import { createOutboundFetch, isBlockedAddressError, type OutboundPolicy } from '@agile/net';
-import { codeForStatus, type JiraToolBackend, JiraToolError } from './backend';
+import {
+  codeForStatus,
+  type JiraToolBackend,
+  JiraToolError,
+  type JiraUserCandidate,
+} from './backend';
 import type { JiraToolInput, JiraToolName } from './catalog';
 
 type RestCredentials = Extract<JiraCredentials, { kind: 'cloud_basic' | 'datacenter_pat' }>;
@@ -24,7 +29,17 @@ interface RawIssue {
   };
 }
 
+interface RawUser {
+  accountId?: unknown;
+  name?: unknown;
+  displayName?: unknown;
+  emailAddress?: unknown;
+  active?: unknown;
+  accountType?: unknown;
+}
+
 const s = (v: unknown) => (typeof v === 'string' ? v : null);
+const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const brief = (i: RawIssue) => ({
   key: s(i.key),
   summary: s(i.fields?.summary),
@@ -92,20 +107,35 @@ export function createRestJiraBackend(
   };
   const issuePath = (key: string) => `/rest/api/2/issue/${encodeURIComponent(key)}`;
 
-  async function findUser(identifier: string): Promise<Record<string, string>> {
+  /**
+   * The one active person whose account id, username, display name or email equals `identifier`
+   * (case-insensitive). Never a fuzzy hit: the user approved this exact text. Anything else fails
+   * with `ambiguous_user` (and up to 5 candidates, no emails) or `not_found`.
+   */
+  async function findUser(identifier: string): Promise<JiraUserCandidate> {
     const found = (await request(
       'GET',
       `/rest/api/2/user/search${q(cloud ? { query: identifier } : { username: identifier })}`,
-    )) as { accountId?: string; name?: string; displayName?: string; emailAddress?: string }[];
+    )) as unknown;
+    const people = (Array.isArray(found) ? (found as RawUser[]) : []).flatMap((u) => {
+      if (!u || typeof u !== 'object' || u.active === false) return [];
+      // Cloud: app and customer (service desk) accounts are not assignable people.
+      if (cloud && u.accountType !== undefined && u.accountType !== 'atlassian') return [];
+      const id = s(cloud ? u.accountId : u.name);
+      return id ? [{ user: u, person: { id, displayName: s(u.displayName) ?? id } }] : [];
+    });
     const wanted = identifier.toLowerCase();
-    const exact = (found ?? []).filter((u) =>
-      [u.accountId, u.name, u.displayName, u.emailAddress].some((v) => v?.toLowerCase() === wanted),
+    const exact = people.filter(({ user }) =>
+      [user.accountId, user.name, user.displayName, user.emailAddress].some(
+        (v) => typeof v === 'string' && v.toLowerCase() === wanted,
+      ),
     );
-    const match = exact.length === 1 ? exact[0] : found?.length === 1 ? found[0] : undefined;
-    if (!match) throw new JiraToolError(found?.length ? 'ambiguous_user' : 'not_found');
-    if (cloud && match.accountId) return { accountId: match.accountId };
-    if (!cloud && match.name) return { name: match.name };
-    throw new JiraToolError('not_found');
+    const [only] = exact;
+    if (only && exact.length === 1) return only.person;
+    const candidates = (exact.length ? exact : people).slice(0, 5).map((p) => p.person);
+    throw candidates.length
+      ? new JiraToolError('ambiguous_user', { candidates })
+      : new JiraToolError('not_found');
   }
 
   const handlers: { [N in JiraToolName]: (input: JiraToolInput<N>) => Promise<unknown> } = {
@@ -113,10 +143,21 @@ export function createRestJiraBackend(
       const path = cloud ? '/rest/api/3/search/jql' : '/rest/api/2/search';
       const page = (await request('GET', path + q({ jql, maxResults: limit, fields: FIELDS }))) as {
         issues?: RawIssue[];
-        total?: number;
+        total?: unknown;
+        isLast?: unknown;
+        nextPageToken?: unknown;
       };
       const issues = (page?.issues ?? []).slice(0, limit).map(brief);
-      return { total: page?.total ?? issues.length, issues };
+      if (cloud) {
+        // /search/jql has no total: say whether more exist rather than inventing a count.
+        return {
+          total: null,
+          hasMore: page?.isLast === false || !!page?.nextPageToken,
+          issues,
+        };
+      }
+      const total = n(page?.total);
+      return { total, hasMore: total !== null && total > issues.length, issues };
     },
     async jira_get_issue({ issueKey, commentLimit }) {
       const i = (await request(
@@ -153,7 +194,7 @@ export function createRestJiraBackend(
         `/rest/agile/1.0/board${q({ projectKeyOrId: projectKey, maxResults: 50 })}`,
       )) as { values?: { id?: unknown; name?: unknown; type?: unknown }[] };
       return {
-        boards: (r?.values ?? []).map((b) => ({ id: b.id, name: s(b.name), type: s(b.type) })),
+        boards: (r?.values ?? []).map((b) => ({ id: n(b.id), name: s(b.name), type: s(b.type) })),
       };
     },
     async jira_get_sprints_from_board({ boardId, state }) {
@@ -163,7 +204,7 @@ export function createRestJiraBackend(
       )) as { values?: Record<string, unknown>[] };
       return {
         sprints: (r?.values ?? []).map((sp) => ({
-          id: sp.id,
+          id: n(sp.id),
           name: s(sp.name),
           state: s(sp.state),
           startDate: s(sp.startDate),
@@ -176,9 +217,10 @@ export function createRestJiraBackend(
       const r = (await request(
         'GET',
         `/rest/agile/1.0/sprint/${sprintId}/issue${q({ maxResults: limit, fields: FIELDS })}`,
-      )) as { issues?: RawIssue[]; total?: number };
+      )) as { issues?: RawIssue[]; total?: unknown };
       const issues = (r?.issues ?? []).slice(0, limit).map(brief);
-      return { total: r?.total ?? issues.length, issues };
+      const total = n(r?.total);
+      return { total, hasMore: total !== null && total > issues.length, issues };
     },
     async jira_add_comment({ issueKey, body }) {
       const c = (await request('POST', `${issuePath(issueKey)}/comment`, { body })) as {
@@ -194,8 +236,13 @@ export function createRestJiraBackend(
       return { ok: true, issueKey, transitionId };
     },
     async jira_assign_issue({ issueKey, assignee }) {
-      await request('PUT', `${issuePath(issueKey)}/assignee`, await findUser(assignee));
-      return { ok: true, issueKey, assignee };
+      const person = await findUser(assignee);
+      await request(
+        'PUT',
+        `${issuePath(issueKey)}/assignee`,
+        cloud ? { accountId: person.id } : { name: person.id },
+      );
+      return { ok: true, issueKey, assignee: person };
     },
     async jira_create_issue({ projectKey, summary, issueType, description }) {
       const created = (await request('POST', '/rest/api/2/issue', {

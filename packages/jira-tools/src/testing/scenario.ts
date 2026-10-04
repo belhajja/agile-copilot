@@ -3,6 +3,7 @@ import type { JiraToolBackend } from '../backend';
 import { type JiraToolName, parseJiraToolInput } from '../catalog';
 
 // One scenario shared by the backend tests: reads, then every kind of write (each exactly once).
+// The assignee is an exact display name: backends never assign on a fuzzy match.
 export const ANCHOR = new Date('2026-10-04T00:00:00Z');
 export const outbound = { allowedPrivateHosts: ['127.0.0.1'] };
 export const run = <N extends JiraToolName>(b: JiraToolBackend, name: N, input: unknown) => {
@@ -28,7 +29,7 @@ export async function exercise(backend: JiraToolBackend, jira: MockJira) {
     issueKey: 'DEMO-2',
     transitionId: transitions.transitions.find((t) => t.name === 'In Progress')?.id,
   });
-  await run(backend, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'alex' });
+  await run(backend, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'Alex Martin' });
   await run(backend, 'jira_create_issue', {
     projectKey: 'DEMO',
     summary: 'Follow up',

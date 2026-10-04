@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { demoDataset, type MockJira, startMockJira } from '@agile/jira/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { JiraToolError } from './backend';
 import { createRestJiraBackend } from './rest-backend';
 import { ANCHOR, EXPECTED_WRITES, exercise, outbound, run } from './testing/scenario';
 
@@ -34,21 +35,84 @@ describe('REST Jira backend (Cloud API tokens) against the mock Jira', () => {
     expect(cloud.writes.every((w) => w.authorization === CLOUD_AUTH)).toBe(true);
   });
 
-  it('assigns by display name on Cloud, refuses ambiguous and unknown people', async () => {
-    const b = backend();
-    cloud.writes.length = 0;
-    await expect(
-      run(b, 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'Kim Dubois' }),
-    ).resolves.toMatchObject({ ok: true, issueKey: 'DEMO-3' });
-    expect(cloud.writes.map((w) => w.body)).toEqual([{ accountId: 'u-kim' }]);
-    // "m" matches Alex Martin, Sam Leroy and Kim Dubois, none exactly.
-    await expect(
-      run(b, 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'm' }),
-    ).rejects.toMatchObject({ name: 'JiraToolError', code: 'ambiguous_user' });
-    await expect(
-      run(b, 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'nobody' }),
-    ).rejects.toMatchObject({ code: 'not_found' });
-    expect(cloud.writes).toHaveLength(1);
+  it('assigns only an exact, active person on Cloud and lists candidates otherwise', async () => {
+    const jira = await startMockJira({
+      flavor: 'cloud',
+      validAuthorization: CLOUD_AUTH,
+      dataset: demoDataset(ANCHOR),
+      extraUsers: [
+        { accountId: 'u-alex-old', name: 'alex.old', displayName: 'Alex Martin', active: false },
+        { accountId: 'bot-1', name: 'bot', displayName: 'Release Bot', accountType: 'app' },
+        ...[1, 2, 3, 4, 5, 6].map((i) => ({
+          accountId: `u-ann-${i}`,
+          name: `ann${i}`,
+          displayName: `Ann ${i}`,
+        })),
+      ],
+    });
+    try {
+      const b = createRestJiraBackend(
+        { kind: 'cloud_basic', baseUrl: jira.url, email: 'pm@acme.com', apiToken: 'tok' },
+        { outbound },
+      );
+      const assign = (assignee: string) =>
+        run(b, 'jira_assign_issue', { issueKey: 'DEMO-3', assignee });
+      // The deactivated "Alex Martin" is ignored; the exact active one is resolved.
+      await expect(assign('alex martin')).resolves.toEqual({
+        ok: true,
+        issueKey: 'DEMO-3',
+        assignee: { id: 'u-alex', displayName: 'Alex Martin' },
+      });
+      await expect(assign('u-kim')).resolves.toMatchObject({
+        assignee: { id: 'u-kim', displayName: 'Kim Dubois' },
+      });
+      expect(jira.writes.map((w) => w.body)).toEqual([
+        { accountId: 'u-alex' },
+        { accountId: 'u-kim' },
+      ]);
+
+      // A single fuzzy hit is not enough: the user approved "ale", not "Alex Martin".
+      const fuzzy = await assign('ale').catch((e: unknown) => e);
+      expect(fuzzy).toBeInstanceOf(JiraToolError);
+      expect(fuzzy).toMatchObject({
+        code: 'ambiguous_user',
+        message: 'Jira tool failed: ambiguous_user',
+        candidates: [{ id: 'u-alex', displayName: 'Alex Martin' }],
+      });
+      expect((fuzzy as JiraToolError).toData()).toEqual({
+        error: 'ambiguous_user',
+        candidates: [{ id: 'u-alex', displayName: 'Alex Martin' }],
+      });
+      // "m" matches Alex Martin, Sam Leroy and Kim Dubois, none exactly; never more than 5, no emails.
+      const many = (await assign('m').catch((e: unknown) => e)) as JiraToolError;
+      expect(many.code).toBe('ambiguous_user');
+      expect([...(many.candidates ?? [])].sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: 'u-alex', displayName: 'Alex Martin' },
+        { id: 'u-kim', displayName: 'Kim Dubois' },
+        { id: 'u-sam', displayName: 'Sam Leroy' },
+      ]);
+      expect(
+        ((await assign('ann').catch((e: unknown) => e)) as JiraToolError).candidates,
+      ).toHaveLength(5);
+      // App accounts are not people; unknown people are not found.
+      await expect(assign('Release Bot')).rejects.toMatchObject({ code: 'not_found' });
+      const unknown = await assign('nobody').catch((e: unknown) => e);
+      expect(unknown).toMatchObject({ code: 'not_found' });
+      expect((unknown as JiraToolError).toData()).toEqual({ error: 'not_found' });
+      expect(jira.writes).toHaveLength(2);
+    } finally {
+      await jira.close();
+    }
+  });
+
+  it('reports more results on Cloud without inventing a total', async () => {
+    const page = (await run(backend(), 'jira_search', { jql: 'filter = 101', limit: 1 })) as {
+      total: number | null;
+      hasMore: boolean;
+      issues: { key: string }[];
+    };
+    expect(page).toMatchObject({ total: null, hasMore: true });
+    expect(page.issues.map((i) => i.key)).toEqual(['DEMO-1']);
   });
 
   it('reads boards, sprints and sprint issues through the agile API', async () => {
@@ -134,15 +198,38 @@ describe('REST Jira backend (Data Center PAT) against the mock Jira', () => {
     expect(dc.writes.every((w) => w.authorization === 'Bearer good-pat')).toBe(true);
   });
 
-  it('refuses an ambiguous user on Data Center', async () => {
+  it('assigns only an exact username on Data Center', async () => {
     dc.writes.length = 0;
     await expect(
       run(backend(), 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'm' }),
-    ).rejects.toMatchObject({ code: 'ambiguous_user' });
+    ).rejects.toMatchObject({
+      code: 'ambiguous_user',
+      candidates: [
+        { id: 'alex', displayName: 'Alex Martin' },
+        { id: 'sam', displayName: 'Sam Leroy' },
+        { id: 'kim', displayName: 'Kim Dubois' },
+      ],
+    });
+    await expect(
+      run(backend(), 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'sa' }),
+    ).rejects.toMatchObject({ code: 'ambiguous_user', candidates: [{ id: 'sam' }] });
     await expect(
       run(backend(), 'jira_assign_issue', { issueKey: 'DEMO-3', assignee: 'sam' }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toEqual({
+      ok: true,
+      issueKey: 'DEMO-3',
+      assignee: { id: 'sam', displayName: 'Sam Leroy' },
+    });
     expect(dc.writes.map((w) => w.body)).toEqual([{ name: 'sam' }]);
+  });
+
+  it("keeps Jira's total on Data Center", async () => {
+    const page = (await run(backend(), 'jira_search', { jql: 'filter = 101', limit: 1 })) as {
+      total: number | null;
+      hasMore: boolean;
+    };
+    expect(page.total).toBeGreaterThan(1);
+    expect(page.hasMore).toBe(true);
   });
 
   it('reads boards, sprints and sprint issues', async () => {
