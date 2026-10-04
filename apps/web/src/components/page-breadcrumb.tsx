@@ -11,13 +11,26 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 
-type Crumb = 'dashboard' | 'settings' | 'jira' | 'llm' | 'usage' | 'boards' | 'board' | 'agent';
+type Crumb =
+  | 'dashboard'
+  | 'settings'
+  | 'jira'
+  | 'llm'
+  | 'usage'
+  | 'boards'
+  | 'board'
+  | 'agent'
+  | 'skills'
+  | 'skill'
+  | 'delivery';
 
 const TRAILS: Record<string, Crumb[]> = {
   '/': ['dashboard'],
   '/settings/jira': ['settings', 'jira'],
   '/settings/llm': ['settings', 'llm'],
   '/settings/usage': ['settings', 'usage'],
+  '/settings/delivery': ['settings', 'delivery'],
+  '/skills': ['skills'],
 };
 
 /** Exact pages first, then the dynamic ones (/settings/jira/<id>, /boards/<id>). */
@@ -26,6 +39,7 @@ function trailFor(pathname: string): Crumb[] {
   if (pathname.startsWith('/settings/jira/')) return ['settings', 'jira', 'boards'];
   if (pathname.startsWith('/boards/')) return ['dashboard', 'board'];
   if (pathname === '/agent' || pathname.startsWith('/agent/')) return ['agent'];
+  if (pathname.startsWith('/skills/')) return ['skills', 'skill'];
   return [];
 }
 

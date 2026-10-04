@@ -5,6 +5,7 @@ import {
   deleteLlmConnection,
   ForbiddenError,
   retestLlmConnection,
+  setBackgroundLlmConnection,
   setDefaultLlmConnection,
   setLlmConnectionPrices,
 } from '@agile/connections';
@@ -92,6 +93,23 @@ export async function setDefaultLlmConnectionAction(id: string): Promise<void> {
   if (!isId(id)) return;
   await setDefaultLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
+}
+
+/** The model for background skill runs (`null`: back to the default model). */
+export async function setBackgroundLlmConnectionAction(
+  id: string | null,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const actor = await requireActor();
+  if (id !== null && !isId(id)) return { ok: false, code: 'not_found' };
+  try {
+    const result = await setBackgroundLlmConnection(connectionDeps(), actor, id);
+    if (!result.ok) return { ok: false, code: result.code };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };
+    throw e;
+  }
+  revalidatePath(PATH);
+  return { ok: true };
 }
 
 export async function setLlmPricesAction(

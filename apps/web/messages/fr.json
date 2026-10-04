@@ -55,7 +55,10 @@
     "boards": "Tableaux",
     "board": "Tableau",
     "agent": "Assistant",
-    "usage": "Consommation"
+    "usage": "Consommation",
+    "skills": "Compétences",
+    "skill": "Compétence",
+    "delivery": "Diffusion"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -192,7 +195,11 @@
     "savePrices": "Enregistrer les prix",
     "pricesSaved": "Prix enregistrés.",
     "pricesInvalid": "Saisissez des prix en nombres jusqu’à 1 000 avec au plus 6 décimales, p. ex. 3 ou 0,15.",
-    "pricesHint": "Facultatif : les prix de votre fournisseur, pour afficher le coût de l’assistant."
+    "pricesHint": "Facultatif : les prix de votre fournisseur, pour afficher le coût de l’assistant.",
+    "background": "Exécutions des compétences",
+    "useForBackground": "Utiliser pour les compétences",
+    "useDefaultForBackground": "Utiliser le modèle par défaut pour les compétences",
+    "backgroundSaved": "Modèle des exécutions de compétences mis à jour."
   },
   "boards": {
     "description": "Choisissez les tableaux à synchroniser et la correspondance de leurs statuts avec À faire, En cours et Terminé.",
@@ -570,6 +577,74 @@
     "person": "Personne",
     "formerMember": "Ancien membre",
     "unpriced": "{count, plural, one {# réponse} other {# réponses}} sans prix",
-    "pricesHint": "Les coûts utilisent les prix définis sur chaque connexion de modèle d’IA (réglages du modèle d’IA), dans la devise de votre fournisseur."
+    "pricesHint": "Les coûts utilisent les prix définis sur chaque connexion de modèle d’IA (réglages du modèle d’IA), dans la devise de votre fournisseur.",
+    "chatSection": "Réponses du chat",
+    "skillsSection": "Exécutions et brouillons de compétences",
+    "skillsHint": "Exécutions planifiées et sur alerte, « Exécuter maintenant », aperçus et brouillons de compétences. Ce ne sont pas des réponses du chat.",
+    "runs": "Exécutions et brouillons",
+    "noRows": "Rien ce mois-ci."
+  },
+  "delivery": {
+    "title": "Diffusion",
+    "intro": "Où vont les rapports des compétences : le serveur SMTP de votre espace pour les e-mails, les canaux Slack et Microsoft Teams.",
+    "empty": "Aucun canal de diffusion pour l'instant.",
+    "emptyHint": "Les compétences peuvent toujours afficher leurs rapports sur la page Compétences et sur les tableaux de bord.",
+    "add": "Ajouter un canal",
+    "addHint": "Chaque canal est testé avant d'être enregistré ; son adresse et son mot de passe sont chiffrés.",
+    "kind": "Type",
+    "kinds": {
+      "smtp": "E-mail (SMTP)",
+      "slack": "Slack",
+      "teams": "Microsoft Teams"
+    },
+    "name": "Nom du canal",
+    "url": "URL du webhook entrant",
+    "urlHint": "Slack : une URL d'Incoming Webhook. Teams : une URL de flux Workflows « lorsqu'une requête webhook est reçue ». Un court message de test est publié à l'enregistrement.",
+    "host": "Hôte SMTP",
+    "port": "Port",
+    "security": "Chiffrement",
+    "securities": {
+      "starttls": "STARTTLS (souvent port 587)",
+      "tls": "TLS (souvent port 465)",
+      "none": "Aucun (relais interne uniquement)"
+    },
+    "username": "Identifiant (facultatif)",
+    "password": "Mot de passe (facultatif)",
+    "from": "Adresse d'expédition",
+    "smtpHint": "Les e-mails des compétences sont envoyés uniquement à l'adresse du compte de chaque propriétaire. Un seul serveur SMTP par espace.",
+    "submit": "Tester et enregistrer",
+    "saved": "Canal enregistré.",
+    "removed": "Canal supprimé.",
+    "delete": "Supprimer",
+    "deleteTitle": "Supprimer ce canal ?",
+    "deleteDescription": "{name} sera supprimé. Les compétences qui y publient signaleront que le canal est introuvable.",
+    "cancel": "Annuler",
+    "readOnlyNotice": "Seuls les propriétaires et administrateurs de l'espace peuvent ajouter ou supprimer des canaux.",
+    "usedBy": "Utilisé par : {skills}",
+    "unused": "Aucune compétence ne publie ici.",
+    "lastError": "Dernière diffusion en échec : {reason}",
+    "errors": {
+      "invalid_input": "Vérifiez les champs.",
+      "duplicate": "Un canal porte déjà ce nom, ou l'espace a déjà un serveur SMTP.",
+      "insecure_transport": "Le http:// simple et le SMTP non chiffré ne sont autorisés que vers des hôtes internes autorisés par votre administrateur. Utilisez https:// ou TLS.",
+      "blocked_url": "Cette adresse n'est pas autorisée.",
+      "unreachable": "Impossible de joindre le service.",
+      "rejected": "Le service a refusé le message (HTTP {status}).",
+      "timeout": "Le service n'a pas répondu à temps.",
+      "auth_failed": "Le serveur SMTP a refusé l'identification.",
+      "invalid_channel": "Les réglages enregistrés du canal sont illisibles. Supprimez le canal et ajoutez-le à nouveau.",
+      "forbidden_role": "Seuls les propriétaires et administrateurs de l'espace peuvent ajouter ou supprimer des canaux.",
+      "not_found": "Canal introuvable.",
+      "blocked": {
+        "invalid_url": "Saisissez une URL valide.",
+        "scheme": "Seules les adresses http:// et https:// sont autorisées.",
+        "credentials": "Retirez l'identifiant et le mot de passe de l'URL.",
+        "blocked_host": "{host} est bloqué pour des raisons de sécurité.",
+        "localhost": "{host} est une adresse locale. Demandez à votre administrateur de l'ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} pointe vers une adresse de réseau privé. Demandez à votre administrateur de l'ajouter à ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Impossible de trouver {host}. Vérifiez l'adresse."
+      },
+      "unknown": "Une erreur s'est produite."
+    }
   }
 }

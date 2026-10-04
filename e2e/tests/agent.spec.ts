@@ -97,7 +97,9 @@ async function auditFor(orgId: string, issueKey: string) {
 }
 
 const velocityAnswer = 'The average velocity of DEMO Scrum is 19 points per sprint.';
-const kpi = (page: Page, selector: string) => page.locator(`${selector} [data-slot="card-title"]`);
+// The Usage page shows chat answers and skill runs apart: these tests read the chat section.
+const kpi = (page: Page, selector: string) =>
+  page.locator(`[data-usage-source="chat"] ${selector} [data-slot="card-title"]`);
 
 test('ask about velocity, then approve and reject proposed Jira comments', async ({ page }) => {
   const { orgId } = await setUpWorkspace(page);

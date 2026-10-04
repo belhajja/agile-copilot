@@ -23,7 +23,7 @@ import { startAgentHarness, textOf } from './test-harness';
 import { AgentToolError, toolErrorText } from './tool-errors';
 import { analyticsTools, jiraTools } from './tools';
 import { handleAgentRequest } from './turn';
-import { usageSummary } from './usage';
+import { recordUsage, usageSummary } from './usage';
 
 /**
  * The demo script, plus "create a padded issue": a write whose input the tool schema rewrites
@@ -356,6 +356,29 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(
       (await usageSummary(h.db, owner('org_b'), { since, allUsers: true })).map((u) => u.userId),
     ).toEqual(['user_org_b']);
+  });
+
+  it('separates chat replies from skill runs and drafts', async () => {
+    const since = new Date('2000-01-01T00:00:00Z');
+    const [row] = await h.rawDb.select().from(agentUsage).where(eq(agentUsage.orgId, 'org_a'));
+    if (!row) throw new Error('expected a chat usage row');
+    const chatBefore = await usageSummary(h.db, owner(), { since, allUsers: true, source: 'chat' });
+    expect(await usageSummary(h.db, owner(), { since, allUsers: true, source: 'skills' })).toEqual(
+      [],
+    );
+    await recordUsage(h.db, owner(), {
+      conversationId: null,
+      llmConnectionId: row.llmConnectionId,
+      provider: row.provider,
+      model: row.model,
+      usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 0 },
+      prices: { inputMicros: 1, outputMicros: 1 },
+    });
+    const skills = await usageSummary(h.db, owner(), { since, allUsers: true, source: 'skills' });
+    expect(skills).toMatchObject([{ userId: 'user_org_a', replies: 1, inputTokens: 10 }]);
+    expect(await usageSummary(h.db, owner(), { since, allUsers: true, source: 'chat' })).toEqual(
+      chatBefore,
+    );
   });
 
   it('a write tool refuses to run without a recorded approval', async () => {

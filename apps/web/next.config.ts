@@ -32,6 +32,7 @@ const config: NextConfig = {
     '@agile/agent',
     '@agile/analytics-mcp',
     '@agile/auth',
+    '@agile/automation',
     '@agile/config',
     '@agile/connections',
     '@agile/crypto',
@@ -42,10 +43,12 @@ const config: NextConfig = {
     '@agile/llm',
     '@agile/metrics',
     '@agile/net',
+    '@agile/notify',
+    '@agile/skills',
     '@agile/sync',
   ],
-  // Node-only database clients: loaded at runtime instead of being bundled.
-  serverExternalPackages: ['postgres', 'pg-boss'],
+  // Node-only clients (database, queue, SMTP, email rendering): loaded at runtime, not bundled.
+  serverExternalPackages: ['postgres', 'pg-boss', 'nodemailer', '@react-email/render'],
   // No other origin for images or connections (see src/csp.ts).
   headers: async () => securityHeaders(),
 };

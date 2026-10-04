@@ -13,14 +13,22 @@ import {
 import { requireActor, services } from '@/server/context';
 
 /** Spend this month: the workspace's per person for owners/admins, otherwise one's own. */
-export default async function UsagePage() {
-  const actor = await requireActor();
+type Rows = Awaited<ReturnType<typeof usageSummary>>;
+
+/** KPI cards and the per-person table of one usage source (chat answers, or skill runs/drafts). */
+async function UsageSection({
+  rows,
+  source,
+  title,
+  hint,
+}: {
+  rows: Rows;
+  source: 'chat' | 'skills';
+  title: string;
+  hint?: string;
+}) {
   const t = await getTranslations('usage');
   const format = await getFormatter();
-  const now = new Date();
-  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const allUsers = canManageConnections(actor.roles);
-  const rows = await usageSummary(services().db, actor, { since, allUsers });
   const total = rows.reduce(
     (a, r) => ({
       replies: a.replies + r.replies,
@@ -32,21 +40,17 @@ export default async function UsagePage() {
   );
   const money = (micros: number) =>
     format.number(micros / 1_000_000, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-
+  const count = source === 'chat' ? t('replies') : t('runs');
   return (
-    <div className="grid gap-6">
+    <section className="grid gap-4" data-usage-source={source}>
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground" data-usage-scope={allUsers ? 'all' : 'own'}>
-          {t(allUsers ? 'introAll' : 'introOwn', {
-            month: format.dateTime(since, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
-          })}
-        </p>
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
       </div>
       <div className="grid gap-4 @xl/main:grid-cols-3">
         <Card data-kpi="replies">
           <CardHeader>
-            <CardDescription>{t('replies')}</CardDescription>
+            <CardDescription>{count}</CardDescription>
             <CardTitle className="text-2xl tabular-nums">{format.number(total.replies)}</CardTitle>
           </CardHeader>
         </Card>
@@ -71,7 +75,7 @@ export default async function UsagePage() {
           <TableHeader>
             <TableRow>
               <TableHead>{t('person')}</TableHead>
-              <TableHead className="text-right">{t('replies')}</TableHead>
+              <TableHead className="text-right">{count}</TableHead>
               <TableHead className="text-right">{t('inputTokens')}</TableHead>
               <TableHead className="text-right">{t('outputTokens')}</TableHead>
               <TableHead className="text-right">{t('cost')}</TableHead>
@@ -96,6 +100,42 @@ export default async function UsagePage() {
           </TableBody>
         </Table>
       )}
+    </section>
+  );
+}
+
+/** Spend this month: the workspace's per person for owners/admins, otherwise one's own. */
+export default async function UsagePage() {
+  const actor = await requireActor();
+  const t = await getTranslations('usage');
+  const format = await getFormatter();
+  const now = new Date();
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const allUsers = canManageConnections(actor.roles);
+  const { db } = services();
+  // Skill runs and drafts are shown apart from chat answers: they are not conversations.
+  const [chat, skills] = await Promise.all([
+    usageSummary(db, actor, { since, allUsers, source: 'chat' }),
+    usageSummary(db, actor, { since, allUsers, source: 'skills' }),
+  ]);
+
+  return (
+    <div className="grid gap-6">
+      <div className="grid gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
+        <p className="text-muted-foreground" data-usage-scope={allUsers ? 'all' : 'own'}>
+          {t(allUsers ? 'introAll' : 'introOwn', {
+            month: format.dateTime(since, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+          })}
+        </p>
+      </div>
+      <UsageSection rows={chat} source="chat" title={t('chatSection')} />
+      <UsageSection
+        rows={skills}
+        source="skills"
+        title={t('skillsSection')}
+        hint={t('skillsHint')}
+      />
       <p className="text-sm text-muted-foreground">{t('pricesHint')}</p>
     </div>
   );

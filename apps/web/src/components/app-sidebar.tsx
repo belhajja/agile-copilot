@@ -1,6 +1,14 @@
 'use client';
 
-import { Bot, LayoutDashboard, MessagesSquare, PlugZap, ReceiptText } from 'lucide-react';
+import {
+  Bot,
+  LayoutDashboard,
+  MessagesSquare,
+  PlugZap,
+  ReceiptText,
+  Send,
+  Sparkles,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { ComponentProps } from 'react';
 import { NavMain } from '@/components/nav-main';
@@ -22,8 +30,10 @@ export function AppSidebar({
   const items = [
     { title: t('dashboard'), url: '/', icon: LayoutDashboard },
     { title: t('agent'), url: '/agent', icon: MessagesSquare },
+    { title: t('skills'), url: '/skills', icon: Sparkles },
     { title: t('jira'), url: '/settings/jira', icon: PlugZap },
     { title: t('llm'), url: '/settings/llm', icon: Bot },
+    { title: t('delivery'), url: '/settings/delivery', icon: Send },
     { title: t('usage'), url: '/settings/usage', icon: ReceiptText },
   ];
   return (

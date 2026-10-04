@@ -11,6 +11,7 @@
   "dependencies": {
     "@agile/agent": "workspace:*",
     "@agile/auth": "workspace:*",
+    "@agile/automation": "workspace:*",
     "@agile/config": "workspace:*",
     "@agile/connections": "workspace:*",
     "@agile/crypto": "workspace:*",
@@ -21,6 +22,8 @@
     "@agile/llm": "workspace:*",
     "@agile/metrics": "workspace:*",
     "@agile/net": "workspace:*",
+    "@agile/notify": "workspace:*",
+    "@agile/skills": "workspace:*",
     "@agile/sync": "workspace:*",
     "@ai-sdk/react": "4.0.130",
     "@next/env": "16.3.8",

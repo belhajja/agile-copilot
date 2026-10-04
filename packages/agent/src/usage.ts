@@ -1,6 +1,6 @@
 import { assertCanManage } from '@agile/connections';
 import { agentUsage, type Db, user, withOrg } from '@agile/db';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
 
 export interface TokenUsage {
@@ -108,7 +108,12 @@ export interface UsageTotals {
 export async function usageSummary(
   db: Db,
   actor: AgentActor,
-  opts: { since: Date; allUsers: boolean },
+  opts: {
+    since: Date;
+    allUsers: boolean;
+    /** `chat`: assistant replies; `skills`: skill runs, previews and drafts. Default: both. */
+    source?: 'chat' | 'skills';
+  },
 ): Promise<UsageTotals[]> {
   if (opts.allUsers) assertCanManage(actor);
   // Sums of bigint columns exceed 32 bits: cast to bigint (postgres-js returns a string) and
@@ -130,6 +135,8 @@ export async function usageSummary(
         and(
           eq(agentUsage.orgId, actor.orgId),
           gte(agentUsage.createdAt, opts.since),
+          opts.source === 'chat' ? isNotNull(agentUsage.conversationId) : undefined,
+          opts.source === 'skills' ? isNull(agentUsage.conversationId) : undefined,
           opts.allUsers ? undefined : eq(agentUsage.userId, actor.userId),
         ),
       )

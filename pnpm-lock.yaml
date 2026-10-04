@@ -35,6 +35,9 @@ importers:
       '@agile/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@agile/automation':
+        specifier: workspace:*
+        version: link:../../packages/automation
       '@agile/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -65,6 +68,12 @@ importers:
       '@agile/net':
         specifier: workspace:*
         version: link:../../packages/net
+      '@agile/notify':
+        specifier: workspace:*
+        version: link:../../packages/notify
+      '@agile/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@agile/sync':
         specifier: workspace:*
         version: link:../../packages/sync

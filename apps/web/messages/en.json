@@ -55,7 +55,10 @@
     "boards": "Boards",
     "board": "Board",
     "agent": "Assistant",
-    "usage": "Usage"
+    "usage": "Usage",
+    "skills": "Skills",
+    "skill": "Skill",
+    "delivery": "Delivery"
   },
   "dashboard": {
     "title": "Get started",
@@ -192,7 +195,11 @@
     "savePrices": "Save prices",
     "pricesSaved": "Prices saved.",
     "pricesInvalid": "Enter prices as numbers up to 1,000 with at most 6 decimals, e.g. 3 or 0.15.",
-    "pricesHint": "Optional: your provider’s prices, to show the assistant’s cost."
+    "pricesHint": "Optional: your provider’s prices, to show the assistant’s cost.",
+    "background": "Skill runs",
+    "useForBackground": "Use for skill runs",
+    "useDefaultForBackground": "Use the default for skill runs",
+    "backgroundSaved": "Skill runs model updated."
   },
   "boards": {
     "description": "Choose the boards to sync and how their statuses map to To do, In progress and Done.",
@@ -570,6 +577,74 @@
     "person": "Person",
     "formerMember": "Former member",
     "unpriced": "{count, plural, one {# answer} other {# answers}} without a price",
-    "pricesHint": "Costs use the prices set on each AI model connection (AI model settings), in your provider’s currency."
+    "pricesHint": "Costs use the prices set on each AI model connection (AI model settings), in your provider’s currency.",
+    "chatSection": "Chat answers",
+    "skillsSection": "Skill runs and drafts",
+    "skillsHint": "Scheduled and alert runs, “Run now”, previews and skill drafts. They are not chat answers.",
+    "runs": "Runs and drafts",
+    "noRows": "Nothing this month."
+  },
+  "delivery": {
+    "title": "Delivery",
+    "intro": "Where skill reports go: your workspace's SMTP server for email, Slack and Microsoft Teams channels.",
+    "empty": "No delivery channel yet.",
+    "emptyHint": "Skills can still show their reports on the Skills page and on dashboards.",
+    "add": "Add a channel",
+    "addHint": "Each channel is tested before it is saved; its address and password are stored encrypted.",
+    "kind": "Type",
+    "kinds": {
+      "smtp": "Email (SMTP)",
+      "slack": "Slack",
+      "teams": "Microsoft Teams"
+    },
+    "name": "Channel name",
+    "url": "Incoming webhook URL",
+    "urlHint": "Slack: an Incoming Webhook URL. Teams: a Workflows “when a webhook request is received” URL. A short test message is posted when you save.",
+    "host": "SMTP host",
+    "port": "Port",
+    "security": "Encryption",
+    "securities": {
+      "starttls": "STARTTLS (usually port 587)",
+      "tls": "TLS (usually port 465)",
+      "none": "None (internal relay only)"
+    },
+    "username": "Username (optional)",
+    "password": "Password (optional)",
+    "from": "Sender address",
+    "smtpHint": "Skill emails go only to each skill owner's own account address. One SMTP server per workspace.",
+    "submit": "Test and save",
+    "saved": "Channel saved.",
+    "removed": "Channel removed.",
+    "delete": "Remove",
+    "deleteTitle": "Remove this channel?",
+    "deleteDescription": "{name} will be removed. Skills that post there will report that the channel is missing.",
+    "cancel": "Cancel",
+    "readOnlyNotice": "Only workspace owners and admins can add or remove channels.",
+    "usedBy": "Used by: {skills}",
+    "unused": "No skill posts here.",
+    "lastError": "Last delivery failed: {reason}",
+    "errors": {
+      "invalid_input": "Check the fields.",
+      "duplicate": "A channel with this name already exists, or the workspace already has an SMTP server.",
+      "insecure_transport": "Plain http:// and unencrypted SMTP are only allowed for internal hosts your administrator allowed. Use https:// or TLS.",
+      "blocked_url": "This address is not allowed.",
+      "unreachable": "Could not reach the service.",
+      "rejected": "The service refused the message (HTTP {status}).",
+      "timeout": "The service did not answer in time.",
+      "auth_failed": "The SMTP server refused the login.",
+      "invalid_channel": "The stored channel settings cannot be read. Remove the channel and add it again.",
+      "forbidden_role": "Only workspace owners and admins can add or remove channels.",
+      "not_found": "Channel not found.",
+      "blocked": {
+        "invalid_url": "Enter a valid URL.",
+        "scheme": "Only http:// and https:// addresses are allowed.",
+        "credentials": "Remove the username and password from the URL.",
+        "blocked_host": "{host} is blocked for security reasons.",
+        "localhost": "{host} is a local address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "private_address": "{host} points to a private network address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
+        "unresolvable": "Could not find {host}. Check the address."
+      },
+      "unknown": "Something went wrong."
+    }
   }
 }

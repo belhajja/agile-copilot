@@ -17,6 +17,7 @@ import {
   retestLlmConnectionAction,
   setDefaultLlmConnectionAction,
 } from './actions';
+import { BackgroundModelButton } from './background-model-button';
 import { LlmPriceForm } from './llm-price-form';
 
 export async function LlmConnectionItem({
@@ -44,6 +45,7 @@ export async function LlmConnectionItem({
             {status}
           </Badge>
           {c.isDefault && <Badge variant="outline">{t('default')}</Badge>}
+          {c.isBackground && <Badge variant="outline">{t('background')}</Badge>}
         </ItemTitle>
         <ItemDescription>
           {t(`providers.${c.provider}`)} · {c.model}
@@ -71,6 +73,7 @@ export async function LlmConnectionItem({
               </Button>
             </form>
           )}
+          <BackgroundModelButton id={c.id} isBackground={c.isBackground} />
           <form action={retestLlmConnectionAction.bind(null, c.id)}>
             <Button variant="outline" size="sm">
               {t('retest')}

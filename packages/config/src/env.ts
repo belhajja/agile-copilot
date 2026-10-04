@@ -25,6 +25,16 @@ export const serverEnvSchema = z
     ATLASSIAN_OAUTH_CLIENT_SECRET: optionalString,
     /** Shared mcp-atlassian instance (streamable HTTP endpoint) for the agent's live Jira tools. */
     MCP_ATLASSIAN_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    /**
+     * The read-only mcp-atlassian twin for skill runs (background runs and builder previews):
+     * live Jira reads for Data Center PATs and Cloud OAuth. Unset = those runs use synced data only.
+     */
+    MCP_ATLASSIAN_READONLY_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    /** Skill runs (schedules, alerts, "Run now") per workspace and rolling 24 hours. */
+    SKILL_RUNS_DAILY_LIMIT: z.preprocess(
+      emptyToUndefined,
+      z.coerce.number().int().min(0).max(10_000).default(50),
+    ),
   })
   .refine(
     (e) => Boolean(e.ATLASSIAN_OAUTH_CLIENT_ID) === Boolean(e.ATLASSIAN_OAUTH_CLIENT_SECRET),
