@@ -1,6 +1,6 @@
 'use client';
 
-import { Bot, LayoutDashboard, PlugZap } from 'lucide-react';
+import { Bot, LayoutDashboard, MessagesSquare, PlugZap, ReceiptText } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { ComponentProps } from 'react';
 import { NavMain } from '@/components/nav-main';
@@ -21,8 +21,10 @@ export function AppSidebar({
   const t = useTranslations('nav');
   const items = [
     { title: t('dashboard'), url: '/', icon: LayoutDashboard },
+    { title: t('agent'), url: '/agent', icon: MessagesSquare },
     { title: t('jira'), url: '/settings/jira', icon: PlugZap },
     { title: t('llm'), url: '/settings/llm', icon: Bot },
+    { title: t('usage'), url: '/settings/usage', icon: ReceiptText },
   ];
   return (
     <Sidebar collapsible="icon" {...props}>

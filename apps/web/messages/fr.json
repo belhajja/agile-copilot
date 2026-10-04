@@ -53,7 +53,9 @@
     "workspaces": "Espaces",
     "addWorkspace": "Nouvel espace",
     "boards": "Tableaux",
-    "board": "Tableau"
+    "board": "Tableau",
+    "agent": "Assistant",
+    "usage": "Consommation"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -184,7 +186,13 @@
     },
     "deleteTitle": "Supprimer ce modèle d'IA ?",
     "deleteDescription": "La clé de {label} sera supprimée. S'il s'agissait du modèle par défaut, le modèle ajouté le plus récemment le remplace.",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "inputPrice": "Entrée, par million de jetons",
+    "outputPrice": "Sortie, par million de jetons",
+    "savePrices": "Enregistrer les prix",
+    "pricesSaved": "Prix enregistrés.",
+    "pricesInvalid": "Saisissez des nombres, par ex. 3 ou 0.15.",
+    "pricesHint": "Facultatif : les prix de votre fournisseur, pour afficher le coût de l’assistant."
   },
   "boards": {
     "description": "Choisissez les tableaux à synchroniser et la correspondance de leurs statuts avec À faire, En cours et Terminé.",
@@ -404,5 +412,106 @@
     "notEnoughData": "Pas encore assez de données",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}"
+  },
+  "agent": {
+    "title": "Assistant",
+    "history": "Conversations récentes",
+    "newChat": "Nouvelle conversation",
+    "emptyTitle": "Posez une question sur vos tableaux",
+    "emptyHint": "Par exemple : « Quelle est notre vélocité ? » ou « Comment on DEMO-1: bloqué par l’équipe API ».",
+    "placeholder": "Posez une question ou demandez une modification Jira…",
+    "inputLabel": "Message",
+    "send": "Envoyer",
+    "thinking": "Réflexion…",
+    "noModel": "Connectez d’abord un modèle d’IA",
+    "noModelHint": "L’assistant utilise le modèle d’IA par défaut de l’espace (votre propre clé).",
+    "connectModel": "Connecter un modèle d’IA",
+    "approvalHint": "Rien n’est envoyé à Jira avant votre accord.",
+    "approve": "Approuver",
+    "reject": "Refuser",
+    "approved": "Approuvé",
+    "rejected": "Refusé",
+    "input": "Requête",
+    "result": "Résultat",
+    "status": {
+      "running": "En cours",
+      "done": "Terminé",
+      "error": "Échec"
+    },
+    "fields": {
+      "site": "Site Jira",
+      "issueKey": "Ticket",
+      "projectKey": "Projet",
+      "issueType": "Type",
+      "summary": "Résumé",
+      "transitionId": "Transition",
+      "assignee": "Responsable",
+      "labels": "Étiquettes",
+      "description": "Description",
+      "body": "Commentaire",
+      "comment": "Commentaire"
+    },
+    "tools": {
+      "list_boards": "Lister les tableaux",
+      "list_metrics": "Lister les indicateurs",
+      "get_metric": "Calculer un indicateur",
+      "forecast": "Prévision",
+      "find_issues": "Chercher des tickets",
+      "explain_metric": "Expliquer un indicateur",
+      "jira_search": "Rechercher dans Jira",
+      "jira_get_issue": "Lire un ticket",
+      "jira_get_transitions": "Lire les transitions",
+      "jira_get_agile_boards": "Lire les tableaux Jira",
+      "jira_get_sprints_from_board": "Lire les sprints",
+      "jira_get_sprint_issues": "Lire les tickets du sprint",
+      "jira_add_comment": "Ajouter un commentaire",
+      "jira_transition_issue": "Déplacer un ticket",
+      "jira_assign_issue": "Assigner un ticket",
+      "jira_create_issue": "Créer un ticket",
+      "jira_update_issue": "Modifier un ticket"
+    },
+    "markupHint": "La mise en forme est convertie au format Jira à l’envoi.",
+    "assignedTo": "Assigné à {name}.",
+    "superseded": "Clos : vous êtes passé à autre chose sans approuver.",
+    "scrollDown": "Aller au dernier message",
+    "errors": {
+      "generic": "L’assistant n’a pas pu répondre. Vérifiez la connexion au modèle d’IA et réessayez.",
+      "unauthorized": "Votre session a expiré. Reconnectez-vous pour continuer.",
+      "forbidden": "Cette requête a été refusée. Rechargez la page et réessayez.",
+      "tooLarge": "Ce message est trop long. Raccourcissez-le et réessayez.",
+      "invalidRequest": "Ce message n’a pas pu être envoyé. Vérifiez-le et réessayez.",
+      "notFound": "Cette conversation n’existe plus. Commencez une nouvelle conversation.",
+      "turnInProgress": "Une autre réponse est encore en cours de rédaction dans cette conversation. Attendez qu’elle se termine, puis réessayez.",
+      "alreadyDecided": "Cette modification a déjà été approuvée ou refusée. Rechargez la page pour voir où elle en est.",
+      "approvalNotFound": "Cette modification proposée n’attend plus de décision. Rechargez la page pour voir où elle en est.",
+      "noLlm": "Aucun modèle d’IA par défaut n’est défini pour cet espace. Demandez à un administrateur d’en connecter un.",
+      "duplicateMessage": "Ce message a déjà été envoyé. Rechargez la page pour voir la conversation."
+    },
+    "toolErrors": {
+      "generic": "La requête a échoué.",
+      "ambiguous_user": "Plusieurs personnes correspondent à ce responsable.",
+      "blocked_url": "L’adresse Jira n’est pas autorisée.",
+      "forbidden": "Accès refusé.",
+      "invalid_request": "Jira a refusé la requête.",
+      "not_found": "Introuvable.",
+      "rate_limited": "Jira limite les requêtes. Réessayez dans un instant.",
+      "unauthorized": "La connexion Jira n’est pas autorisée. Vérifiez-la dans les réglages Jira.",
+      "unavailable": "Les outils Jira ne sont pas disponibles pour cette connexion.",
+      "candidates": "Personnes trouvées : {names}."
+    }
+  },
+  "usage": {
+    "title": "Consommation de l’assistant",
+    "introAll": "Jetons et coût de l’assistant pour tout l’espace en {month}.",
+    "introOwn": "Vos jetons et coût de l’assistant en {month}.",
+    "replies": "Réponses",
+    "tokens": "Jetons",
+    "inputTokens": "Jetons en entrée",
+    "outputTokens": "Jetons en sortie",
+    "cost": "Coût",
+    "person": "Personne",
+    "formerMember": "Ancien membre",
+    "unpriced": "{count, plural, one {# réponse} other {# réponses}} sans prix",
+    "pricesHint": "Les coûts utilisent les prix définis sur chaque connexion de modèle d’IA (réglages du modèle d’IA), dans la devise de votre fournisseur."
   }
 }

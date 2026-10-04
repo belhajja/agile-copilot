@@ -53,7 +53,9 @@
     "workspaces": "Workspaces",
     "addWorkspace": "New workspace",
     "boards": "Boards",
-    "board": "Board"
+    "board": "Board",
+    "agent": "Assistant",
+    "usage": "Usage"
   },
   "dashboard": {
     "title": "Get started",
@@ -184,7 +186,13 @@
     },
     "deleteTitle": "Remove this AI model?",
     "deleteDescription": "The key for {label} will be deleted. If it was the default, the most recently added model becomes the default.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "inputPrice": "Input, per 1M tokens",
+    "outputPrice": "Output, per 1M tokens",
+    "savePrices": "Save prices",
+    "pricesSaved": "Prices saved.",
+    "pricesInvalid": "Enter prices as numbers, e.g. 3 or 0.15.",
+    "pricesHint": "Optional: your provider’s prices, to show the assistant’s cost."
   },
   "boards": {
     "description": "Choose the boards to sync and how their statuses map to To do, In progress and Done.",
@@ -404,5 +412,106 @@
     "notEnoughData": "Not enough data yet",
     "cappedDays": "≥ {days} days",
     "truncated": "{shown} of {total}"
+  },
+  "agent": {
+    "title": "Assistant",
+    "history": "Recent conversations",
+    "newChat": "New chat",
+    "emptyTitle": "Ask about your boards",
+    "emptyHint": "For example: “What is our velocity?” or “Comment on DEMO-1: blocked by the API team”.",
+    "placeholder": "Ask a question or request a Jira change…",
+    "inputLabel": "Message",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "noModel": "Connect an AI model first",
+    "noModelHint": "The assistant uses your workspace’s default AI model (your own key).",
+    "connectModel": "Connect an AI model",
+    "approvalHint": "Nothing is sent to Jira until you approve.",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "input": "Request",
+    "result": "Result",
+    "status": {
+      "running": "Running",
+      "done": "Done",
+      "error": "Failed"
+    },
+    "fields": {
+      "site": "Jira site",
+      "issueKey": "Issue",
+      "projectKey": "Project",
+      "issueType": "Type",
+      "summary": "Summary",
+      "transitionId": "Transition",
+      "assignee": "Assignee",
+      "labels": "Labels",
+      "description": "Description",
+      "body": "Comment",
+      "comment": "Comment"
+    },
+    "tools": {
+      "list_boards": "List boards",
+      "list_metrics": "List metrics",
+      "get_metric": "Compute a metric",
+      "forecast": "Forecast",
+      "find_issues": "Find issues",
+      "explain_metric": "Explain a metric",
+      "jira_search": "Search Jira",
+      "jira_get_issue": "Read an issue",
+      "jira_get_transitions": "Read transitions",
+      "jira_get_agile_boards": "Read Jira boards",
+      "jira_get_sprints_from_board": "Read sprints",
+      "jira_get_sprint_issues": "Read sprint issues",
+      "jira_add_comment": "Add a comment",
+      "jira_transition_issue": "Move an issue",
+      "jira_assign_issue": "Assign an issue",
+      "jira_create_issue": "Create an issue",
+      "jira_update_issue": "Update an issue"
+    },
+    "markupHint": "Formatting is converted to Jira markup when sent.",
+    "assignedTo": "Assigned to {name}.",
+    "superseded": "Closed: you moved on without approving.",
+    "scrollDown": "Scroll to the latest message",
+    "errors": {
+      "generic": "The assistant could not answer. Check the AI model connection and try again.",
+      "unauthorized": "Your session has expired. Sign in again to keep chatting.",
+      "forbidden": "This request was refused. Reload the page and try again.",
+      "tooLarge": "This message is too long. Shorten it and try again.",
+      "invalidRequest": "This message could not be sent. Check it and try again.",
+      "notFound": "This conversation no longer exists. Start a new chat.",
+      "turnInProgress": "Another reply is still being written in this conversation. Wait for it to finish, then try again.",
+      "alreadyDecided": "This change was already approved or rejected. Reload the page to see where it stands.",
+      "approvalNotFound": "This proposed change is no longer waiting for a decision. Reload the page to see where it stands.",
+      "noLlm": "No default AI model is set for this workspace. Ask an admin to connect one.",
+      "duplicateMessage": "This message was already sent. Reload the page to see the conversation."
+    },
+    "toolErrors": {
+      "generic": "The request failed.",
+      "ambiguous_user": "Several people match this assignee.",
+      "blocked_url": "The Jira address is not allowed.",
+      "forbidden": "Permission denied.",
+      "invalid_request": "Jira refused the request.",
+      "not_found": "Not found.",
+      "rate_limited": "Jira is limiting requests. Try again in a moment.",
+      "unauthorized": "The Jira connection is not authorised. Check it in Jira settings.",
+      "unavailable": "Jira tools are not available for this connection.",
+      "candidates": "People found: {names}."
+    }
+  },
+  "usage": {
+    "title": "Assistant usage",
+    "introAll": "Tokens and cost of the assistant for the whole workspace in {month}.",
+    "introOwn": "Your assistant tokens and cost in {month}.",
+    "replies": "Answers",
+    "tokens": "Tokens",
+    "inputTokens": "Input tokens",
+    "outputTokens": "Output tokens",
+    "cost": "Cost",
+    "person": "Person",
+    "formerMember": "Former member",
+    "unpriced": "{count, plural, one {# answer} other {# answers}} without a price",
+    "pricesHint": "Costs use the prices set on each AI model connection (AI model settings), in your provider’s currency."
   }
 }
