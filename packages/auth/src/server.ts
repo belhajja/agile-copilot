@@ -205,7 +205,10 @@ export function createAuth(
           beforeAddMember: async ({ member }) => {
             const role = assertAssignableRole(member.role);
             const orgId = member.organizationId;
-            assertSeatAvailable(await seatLimit(orgId), await memberCount(orgId));
+            // The creator of a new workspace (better-auth creates the organisation first): never
+            // held to the plan, or a failing lookup would leave a workspace without its owner.
+            const used = await memberCount(orgId);
+            if (used > 0) assertSeatAvailable(await seatLimit(orgId), used);
             return { data: { ...member, role } };
           },
           // Checked again on acceptance (members only: the invitation's own seat is the one being

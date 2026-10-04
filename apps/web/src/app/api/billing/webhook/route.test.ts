@@ -108,6 +108,24 @@ describe('POST /api/billing/webhook', () => {
     expect(declared.status).toBe(413);
   });
 
+  it('answers 400 when the body cannot be read, and logs the error name', async () => {
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(
+          Object.assign(new Error('socket hang up cus_123'), { name: 'AbortError' }),
+        );
+      },
+    });
+    const res = await post(broken);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'bad_request' });
+    expect(handleStripeWebhook).not.toHaveBeenCalled();
+    const logged = errors.mock.calls.flat().join(' ');
+    expect(logged).toContain('stripe_webhook_body_unreadable');
+    expect(logged).toContain('AbortError');
+    expect(logged).not.toContain('cus_123');
+  });
+
   it('answers 500 (Stripe retries) and logs the error name only', async () => {
     const leak = Object.assign(new Error('sk_live_secret customer cus_123 failed'), {
       name: 'StripeAPIError',

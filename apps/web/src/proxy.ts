@@ -2,9 +2,9 @@ import { getSessionCookie } from 'better-auth/cookies';
 import { type NextRequest, NextResponse } from 'next/server';
 import { loginPath } from './lib/next-path';
 
-// /api/billing/webhook: Stripe, authenticated by its signature over the raw body, not a session.
-// Only that exact path (and below): the rest of /api/billing keeps the session check.
-const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth', '/api/billing/webhook'];
+const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
+// Stripe, authenticated by its signature over the raw body, not a session. Exact paths only.
+const PUBLIC_PATHS = new Set(['/api/billing/webhook']);
 // Browser navigations (Jira OAuth start/callback): keep the redirect to /login, not JSON.
 const NAVIGATION_API_PREFIXES = ['/api/jira/oauth'];
 
@@ -14,17 +14,18 @@ const under = (pathname: string, prefix: string) =>
 /** Optimistic check only — real authorization happens server-side in requireActor()/currentActor(). */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => under(pathname, p))) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => under(pathname, p))) {
+    return NextResponse.next();
+  }
   if (!getSessionCookie(request)) {
-    // Fetch clients (the chat) need a status code, not an HTML login page.
-    if (under(pathname, '/api') && !NAVIGATION_API_PREFIXES.some((p) => under(pathname, p)))
+    // Fetch clients (the chat) need a status code, not an HTML login page. Any letter case: an
+    // API-looking path never gets a login redirect.
+    const api = under(pathname.toLowerCase(), '/api');
+    if (api && !NAVIGATION_API_PREFIXES.some((p) => under(pathname, p)))
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     // Back to the page after signing in (an invitation link, for instance); /login checks it
     // again. Only page navigations: an API path is not a page to come back to.
-    const next =
-      request.method === 'GET' && !under(pathname, '/api')
-        ? `${pathname}${request.nextUrl.search}`
-        : '/';
+    const next = request.method === 'GET' && !api ? `${pathname}${request.nextUrl.search}` : '/';
     return NextResponse.redirect(new URL(loginPath(next), request.url));
   }
   return NextResponse.next();

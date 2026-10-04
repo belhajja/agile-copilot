@@ -63,8 +63,14 @@ describe('proxy', () => {
     }
   });
 
-  it('keeps the rest of /api/billing behind the session', async () => {
-    for (const path of ['/api/billing', '/api/billing/webhook-other', '/api/billing/portal']) {
+  it('makes only the exact webhook path public (no sub-paths, no other case)', async () => {
+    for (const path of [
+      '/api/billing',
+      '/api/billing/webhook-other',
+      '/api/billing/portal',
+      '/api/billing/webhook/x',
+      '/API/billing/webhook',
+    ]) {
       const res = proxy(req(path));
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: 'unauthorized' });

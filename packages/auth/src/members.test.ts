@@ -1,7 +1,8 @@
 import { auditLog, createDb } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { asc, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createAuthHolder } from './holder';
 import {
   listInvitationsForEmail,
   listPendingInvitations,
@@ -315,6 +316,84 @@ describe('workspace membership: audit and invitation privacy', () => {
       action: 'member.left',
       actorUserId: mgr?.userId,
       targetId: mgr?.userId,
+    });
+  });
+
+  describe('plan seats', () => {
+    const options = { secret: 'x'.repeat(32), baseURL: 'http://localhost:3000' };
+    /** A workspace of its own: an owner and `n` viewers who joined by invitation. */
+    const workspaceWith = async (slug: string, n: number) => {
+      const owner = await signUp(`${slug}-owner@example.com`);
+      const org = await auth.api.createOrganization({
+        headers: owner.h,
+        body: { name: slug, slug },
+      });
+      const id = org?.id ?? '';
+      for (let i = 0; i < n; i++) {
+        const person = await signUp(`${slug}-${i}@example.com`);
+        const inv = await auth.api.createInvitation({
+          headers: owner.h,
+          body: {
+            email: `${slug}-${i}@example.com`,
+            role: 'viewer' as 'admin',
+            organizationId: id,
+          },
+        });
+        await auth.api.acceptInvitation({
+          headers: person.h,
+          body: { invitationId: inv?.id ?? '' },
+        });
+      }
+      return { id, ownerH: owner.h };
+    };
+
+    it('creates a workspace with its owner without asking the plan (no orphan workspace)', async () => {
+      const seatLimit = vi.fn(async (): Promise<number | null> => {
+        throw new Error('billing unavailable');
+      });
+      const failing = createAuth({ db: conn.db, ...options, seatLimit });
+      const owner = await signUp('solo-owner@example.com');
+      const org = await failing.api.createOrganization({
+        headers: owner.h,
+        body: { name: 'Solo', slug: 'solo' },
+      });
+      expect(
+        (await listWorkspaceMembers(conn.db, org?.id ?? '')).map((m) => [m.email, m.role]),
+      ).toEqual([['solo-owner@example.com', 'owner']]);
+      expect(seatLimit).not.toHaveBeenCalled();
+    });
+
+    it('lets an owner change roles and remove people while over the plan', async () => {
+      const { id, ownerH: h } = await workspaceWith('over', 2);
+      const limited = createAuth({ db: conn.db, ...options, seatLimit: async () => 1 });
+      const [first, second] = (await listWorkspaceMembers(conn.db, id)).filter(
+        (m) => m.role === 'viewer',
+      );
+      await limited.api.updateMemberRole({
+        headers: h,
+        body: { memberId: first?.memberId ?? '', role: 'manager' as 'admin', organizationId: id },
+      });
+      await limited.api.removeMember({
+        headers: h,
+        body: { memberIdOrEmail: second?.email ?? '', organizationId: id },
+      });
+      expect((await listWorkspaceMembers(conn.db, id)).map((m) => m.role)).toEqual([
+        'owner',
+        'manager',
+      ]);
+    });
+
+    it('passes seatLimit through the auth holder (the instance the app uses)', async () => {
+      const { id, ownerH: h } = await workspaceWith('held', 1);
+      const seatLimit = vi.fn(async (_orgId: string): Promise<number | null> => 2);
+      const holder = createAuthHolder({ db: conn.db, ...options, seatLimit });
+      await expect(
+        holder.get().api.createInvitation({
+          headers: h,
+          body: { email: 'held-more@example.com', role: 'viewer' as 'admin', organizationId: id },
+        }),
+      ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SEAT_LIMIT_REACHED' } });
+      expect(seatLimit).toHaveBeenCalledWith(id);
     });
   });
 });

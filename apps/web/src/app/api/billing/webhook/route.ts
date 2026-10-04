@@ -25,6 +25,13 @@ export async function POST(request: Request) {
     if (e instanceof BodyTooLargeError) {
       return Response.json({ error: 'payload_too_large' }, { status: 413 });
     }
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'stripe_webhook_body_unreadable',
+        name: e instanceof Error ? e.name : 'unknown',
+      }),
+    );
     return Response.json({ error: 'bad_request' }, { status: 400 });
   }
   try {
