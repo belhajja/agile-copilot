@@ -85,8 +85,12 @@ export function weeklyThroughput(
 }
 
 /** Average items finished per 7 days over the trailing window (rolling, not calendar weeks). */
-export function throughputPerWeek(ds: BoardDataset, opts: { days?: number; now: Date }): number {
+export function throughputPerWeek(
+  ds: BoardDataset,
+  opts: { days?: number; now: Date },
+): number | null {
   const days = opts.days ?? 28;
+  if (!(days > 0)) return null;
   const from = ms(opts.now) - days * DAY;
   const done = ds.issues.filter((i) => {
     const end = doneAt(i);
@@ -158,7 +162,9 @@ export function agingWip(ds: BoardDataset, opts: { windowDays?: number; now: Dat
         overP85: p85 !== null && ageDays > p85,
       };
     })
-    .sort((a, b) => b.ageDays - a.ageDays || a.key.localeCompare(b.key));
+    .sort(
+      (a, b) => b.ageDays - a.ageDays || a.key.localeCompare(b.key, undefined, { numeric: true }),
+    );
 }
 
 /**

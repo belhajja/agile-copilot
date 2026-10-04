@@ -12,7 +12,12 @@ describe('Monte Carlo forecasting', () => {
 
   it('is exact when throughput never varies', () => {
     expect(forecastHowMany([2, 2, 2], { days: 10 })).toEqual({ p50: 20, p85: 20, p95: 20 });
-    expect(forecastWhen([2, 2, 2], { items: 7 })).toEqual({ p50: 4, p85: 4, p95: 4 });
+    expect(forecastWhen([2, 2, 2], { items: 7 })).toEqual({
+      p50: 4,
+      p85: 4,
+      p95: 4,
+      capped: false,
+    });
   });
 
   it('is deterministic for a seed and ordered by confidence', () => {
@@ -34,9 +39,35 @@ describe('Monte Carlo forecasting', () => {
   });
 
   it('caps runaway trials at maxDays', () => {
-    expect(
-      forecastWhen([1, 0, 0, 0, 0, 0, 0, 0, 0, 0], { items: 50, maxDays: 30, trials: 200 })?.p95,
-    ).toBe(30);
+    const capped = forecastWhen([1, 0, 0, 0, 0, 0, 0, 0, 0, 0], {
+      items: 50,
+      maxDays: 30,
+      trials: 200,
+    });
+    expect(capped?.p95).toBe(30);
+    expect(capped?.capped).toBe(true);
+  });
+
+  it('reports capped: false for normal forecasts', () => {
+    expect(forecastWhen([2, 2, 2], { items: 7 })).toEqual({
+      p50: 4,
+      p85: 4,
+      p95: 4,
+      capped: false,
+    });
+  });
+
+  it('refuses to forecast how many from an all-zero history', () => {
+    expect(forecastHowMany([0, 0, 0], { days: 5 })).toBeNull();
+  });
+
+  it('guards invalid trials and days', () => {
+    for (const trials of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(forecastHowMany([1, 2], { days: 5, trials })).toBeNull();
+      expect(forecastWhen([1, 2], { items: 5, trials })).toBeNull();
+    }
+    expect(forecastHowMany([1, 2], { days: 0 })).toBeNull();
+    expect(forecastHowMany([1, 2], { days: -3 })).toBeNull();
   });
 });
 

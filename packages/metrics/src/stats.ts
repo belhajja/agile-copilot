@@ -30,18 +30,18 @@ export function coveredMs(intervals: readonly Interval[], from: Date, to: Date):
     }))
     .filter((i) => i.end > i.start)
     .sort((a, b) => a.start - b.start);
-  let total = 0;
+  let covered = 0;
   let curStart = Number.NaN;
   let curEnd = Number.NaN;
   for (const i of clipped) {
     if (Number.isNaN(curStart) || i.start > curEnd) {
-      if (!Number.isNaN(curStart)) total += curEnd - curStart;
+      if (!Number.isNaN(curStart)) covered += curEnd - curStart;
       curStart = i.start;
       curEnd = i.end;
     } else {
       curEnd = Math.max(curEnd, i.end);
     }
   }
-  if (!Number.isNaN(curStart)) total += curEnd - curStart;
-  return total;
+  if (!Number.isNaN(curStart)) covered += curEnd - curStart;
+  return covered;
 }

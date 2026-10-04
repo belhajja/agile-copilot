@@ -10,6 +10,11 @@ export interface Forecast {
   p95: number;
 }
 
+/** A forecast needs at least one finished item in the history. */
+const hasThroughput = (samples: readonly number[]) => samples.some((s) => s > 0);
+
+const validTrials = (trials: number) => Number.isFinite(trials) && trials >= 1;
+
 /** Items finished on each of the last `historyDays` full UTC days (today excluded). */
 export function dailyThroughputSamples(
   ds: BoardDataset,
@@ -38,8 +43,8 @@ export function forecastHowMany(
   samples: readonly number[],
   opts: { days: number; trials?: number; seed?: number },
 ): Forecast | null {
-  if (samples.length === 0 || opts.days < 1) return null;
   const trials = opts.trials ?? 10_000;
+  if (!hasThroughput(samples) || !(opts.days >= 1) || !validTrials(trials)) return null;
   const rng = xoroshiro128plus(opts.seed ?? 42);
   const totals: number[] = [];
   for (let trial = 0; trial < trials; trial++) {
@@ -56,14 +61,15 @@ export function forecastHowMany(
 /**
  * "In how many days will `items` items be finished?" pXX is the number of days within which XX%
  * of trials finished, so p50 <= p85 <= p95. Trials are capped at `maxDays`. null when the history
- * has no finished items (no forecast is possible).
+ * has no finished items (no forecast is possible). `capped` is true when a percentile hit
+ * `maxDays`, i.e. the real answer is later than reported.
  */
 export function forecastWhen(
   samples: readonly number[],
   opts: { items: number; trials?: number; seed?: number; maxDays?: number },
-): Forecast | null {
-  if (samples.length === 0 || samples.every((s) => s === 0) || opts.items < 1) return null;
+): (Forecast & { capped: boolean }) | null {
   const trials = opts.trials ?? 10_000;
+  if (!hasThroughput(samples) || !(opts.items >= 1) || !validTrials(trials)) return null;
   const maxDays = opts.maxDays ?? 730;
   const rng = xoroshiro128plus(opts.seed ?? 42);
   const durations: number[] = [];
@@ -79,5 +85,9 @@ export function forecastWhen(
   durations.sort((a, b) => a - b);
   const within = (p: number) =>
     durations[Math.min(trials, Math.max(1, Math.ceil((p / 100) * trials))) - 1] ?? maxDays;
-  return { p50: within(50), p85: within(85), p95: within(95) };
+  const result = { p50: within(50), p85: within(85), p95: within(95) };
+  return {
+    ...result,
+    capped: result.p50 === maxDays || result.p85 === maxDays || result.p95 === maxDays,
+  };
 }

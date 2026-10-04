@@ -185,3 +185,21 @@ describe('flow metrics: real-Jira edge cases', () => {
     expect(flowEfficiency(empty, { now }).efficiency).toBeNull();
   });
 });
+
+describe('flow metrics: guards and ordering', () => {
+  it('throughputPerWeek is null for a non-positive window', () => {
+    const ds = flowFixture();
+    expect(throughputPerWeek(ds, { now: d(30), days: 0 })).toBeNull();
+    expect(throughputPerWeek(ds, { now: d(30), days: -7 })).toBeNull();
+  });
+
+  it('breaks aging ties by natural key order (K9 before K10)', () => {
+    const steps: [Date, 'in_progress'][] = [[d(20), 'in_progress']];
+    const ds = {
+      issues: [issue('K10', { created: d(10), steps }), issue('K9', { created: d(10), steps })],
+      sprints: [],
+      hasEstimates: true,
+    };
+    expect(agingWip(ds, { now: d(30) }).map((a) => a.key)).toEqual(['K9', 'K10']);
+  });
+});
