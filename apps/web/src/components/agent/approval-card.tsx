@@ -12,27 +12,10 @@ import {
   ConfirmationRequest,
   ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
-import { Button } from '@/components/ui/button';
+import { APPROVAL_FIELDS, CONVERTED_FIELDS } from './approval-fields';
 import type { ApprovalView } from './approval-view';
 import { ToolError } from './tool-call';
 import { assignedTo } from './tool-output';
-
-const FIELDS = [
-  'site',
-  'issueKey',
-  'projectKey',
-  'issueType',
-  'summary',
-  'transitionId',
-  'assignee',
-  'labels',
-  'description',
-  'body',
-  'comment',
-] as const;
-
-// Free text the Jira backends convert from Markdown to Jira wiki markup before sending.
-const CONVERTED = new Set<string>(['description', 'body', 'comment']);
 
 /**
  * A proposed Jira change: exactly what will be sent (tool and arguments), with Approve / Reject.
@@ -46,7 +29,6 @@ export function ApprovalCard({
   disabled,
   notSent,
   onDecision,
-  onRetry,
 }: {
   part: ToolUIPart;
   toolName: string;
@@ -55,20 +37,23 @@ export function ApprovalCard({
   /** Jira connection id → name, to show the site by name. */
   siteNames: Readonly<Record<string, string>>;
   disabled: boolean;
-  /** The decision was taken here but its request failed. */
+  /**
+   * The decision was taken here but its request failed. Resending it cannot help (the server
+   * closes an approved change it could not run): the user asks again instead.
+   */
   notSent: boolean;
   onDecision: (approvalId: string, approved: boolean) => void;
-  /** Resends the decision; only offered when retrying can help. */
-  onRetry?: () => void;
 }) {
   const t = useTranslations('agent');
   const input = (part.input ?? {}) as Record<string, unknown>;
-  const rows = FIELDS.filter((f) => input[f] !== undefined && input[f] !== '');
+  const rows = APPROVAL_FIELDS.filter((f) => input[f] !== undefined && input[f] !== '');
   const show = (f: string, v: unknown) =>
     Array.isArray(v)
       ? v.join(', ')
-      : f === 'site' && typeof v === 'string' && Object.hasOwn(siteNames, v)
-        ? siteNames[v]
+      : f === 'site'
+        ? typeof v === 'string' && Object.hasOwn(siteNames, v)
+          ? siteNames[v]
+          : t('unknownSite')
         : String(v);
   const assignee = view.state === 'output-available' ? assignedTo(part.output) : undefined;
   const closed =
@@ -99,7 +84,7 @@ export function ApprovalCard({
             <dd className="min-w-0 whitespace-pre-wrap wrap-anywhere rounded-md bg-muted/50 px-2 py-1">
               {show(f, input[f])}
             </dd>
-            {CONVERTED.has(f) && (
+            {CONVERTED_FIELDS.has(f) && (
               <dd className="text-xs text-muted-foreground">{t('markupHint')}</dd>
             )}
           </div>
@@ -121,14 +106,9 @@ export function ApprovalCard({
         </p>
       </ConfirmationRejected>
       {notSent && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" data-not-sent>
-          <p className="text-destructive">{t('notSent')}</p>
-          {onRetry && (
-            <Button variant="outline" size="sm" disabled={disabled} onClick={onRetry}>
-              {t('retry')}
-            </Button>
-          )}
-        </div>
+        <p className="text-destructive text-sm" data-not-sent>
+          {t('notSent')}
+        </p>
       )}
       {part.state === 'output-error' && <ToolError errorText={part.errorText} />}
       <ConfirmationActions className="flex-wrap">

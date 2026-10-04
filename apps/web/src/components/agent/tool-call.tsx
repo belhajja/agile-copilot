@@ -9,25 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import { CollapsibleTrigger } from '@/components/ui/collapsible';
 import { readableOutput, readToolError } from './tool-output';
 
-// Tool error codes with their own translated sentence; any other code reads as `generic`.
-const KNOWN_ERRORS = new Set([
-  'ambiguous_user',
-  'blocked_url',
-  'forbidden',
-  'invalid_request',
-  'not_found',
-  'rate_limited',
-  'unauthorized',
-  'unavailable',
-]);
-
 /** A failed tool call, translated from its code (plus the people Jira matched, if ambiguous). */
 export function ToolError({ errorText }: { errorText: string | undefined }) {
   const t = useTranslations('agent.toolErrors');
   const { code, candidates } = readToolError(errorText);
   return (
     <div className="grid gap-1 text-sm text-destructive" data-tool-error={code ?? ''}>
-      <p>{code && KNOWN_ERRORS.has(code) ? t(code) : t('generic')}</p>
+      {/* Every code the agent reports has a sentence in both languages (tested); else generic. */}
+      <p>{code ? t(code) : t('generic')}</p>
       {candidates.length > 0 && (
         <p className="wrap-anywhere text-muted-foreground">
           {t('candidates', { names: candidates.join(', ') })}

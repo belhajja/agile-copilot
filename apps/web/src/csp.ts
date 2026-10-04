@@ -7,9 +7,14 @@
  */
 export const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob:",
-  "connect-src 'self'",
+  // blob: lets the chat input read a file the user picked; nothing leaves for another origin.
+  "connect-src 'self' blob:",
+  "font-src 'self' data:",
+  "media-src 'self'",
+  "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",
+  "form-action 'self'",
   "frame-ancestors 'none'",
 ].join('; ');
 

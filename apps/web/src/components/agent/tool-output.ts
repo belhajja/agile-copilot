@@ -1,3 +1,4 @@
+import { type ToolErrorCode, toolErrorCodeOf } from '@agile/agent/tool-errors';
 import { parseUntrustedData } from '@agile/agent/untrusted';
 
 /**
@@ -12,14 +13,12 @@ export function readableOutput(output: unknown): string {
   return parsed ? JSON.stringify(parsed.value, null, 2) : output;
 }
 
-const CODE = /\(([a-z_]+)\)\.$/;
-
 /**
- * A failed tool call: the fixed sentence (`… failed (code).`), its code, and, for an ambiguous
- * assignee, the names of the people Jira matched (the envelope that follows the sentence).
+ * A failed tool call: the fixed sentence, its code (read with the agent's own parser), and, for
+ * an ambiguous assignee, the names of the people Jira matched (the envelope after the sentence).
  */
 export function readToolError(errorText: string | undefined): {
-  code: string | undefined;
+  code: ToolErrorCode | undefined;
   text: string;
   candidates: string[];
 } {
@@ -31,7 +30,7 @@ export function readToolError(errorText: string | undefined): {
         typeof c?.displayName === 'string' ? [c.displayName as string] : [],
       )
     : [];
-  return { code: CODE.exec(text)?.[1], text, candidates };
+  return { code: toolErrorCodeOf(text), text, candidates };
 }
 
 /** The person a `jira_assign_issue` result names (`assignee: { id, displayName }`). */

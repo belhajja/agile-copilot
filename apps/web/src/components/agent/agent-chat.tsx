@@ -31,6 +31,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AgentMarkdown } from './agent-markdown';
 import { ApprovalCard } from './approval-card';
 import { approvalView } from './approval-view';
+import { MAX_MESSAGE_LENGTH } from './limits';
 import { type ChatErrorKey, chatErrorKey, toAgentRequest } from './request';
 import { ToolCall } from './tool-call';
 
@@ -66,8 +67,7 @@ export function AgentChat({
   });
   const busy = status === 'submitted' || status === 'streaming';
   const errorKey = error ? chatErrorKey(error) : undefined;
-  // Network or server failure: resending the same decisions can help; a 409 cannot.
-  const retry = errorKey === 'generic' ? () => void sendMessage() : undefined;
+  const atLimit = text.length >= MAX_MESSAGE_LENGTH;
 
   // A new chat gets its own URL once it exists, so a reload keeps it.
   useEffect(() => {
@@ -114,7 +114,6 @@ export function AgentChat({
                       disabled={busy}
                       notSent={latest && status === 'error' && part.state === 'approval-responded'}
                       onDecision={(id, approved) => addToolApprovalResponse({ id, approved })}
-                      onRetry={retry}
                     />
                   ) : (
                     <ToolCall key={key} part={part} toolName={name} />
@@ -146,12 +145,23 @@ export function AgentChat({
         <PromptInputBody>
           <PromptInputTextarea
             aria-label={t('inputLabel')}
+            aria-describedby={atLimit ? 'agent-input-limit' : undefined}
             placeholder={t('placeholder')}
+            maxLength={MAX_MESSAGE_LENGTH}
             value={text}
             onChange={(e) => setText(e.currentTarget.value)}
           />
         </PromptInputBody>
-        <PromptInputFooter className="justify-end">
+        <PromptInputFooter className="justify-end gap-2">
+          {atLimit && (
+            <p
+              id="agent-input-limit"
+              className="mr-auto text-muted-foreground text-xs"
+              data-too-long
+            >
+              {t('tooLong')}
+            </p>
+          )}
           <PromptInputSubmit
             status={status}
             disabled={busy || !text.trim()}

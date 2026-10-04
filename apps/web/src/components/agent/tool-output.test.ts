@@ -46,6 +46,21 @@ describe('readToolError', () => {
     });
   });
 
+  it('reads the code of the plain sentences (approved but not sent, unknown outcome)', () => {
+    expect(readToolError('The change was approved but not sent. Ask again to retry.').code).toBe(
+      'not_executed',
+    );
+    expect(
+      readToolError('The change may or may not have reached Jira. Check Jira before asking again.')
+        .code,
+    ).toBe('unknown_outcome');
+    expect(
+      readToolError('This Jira change was not approved by the user (approval_required).').code,
+    ).toBe('approval_required');
+    // A code the agent never writes is not one.
+    expect(readToolError('The Jira request failed (made_up).').code).toBeUndefined();
+  });
+
   it('ignores trailing text that is not an envelope', () => {
     expect(readToolError('Something broke\n<data source="x">\nnot json\n</data>')).toEqual({
       code: undefined,
