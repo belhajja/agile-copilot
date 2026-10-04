@@ -46,5 +46,6 @@ export const BOARD_ERROR_CODES = [
   'board_query_rejected',
   'board_not_found',
   'interrupted',
+  'timed_out',
   'board_limit',
 ] as const;

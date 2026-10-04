@@ -341,6 +341,7 @@
       "board_query_rejected": "Jira rejected this board's filter. Check that the board's saved filter still exists and is shared.",
       "board_not_found": "This board no longer exists in Jira. Refresh the boards.",
       "interrupted": "The sync was interrupted (the worker restarted). It will be retried.",
+      "timed_out": "The sync took longer than allowed and was stopped. Boards already read are kept; the next sync tries again.",
       "board_limit": "Your plan syncs a limited number of boards. Unselect a board or upgrade on the Billing page."
     }
   },

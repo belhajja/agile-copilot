@@ -341,6 +341,7 @@
       "board_query_rejected": "Jira a refusé le filtre de ce tableau. Vérifiez que le filtre enregistré du tableau existe toujours et qu'il est partagé.",
       "board_not_found": "Ce tableau n'existe plus dans Jira. Actualisez les tableaux.",
       "interrupted": "La synchronisation a été interrompue (redémarrage du worker). Elle sera relancée.",
+      "timed_out": "La synchronisation a dépassé la durée autorisée et a été arrêtée. Les tableaux déjà lus sont conservés ; la prochaine synchronisation réessaiera.",
       "board_limit": "Votre offre synchronise un nombre limité de tableaux. Désélectionnez un tableau ou changez d'offre dans Facturation."
     }
   },

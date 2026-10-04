@@ -124,8 +124,16 @@ How the numbers are defined:
 The sync never stores raw Jira error messages: a failed sync shows a short reason (for example *Jira rejected the stored credentials*). What happens next depends on the reason:
 
 - **Retryable** (`rate_limited`, `unreachable` — including a DNS failure — and `interrupted`, when the worker stopped mid-sync): the job is retried with backoff (twice), and the scheduled sync keeps running.
+- **Too slow** (`timed_out`): a sync run stops after 25 minutes. Boards already read keep their progress; there is no immediate retry (it would only wait again), and the next scheduled sync tries again.
+- **Waiting its turn** (`workspace_busy`): another connection of the same workspace is syncing. The job is retried later; this code is never stored or shown.
 - **Board problems** (`board_query_rejected`, the board's filter was rejected by Jira; `board_not_found`; `jira_paging`; …): the other boards keep syncing; the failing board is tried again at every scheduled sync and its row shows the reason until it succeeds.
 - **Permanent** (`unauthorized`, `forbidden`, `oauth_expired`, `oauth_unavailable`, `blocked_url`): only a person can fix these, so the scheduled sync skips the connection. Fix the cause (update the token, **Reconnect with Atlassian**, ask the administrator to allow the host), then **Retest** the connection or reconnect — a successful retest or reconnect clears the error — or click **Sync now**.
+
+Limits that keep one workspace from holding up the others:
+
+- **Per request:** each Jira request, reading its body included, times out after 30 seconds.
+- **Per run:** a sync run stops at 25 minutes (`timed_out`), and its job expires after 30 minutes.
+- **Per workspace:** the sync worker runs 4 jobs at once, but only one active sync per workspace; skill runs are likewise limited to one at a time per workspace on a worker.
 
 ## Assistant
 
