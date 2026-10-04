@@ -32,8 +32,11 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
-/** Reads the body as text, refusing more than `max` bytes (Content-Length, then while streaming). */
-async function readCapped(res: Response, max: number): Promise<string> {
+/**
+ * Reads the body as text, refusing more than `max` bytes (Content-Length, then while streaming):
+ * throws ResponseTooLargeError without buffering the rest of the body.
+ */
+export async function readCapped(res: Response, max: number): Promise<string> {
   const declared = Number(res.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > max) {
     await res.body?.cancel();

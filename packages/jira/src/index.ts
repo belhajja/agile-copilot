@@ -16,7 +16,12 @@ export {
   SYNC_OVERLAP_MINUTES,
   suggestStatusMapping,
 } from './issue-normalize';
-export { createNoRedirectClient, JiraHttpError, ResponseTooLargeError } from './no-redirect-client';
+export {
+  createNoRedirectClient,
+  JiraHttpError,
+  ResponseTooLargeError,
+  readCapped,
+} from './no-redirect-client';
 export { inferDeployment, normalizeBaseUrl, normalizeCredentials } from './normalize';
 export {
   ATLASSIAN_SCOPES,
