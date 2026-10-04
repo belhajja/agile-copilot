@@ -2,7 +2,7 @@ import { isApiError, isNetworkError } from 'jira.js';
 import type { JiraFailure } from './types';
 
 const NETWORK_CODES =
-  /^(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ERR_NETWORK|UND_ERR_\w+)$/;
+  /^(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ERR_NETWORK|ECONNABORTED|UND_ERR_\w+)$/;
 
 const readField = (e: unknown, key: string): unknown =>
   typeof e === 'object' && e !== null ? (e as Record<string, unknown>)[key] : undefined;

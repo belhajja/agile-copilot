@@ -5,6 +5,32 @@ import { parseGreenhopperSprint } from './sprint-field';
 const gh = (body: string) => `com.atlassian.greenhopper.service.sprint.Sprint@1a2b[${body}]`;
 
 describe('parseGreenhopperSprint', () => {
+  it('reads a Jira 8+ string (activatedDate, empty goal, trailing keys)', () => {
+    expect(
+      parseGreenhopperSprint(
+        gh(
+          'id=1,rapidViewId=2,state=ACTIVE,name=Sprint 1,startDate=2026-01-05T09:00:00.000Z,endDate=2026-01-19T09:00:00.000Z,completeDate=<null>,activatedDate=2026-01-05T09:00:00.000Z,sequence=1,goal=,autoStartStop=false,synced=false,incompleteIssuesDestinationId=<null>',
+        ),
+      ),
+    ).toMatchObject({
+      id: 1,
+      name: 'Sprint 1',
+      completeDate: null,
+      activatedDate: '2026-01-05T09:00:00.000Z',
+      goal: '',
+    });
+  });
+
+  it('reads a Jira 7 string with the goal right after the name', () => {
+    expect(
+      parseGreenhopperSprint(
+        gh(
+          'id=3,rapidViewId=1,state=CLOSED,name=Old, sprint,goal=Be fast,startDate=2026-01-05T09:00:00.000Z,endDate=<null>,completeDate=<null>,sequence=3',
+        ),
+      ),
+    ).toMatchObject({ id: 3, name: 'Old, sprint', goal: 'Be fast', endDate: null });
+  });
+
   it('reads every field, mapping <null> dates to null', () => {
     expect(
       parseGreenhopperSprint(
@@ -20,6 +46,7 @@ describe('parseGreenhopperSprint', () => {
       startDate: '2026-08-16T10:00:00.000Z',
       endDate: '2026-08-30T09:00:00.000Z',
       completeDate: null,
+      activatedDate: null,
       goal: 'Ship it',
     });
   });

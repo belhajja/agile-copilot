@@ -7,12 +7,13 @@ export interface GreenhopperSprint {
   startDate: string | null;
   endDate: string | null;
   completeDate: string | null;
+  activatedDate: string | null;
+  /** Empty string when the sprint has no goal (Jira 8+ writes `goal=`). */
   goal: string | null;
 }
 
-// The order Jira writes the keys in. Values are free text (names and goals contain commas,
-// brackets, even "id=3"), so each key is searched for in this order, after the previous one,
-// instead of splitting the body on commas.
+// Every key Jira has ever written, in any order (Jira 7 puts `goal` after `name`, Jira 8+ after
+// `sequence`). Values are free text, so the body is cut at these `,key=` markers, never at commas.
 const KEYS = [
   'id',
   'rapidViewId',
@@ -21,52 +22,64 @@ const KEYS = [
   'startDate',
   'endDate',
   'completeDate',
+  'activatedDate',
   'sequence',
   'goal',
+  'autoStartStop',
+  'synced',
+  'incompleteIssuesDestinationId',
 ] as const;
+type Key = (typeof KEYS)[number];
 
-const text = (v: string | undefined): string | null => {
-  const t = v?.trim();
-  return t === undefined || t === '' || t === '<null>' ? null : t;
+/** `<null>` (and a missing key) means no value. */
+const value = (v: string | undefined): string | null =>
+  v === undefined || v === '<null>' ? null : v;
+const date = (v: string | undefined): string | null => {
+  const t = value(v)?.trim();
+  return t ? t : null;
 };
 
 /**
  * Parses `com.atlassian.greenhopper.service.sprint.Sprint@hex[id=1,rapidViewId=2,state=CLOSED,
- * name=..,startDate=..,endDate=..,completeDate=..,sequence=..,goal=..]`; `<null>` means missing.
- * Returns null when the text is not a sprint with a numeric id.
+ * name=..,startDate=..,...]`. Returns null when the text is not a sprint with a numeric id.
+ *
+ * Known limitation: a name or goal that itself contains `,<knownKey>=` (e.g. a goal reading
+ * "x,state=y") is cut there; Jira gives no escaping to tell it apart. The first occurrence of
+ * each key wins, so such text can only truncate the value before it.
  */
-export function parseGreenhopperSprint(value: string): GreenhopperSprint | null {
-  const open = value.indexOf('[');
-  const close = value.lastIndexOf(']');
+export function parseGreenhopperSprint(text: string): GreenhopperSprint | null {
+  const open = text.indexOf('[');
+  const close = text.lastIndexOf(']');
   if (open < 0 || close <= open) return null;
-  const body = value.slice(open + 1, close);
+  const body = text.slice(open + 1, close);
 
-  const found: { key: (typeof KEYS)[number]; marker: number; from: number }[] = [];
-  let cursor = 0;
+  const markers: { key: Key; at: number; from: number }[] = [];
   for (const key of KEYS) {
-    const marker = found.length === 0 ? `${key}=` : `,${key}=`;
-    const at =
-      found.length === 0 ? (body.startsWith(marker) ? 0 : -1) : body.indexOf(marker, cursor);
-    if (at < 0) continue;
-    found.push({ key, marker: at, from: at + marker.length });
-    cursor = at + marker.length;
+    if (body.startsWith(`${key}=`)) markers.push({ key, at: 0, from: key.length + 1 });
+    for (let i = body.indexOf(`,${key}=`); i >= 0; i = body.indexOf(`,${key}=`, i + 1)) {
+      markers.push({ key, at: i, from: i + key.length + 2 });
+    }
   }
-  const raw: Partial<Record<(typeof KEYS)[number], string>> = {};
-  found.forEach((f, i) => {
-    raw[f.key] = body.slice(f.from, found[i + 1]?.marker ?? body.length);
+  markers.sort((a, b) => a.at - b.at);
+  const seen = new Set<Key>();
+  const kept = markers.filter((m) => !seen.has(m.key) && seen.add(m.key));
+  const raw: Partial<Record<Key, string>> = {};
+  kept.forEach((m, i) => {
+    raw[m.key] = body.slice(m.from, kept[i + 1]?.at ?? body.length);
   });
 
-  if (found[0]?.key !== 'id' || !/^\d+$/.test(raw.id ?? '')) return null;
-  const state = text(raw.state)?.toLowerCase();
-  const view = Number(raw.rapidViewId);
+  if (kept[0]?.key !== 'id' || !/^\d+$/.test(raw.id ?? '')) return null;
+  const state = value(raw.state)?.trim().toLowerCase();
+  const view = value(raw.rapidViewId)?.trim();
   return {
     id: Number(raw.id),
-    rapidViewId: Number.isInteger(view) && text(raw.rapidViewId) ? view : null,
+    rapidViewId: view && /^\d+$/.test(view) ? Number(view) : null,
     state: state === 'future' || state === 'active' || state === 'closed' ? state : null,
     name: raw.name ?? '',
-    startDate: text(raw.startDate),
-    endDate: text(raw.endDate),
-    completeDate: text(raw.completeDate),
-    goal: text(raw.goal),
+    startDate: date(raw.startDate),
+    endDate: date(raw.endDate),
+    completeDate: date(raw.completeDate),
+    activatedDate: date(raw.activatedDate),
+    goal: value(raw.goal),
   };
 }

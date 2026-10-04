@@ -16,6 +16,42 @@ export interface NoRedirectClientConfig {
   schemaValidation?: 'strict' | 'lenient';
   /** Per-request deadline (default 30 s). */
   timeoutMs?: number;
+  /** Largest accepted response body (default 20 MB). */
+  maxResponseBytes?: number;
+}
+
+export const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+
+/** The response body is larger than the allowed maximum. */
+export class ResponseTooLargeError extends Error {
+  override name = 'ResponseTooLargeError';
+  constructor() {
+    super('Jira response is too large.');
+  }
+}
+
+/** Reads the body as text, refusing more than `max` bytes (Content-Length, then while streaming). */
+async function readCapped(res: Response, max: number): Promise<string> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > max) {
+    await res.body?.cancel();
+    throw new ResponseTooLargeError();
+  }
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      throw new ResponseTooLargeError();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** A non-2xx answer from Jira. `retryAfterMs` is set when Jira sent a usable Retry-After header. */
@@ -99,7 +135,7 @@ export function createNoRedirectClient(config: NoRedirectClientConfig): Client {
         await res.body?.cancel();
         throw new JiraHttpError(res.status, parseRetryAfter(res.headers.get('retry-after')));
       }
-      const text = await res.text();
+      const text = await readCapped(res, config.maxResponseBytes ?? MAX_RESPONSE_BYTES);
       let data: unknown;
       try {
         data = text ? JSON.parse(text) : undefined;

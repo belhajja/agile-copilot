@@ -203,17 +203,3 @@ export const changelogPageSchema = z.looseObject({
 export const issueChangelogSchema = z.looseObject({
   changelog: z.looseObject({ histories: z.array(historySchema).default([]) }).nullish(),
 });
-
-/** Stop paging when Jira says so, the page is empty, or the known total is reached. */
-export function isLastPage(
-  page:
-    | z.infer<typeof boardPageSchema>
-    | z.infer<typeof sprintPageSchema>
-    | z.infer<typeof changelogPageSchema>
-    | z.infer<typeof dcSearchSchema>,
-  received: number,
-  count: number,
-): boolean {
-  if (count === 0 || page.isLast === true) return true;
-  return page.total !== undefined && received >= page.total;
-}

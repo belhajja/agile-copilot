@@ -15,7 +15,7 @@ export {
   SYNC_OVERLAP_MINUTES,
   suggestStatusMapping,
 } from './issue-normalize';
-export { createNoRedirectClient, JiraHttpError } from './no-redirect-client';
+export { createNoRedirectClient, JiraHttpError, ResponseTooLargeError } from './no-redirect-client';
 export { inferDeployment, normalizeBaseUrl, normalizeCredentials } from './normalize';
 export {
   ATLASSIAN_SCOPES,
@@ -25,6 +25,7 @@ export {
   createAtlassianOAuth,
   listAccessibleJiraSites,
 } from './oauth';
+export { JiraPaginationLimitError } from './pagination';
 export { type ProbeOptions, probeJira } from './probe';
 export {
   errorRetryAfterMs,
@@ -32,6 +33,7 @@ export {
   type RetryOptions,
   withRateLimitRetry,
 } from './rate-limit';
+export { JiraRequestError } from './sanitize-error';
 export { type GreenhopperSprint, parseGreenhopperSprint } from './sprint-field';
 export type {
   IssueFieldContext,

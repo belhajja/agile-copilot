@@ -1,6 +1,7 @@
 import { createAgileClient, createCloudClient } from 'jira.js';
 import { AgileClient, Version2Client } from 'jira-js-v5';
-import { createNoRedirectClient } from './no-redirect-client';
+import { createNoRedirectClient, MAX_RESPONSE_BYTES } from './no-redirect-client';
+import { offsetPager, type PaginationLimits, tokenPager } from './pagination';
 import { type RetryOptions, withRateLimitRetry } from './rate-limit';
 import {
   boardConfigSchema,
@@ -9,12 +10,12 @@ import {
   cloudSearchSchema,
   dcSearchSchema,
   fieldListSchema,
-  isLastPage,
   issueChangelogSchema,
   sprintPageSchema,
   statusListSchema,
   toBoardInfo,
 } from './responses';
+import { sanitizeDataCenterError } from './sanitize-error';
 import type {
   JiraBoardConfig,
   JiraBoardInfo,
@@ -47,10 +48,19 @@ export interface DataSourceOptions {
   pageSize?: number;
   /** Per-request deadline (default 30 s). */
   timeoutMs?: number;
+  /** Largest accepted response body (default 20 MB). */
+  maxResponseBytes?: number;
+  /** Per-call caps against a server that never stops paging (defaults 1000 pages, 200,000 items). */
+  maxPages?: number;
+  maxItems?: number;
   retry?: RetryOptions;
 }
 
 const PAGE = 50;
+const limitsOf = (o: DataSourceOptions): PaginationLimits => ({
+  maxPages: o.maxPages,
+  maxItems: o.maxItems,
+});
 const INLINE_LIMIT = 100;
 
 /** The issue's own changelog when complete, otherwise the full one fetched separately. */
@@ -100,7 +110,13 @@ export function createJiraDataSource(
   // The first answer picks Cloud or Data Center; later requests ask the provider again.
   let impl: Promise<JiraDataSource> | undefined;
   const source = () => {
-    impl ??= creds().then((first) => flavour(first, creds, opts));
+    impl ??= creds().then(
+      (first) => flavour(first, creds, opts),
+      (e) => {
+        impl = undefined; // a transient provider failure must not break the source for good
+        throw e;
+      },
+    );
     return impl;
   };
   return {
@@ -124,11 +140,12 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
       ...(c.kind === 'cloud_basic'
         ? { host: c.baseUrl, auth: { type: 'basic', email: c.email, apiToken: c.apiToken } }
         : {
-            host: `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${c.cloudId}`,
+            host: `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${encodeURIComponent(c.cloudId)}`,
             auth: { type: 'bearer', token: c.accessToken },
           }),
       schemaValidation: 'lenient',
       timeoutMs: opts.timeoutMs,
+      maxResponseBytes: opts.maxResponseBytes,
     });
     return { jira: createCloudClient(client), agile: createAgileClient(client) };
   };
@@ -139,13 +156,15 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
   return {
     async listBoards() {
       const boards: JiraBoardInfo[] = [];
+      const pager = offsetPager(PAGE, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = boardPageSchema.parse(
           await call((k) => k.agile.board.getAllBoards({ startAt, maxResults: PAGE })),
         );
+        if (pager.isRepeat(page.values[0]?.id)) return boards;
         boards.push(...page.values.map(toBoardInfo));
         startAt += page.values.length;
-        if (isLastPage(page, startAt, page.values.length)) return boards;
+        if (pager.done(page, page.values.length)) return boards;
       }
     },
     async getBoardConfig(boardId) {
@@ -155,13 +174,15 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
     },
     async listSprints(boardId) {
       const sprints: JiraSprintInfo[] = [];
+      const pager = offsetPager(PAGE, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = sprintPageSchema.parse(
           await call((k) => k.agile.board.getAllSprints({ boardId, startAt, maxResults: PAGE })),
         );
+        if (pager.isRepeat(page.values[0]?.jiraSprintId)) return sprints;
         sprints.push(...page.values);
         startAt += page.values.length;
-        if (isLastPage(page, startAt, page.values.length)) return sprints;
+        if (pager.done(page, page.values.length)) return sprints;
       }
     },
     async listStatuses() {
@@ -172,6 +193,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
     },
     async *searchIssues(jql, fields) {
       let nextPageToken: string | undefined;
+      const pager = tokenPager(limitsOf(opts));
       do {
         const token = nextPageToken;
         const page = cloudSearchSchema.parse(
@@ -186,20 +208,22 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
           ),
         );
         if (page.issues.length > 0) yield page.issues;
-        nextPageToken = page.isLast === true ? undefined : (page.nextPageToken ?? undefined);
+        nextPageToken = pager.next(page.issues.length, page.isLast, page.nextPageToken);
       } while (nextPageToken);
     },
     async getFullChangelog(issueKey) {
       const histories: RawChangelogHistory[] = [];
+      const pager = offsetPager(100, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = changelogPageSchema.parse(
           await call((k) =>
             k.jira.issues.getChangeLogs({ issueIdOrKey: issueKey, startAt, maxResults: 100 }),
           ),
         );
+        if (pager.isRepeat(page.values[0]?.id)) return histories;
         histories.push(...page.values);
         startAt += page.values.length;
-        if (isLastPage(page, startAt, page.values.length)) return histories;
+        if (pager.done(page, page.values.length)) return histories;
       }
     },
   };
@@ -215,24 +239,38 @@ function dataCenter(
       host: c.baseUrl,
       authentication: { oauth2: { accessToken: c.token } },
       // Never follow redirects (SSRF); bound every request.
-      baseRequestConfig: { maxRedirects: 0, timeout: opts.timeoutMs ?? 30_000 },
+      baseRequestConfig: {
+        maxRedirects: 0,
+        timeout: opts.timeoutMs ?? 30_000,
+        maxContentLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
+        maxBodyLength: opts.maxResponseBytes ?? MAX_RESPONSE_BYTES,
+      },
     };
     return { v2: new Version2Client(config), agile: new AgileClient(config) };
   };
   const call = <T>(fn: (k: Awaited<ReturnType<typeof clients>>) => Promise<T>) =>
-    withRateLimitRetry(async () => fn(await clients()), opts.retry);
+    withRateLimitRetry(async () => {
+      const k = await clients();
+      try {
+        return await fn(k);
+      } catch (e) {
+        throw sanitizeDataCenterError(e);
+      }
+    }, opts.retry);
   const pageSize = opts.pageSize ?? 100;
 
   return {
     async listBoards() {
       const boards: JiraBoardInfo[] = [];
+      const pager = offsetPager(PAGE, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = boardPageSchema.parse(
           await call((k) => k.agile.board.getAllBoards<unknown>({ startAt, maxResults: PAGE })),
         );
+        if (pager.isRepeat(page.values[0]?.id)) return boards;
         boards.push(...page.values.map(toBoardInfo));
         startAt += page.values.length;
-        if (isLastPage(page, startAt, page.values.length)) return boards;
+        if (pager.done(page, page.values.length)) return boards;
       }
     },
     async getBoardConfig(boardId) {
@@ -242,15 +280,17 @@ function dataCenter(
     },
     async listSprints(boardId) {
       const sprints: JiraSprintInfo[] = [];
+      const pager = offsetPager(PAGE, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = sprintPageSchema.parse(
           await call((k) =>
             k.agile.board.getAllSprints<unknown>({ boardId, startAt, maxResults: PAGE }),
           ),
         );
+        if (pager.isRepeat(page.values[0]?.jiraSprintId)) return sprints;
         sprints.push(...page.values);
         startAt += page.values.length;
-        if (isLastPage(page, startAt, page.values.length)) return sprints;
+        if (pager.done(page, page.values.length)) return sprints;
       }
     },
     async listStatuses() {
@@ -262,6 +302,7 @@ function dataCenter(
       return fieldListSchema.parse(await call((k) => k.v2.issueFields.getFields<unknown>()));
     },
     async *searchIssues(jql, fields) {
+      const pager = offsetPager(pageSize, limitsOf(opts));
       for (let startAt = 0; ; ) {
         const page = dcSearchSchema.parse(
           await call((k) =>
@@ -274,9 +315,10 @@ function dataCenter(
             }),
           ),
         );
+        if (pager.isRepeat(page.issues[0]?.id)) return;
         if (page.issues.length > 0) yield page.issues;
         startAt += page.issues.length;
-        if (isLastPage(page, startAt, page.issues.length)) return;
+        if (pager.done(page, page.issues.length)) return;
       }
     },
     async getFullChangelog(issueKey) {
