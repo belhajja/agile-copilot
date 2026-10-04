@@ -1,4 +1,5 @@
 import { jiraSyncStates, organization } from '@agile/db';
+import { sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { discoverBoards, getSyncState, listBoards, setBoardSelection } from './boards';
@@ -90,5 +91,19 @@ describe('queue hardening', () => {
     expect(
       await enqueueScheduledSyncs({ db: h.db, boss: fakeBoss(async () => 'i'), onError: () => {} }),
     ).toBe(2);
+  });
+
+  it('does not mark queued when the worker already started (and finished) the job', async () => {
+    await h.rawDb.update(jiraSyncStates).set({ status: 'idle', lastError: null });
+    const fast = fakeBoss(async () => {
+      // the worker picks the job up before requestSync gets to flip the state
+      await h.rawDb.update(jiraSyncStates).set({ status: 'ok', lastStartedAt: sql`now()` });
+      return 'job-fast';
+    });
+    expect(await requestSync({ db: h.db, boss: fast }, owner(), a)).toEqual({
+      ok: true,
+      queued: true,
+    });
+    expect((await getSyncState(h.deps, 'org_a', a)).status).toBe('ok');
   });
 });

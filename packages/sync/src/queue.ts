@@ -7,7 +7,7 @@ import {
   organization,
   withOrg,
 } from '@agile/db';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
 import { z } from 'zod';
 import type { SyncDeps, SyncFailureCode } from './deps';
@@ -26,7 +26,7 @@ export const syncJobSchema = z.object({
 /** Failures worth retrying with backoff; everything else is stored on the sync state and final. */
 const RETRYABLE_CODES: ReadonlySet<SyncFailureCode> = new Set(['rate_limited', 'unreachable']);
 /** Failures that need a user action: the scheduled tick skips them until a manual "Sync now". */
-const PERMANENT_CODES = [
+const PERMANENT_CODES: readonly SyncFailureCode[] = [
   'unauthorized',
   'forbidden',
   'oauth_expired',
@@ -109,9 +109,15 @@ export async function requestSync(
       .from(jiraBoards)
       .where(and(eq(jiraBoards.connectionId, connectionId), eq(jiraBoards.selected, true)))
       .limit(1);
-    return board ? ('ok' as const) : ('no_boards' as const);
+    if (!board) return 'no_boards' as const;
+    // The database clock (run-sync stamps last_started_at with it): a run that starts after
+    // this instant belongs to the job we are about to send.
+    const [clock] = await tx.execute<{ requestedAt: string }>(sql`select now() as "requestedAt"`);
+    if (!clock) throw new Error('database clock unavailable');
+    // Kept as the driver's text (microsecond precision), compared as timestamptz below.
+    return { requestedAt: clock.requestedAt };
   });
-  if (check !== 'ok') return { ok: false, code: check };
+  if (typeof check === 'string') return { ok: false, code: check };
   // Send first: the state only says "queued" when a job really is. If send throws, nothing changed.
   const id = await send(deps.boss, { orgId: actor.orgId, connectionId, trigger: 'manual' });
   if (id === null) return { ok: true, queued: false }; // already queued or running
@@ -121,11 +127,17 @@ export async function requestSync(
       .values({ orgId: actor.orgId, connectionId, status: 'queued' })
       .onConflictDoUpdate({
         target: jiraSyncStates.connectionId,
-        // A running sync keeps showing as running.
-        set: {
-          status: sql`case when ${jiraSyncStates.status} = 'running' then 'running'::sync_status else 'queued'::sync_status end`,
-        },
+        set: { status: 'queued' },
+        // Never overwrite a run that already started after the request (it may even be finished).
+        setWhere: and(
+          ne(jiraSyncStates.status, 'running'),
+          or(
+            isNull(jiraSyncStates.lastStartedAt),
+            lt(jiraSyncStates.lastStartedAt, sql`${check.requestedAt}::timestamptz`),
+          ),
+        ),
       });
+    // The audit records that a sync was requested (the job was queued), whatever the state shows.
     await recordAudit(tx, {
       orgId: actor.orgId,
       actorUserId: actor.userId,

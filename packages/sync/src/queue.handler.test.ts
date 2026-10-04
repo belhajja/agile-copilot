@@ -26,13 +26,19 @@ describe('handleSyncJob', () => {
     await expect(handleSyncJob(deps, job)).rejects.toBeInstanceOf(RetryableSyncError);
   });
 
-  it.each(['unauthorized', 'jira_paging', 'already_running', 'not_found'] as const)(
-    'completes normally for permanent %s',
-    async (code) => {
-      vi.mocked(runSync).mockResolvedValue({ ok: false, code });
-      await expect(handleSyncJob(deps, job)).resolves.toEqual({ ok: false, code });
-    },
-  );
+  it.each([
+    'unauthorized',
+    'forbidden',
+    'oauth_expired',
+    'oauth_unavailable',
+    'blocked_url',
+    'jira_paging',
+    'already_running',
+    'not_found',
+  ] as const)('completes normally for permanent %s', async (code) => {
+    vi.mocked(runSync).mockResolvedValue({ ok: false, code });
+    await expect(handleSyncJob(deps, job)).resolves.toEqual({ ok: false, code });
+  });
 
   it('rejects unsupported cron intervals', () => {
     for (const bad of [0, 7, 45, 90, -5, 1.5]) expect(() => cronEvery(bad)).toThrow();
