@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
 import { deleteChannelAction } from './actions';
+import { isChannelErrorCode } from './error-codes';
 
 /** Removes a channel after confirmation; a refusal is shown as a translated message. */
 export function DeleteChannelButton({ id, name }: { id: string; name: string }) {
@@ -15,7 +16,7 @@ export function DeleteChannelButton({ id, name }: { id: string; name: string }) 
         if (result.ok) toast.success(t('removed'));
         else
           toast.error(
-            t.has(`errors.${result.code}`) ? t(`errors.${result.code}`) : t('errors.unknown'),
+            isChannelErrorCode(result.code) ? t(`errors.${result.code}`) : t('errors.unknown'),
           );
       }}
       labels={{

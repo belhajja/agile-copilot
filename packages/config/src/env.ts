@@ -30,7 +30,7 @@ export const serverEnvSchema = z
      * live Jira reads for Data Center PATs and Cloud OAuth. Unset = those runs use synced data only.
      */
     MCP_ATLASSIAN_READONLY_URL: z.preprocess(emptyToUndefined, z.url().optional()),
-    /** Skill runs (schedules, alerts, "Run now") per workspace and rolling 24 hours. */
+    /** Skill runs (schedules, alerts, "Run now") per workspace and rolling 24 hours; 0 disables runs. */
     SKILL_RUNS_DAILY_LIMIT: z.preprocess(
       emptyToUndefined,
       z.coerce.number().int().min(0).max(10_000).default(50),

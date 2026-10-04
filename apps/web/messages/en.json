@@ -630,6 +630,7 @@
       "blocked_url": "This address is not allowed.",
       "unreachable": "Could not reach the service.",
       "rejected": "The service refused the message (HTTP {status}).",
+      "rejectedNoStatus": "The service refused the message.",
       "timeout": "The service did not answer in time.",
       "auth_failed": "The SMTP server refused the login.",
       "invalid_channel": "The stored channel settings cannot be read. Remove the channel and add it again.",

@@ -361,7 +361,7 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
   it('separates chat replies from skill runs and drafts', async () => {
     const since = new Date('2000-01-01T00:00:00Z');
     const [row] = await h.rawDb.select().from(agentUsage).where(eq(agentUsage.orgId, 'org_a'));
-    if (!row) throw new Error('expected a chat usage row');
+    if (!row?.llmConnectionId) throw new Error('expected a chat usage row');
     const chatBefore = await usageSummary(h.db, owner(), { since, allUsers: true, source: 'chat' });
     expect(await usageSummary(h.db, owner(), { since, allUsers: true, source: 'skills' })).toEqual(
       [],

@@ -97,9 +97,10 @@ async function auditFor(orgId: string, issueKey: string) {
 }
 
 const velocityAnswer = 'The average velocity of DEMO Scrum is 19 points per sprint.';
-// The Usage page shows chat answers and skill runs apart: these tests read the chat section.
-const kpi = (page: Page, selector: string) =>
-  page.locator(`[data-usage-source="chat"] ${selector} [data-slot="card-title"]`);
+const kpi = (page: Page, selector: string) => page.locator(`${selector} [data-slot="card-title"]`);
+// The Usage page shows chat answers and skill runs apart: its assertions read the chat section.
+const chatKpi = (page: Page, selector: string) =>
+  kpi(page, `[data-usage-source="chat"] ${selector}`);
 
 test('ask about velocity, then approve and reject proposed Jira comments', async ({ page }) => {
   const { orgId } = await setUpWorkspace(page);
@@ -154,7 +155,7 @@ test('ask about velocity, then approve and reject proposed Jira comments', async
   await page.reload();
   await expect(page.getByText('Done: the comment is posted.')).toBeVisible();
   await page.goto('/settings/usage');
-  await expect(kpi(page, '[data-kpi="replies"]')).toHaveText('5');
+  await expect(chatKpi(page, '[data-kpi="replies"]')).toHaveText('5');
 
   // The assistant's number is the dashboard's number
   await page.goto('/');
@@ -201,7 +202,7 @@ test('a member gets no Jira change proposals and sees only their own usage', asy
     // Their own usage only: one answer, one row (theirs), not the admin's
     await member.goto('/settings/usage');
     await expect(member.locator('[data-usage-scope="own"]')).toBeVisible();
-    await expect(kpi(member, '[data-kpi="replies"]')).toHaveText('1');
+    await expect(chatKpi(member, '[data-kpi="replies"]')).toHaveText('1');
     await expect(member.locator('tbody tr')).toHaveCount(1);
     await expect(member.locator('tbody tr')).toContainText('Sam Member');
     await expect(member.getByRole('cell', { name: 'Pat Manager' })).toHaveCount(0);
@@ -211,7 +212,7 @@ test('a member gets no Jira change proposals and sees only their own usage', asy
 
   // The admin sees the whole workspace
   await page.goto('/settings/usage');
-  await expect(kpi(page, '[data-kpi="replies"]')).toHaveText('2');
+  await expect(chatKpi(page, '[data-kpi="replies"]')).toHaveText('2');
   await expect(page.locator('tbody tr')).toHaveCount(2);
 });
 

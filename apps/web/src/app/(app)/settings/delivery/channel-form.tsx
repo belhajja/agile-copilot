@@ -9,6 +9,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/c
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { type ChannelFormState, createChannelAction } from './actions';
+import { isChannelErrorCode } from './error-codes';
 
 const KINDS = ['slack', 'teams', 'smtp'] as const;
 type Kind = (typeof KINDS)[number];
@@ -37,7 +38,7 @@ export function ChannelForm() {
         ? t(`errors.blocked.${state.reason}`, { host: state.host ?? '' })
         : state.code === 'rejected'
           ? t('errors.rejected', { status: String(state.httpStatus ?? '') })
-          : t.has(`errors.${state.code}`)
+          : isChannelErrorCode(state.code)
             ? t(`errors.${state.code}`)
             : t('errors.unknown');
 

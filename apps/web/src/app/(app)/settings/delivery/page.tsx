@@ -22,6 +22,7 @@ import {
 import { requireActor, services } from '@/server/context';
 import { ChannelForm } from './channel-form';
 import { DeleteChannelButton } from './delete-channel-button';
+import { isChannelErrorCode } from './error-codes';
 
 /** Where skill reports go: the workspace's SMTP server and Slack/Teams webhooks. */
 export default async function DeliverySettingsPage() {
@@ -73,8 +74,10 @@ export default async function DeliverySettingsPage() {
                   {c.lastError && (
                     <p className="text-sm text-destructive">
                       {t('lastError', {
-                        reason: t.has(`errors.${c.lastError}`)
-                          ? t(`errors.${c.lastError}`, { status: '' })
+                        reason: isChannelErrorCode(c.lastError)
+                          ? c.lastError === 'rejected'
+                            ? t('errors.rejectedNoStatus')
+                            : t(`errors.${c.lastError}`)
                           : t('errors.unknown'),
                       })}
                     </p>

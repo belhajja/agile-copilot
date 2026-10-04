@@ -21,7 +21,9 @@ export function BackgroundModelButton({ id, isBackground }: { id: string; isBack
           if (result.ok) toast.success(t('backgroundSaved'));
           else
             toast.error(
-              t.has(`errors.${result.code}`) ? t(`errors.${result.code}`) : t('errors.unknown'),
+              result.code === 'not_found' || result.code === 'forbidden_role'
+                ? t(`errors.${result.code}`)
+                : t('errors.unknown'),
             );
         })
       }
