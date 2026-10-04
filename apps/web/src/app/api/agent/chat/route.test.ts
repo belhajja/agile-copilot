@@ -96,6 +96,12 @@ describe('POST /api/agent/chat', () => {
     expect(handleAgentRequest).not.toHaveBeenCalled();
   });
 
+  it('refuses a body above 64 KB with 413 before reading it', async () => {
+    const res = await post('x', { 'content-length': String(64 * 1024 + 1) });
+    expect(res.status).toBe(413);
+    expect(handleAgentRequest).not.toHaveBeenCalled();
+  });
+
   it('passes unparsable bodies on as null (the agent answers 400)', async () => {
     await post('{not json');
     expect(handleAgentRequest).toHaveBeenCalledWith({ deps: 'stub' }, owner, null);

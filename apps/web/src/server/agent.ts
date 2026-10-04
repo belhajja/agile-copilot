@@ -22,6 +22,8 @@ export function agentDeps(): AgentDeps {
           name: error instanceof Error ? error.name : undefined,
         }),
       ),
+    // Deployment-trusted: credentials are sent to this URL and it is not checked against the
+    // outbound policy. It must point at the internal compose service only, never a tenant value.
     mcpAtlassianUrl: services().env.MCP_ATLASSIAN_URL,
   };
 }
