@@ -31,7 +31,11 @@ export const session = pgTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     activeOrganizationId: text('active_organization_id'),
   },
-  (table) => [index('session_userId_idx').on(table.userId)],
+  (table) => [
+    index('session_userId_idx').on(table.userId),
+    // The daily retention purge deletes expired sessions in batches (no sequential scan).
+    index('session_expires_at_idx').on(table.expiresAt),
+  ],
 );
 
 export const account = pgTable(
@@ -71,7 +75,10 @@ export const verification = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index('verification_identifier_idx').on(table.identifier)],
+  (table) => [
+    index('verification_identifier_idx').on(table.identifier),
+    index('verification_expires_at_idx').on(table.expiresAt),
+  ],
 );
 
 export const organization = pgTable('organization', {

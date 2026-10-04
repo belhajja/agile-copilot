@@ -246,6 +246,13 @@
       "when": 1791148374686,
       "tag": "0034_final_sign_in_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791149048046,
+      "tag": "0035_final_sync_lease_and_expiry_indexes",
+      "breakpoints": true
     }
   ]
 }

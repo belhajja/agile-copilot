@@ -111,6 +111,11 @@ export const jiraSyncStates = pgTable(
     lastSuccessAt: ts('last_success_at'),
     /** A stable failure code (never raw error text, which could carry secrets). */
     lastError: text('last_error'),
+    /**
+     * The run that holds the lease. Every write of a run is fenced on it, so a run whose lease
+     * was taken over (a stalled worker) can no longer write next to the new one.
+     */
+    leaseRunId: uuid('lease_run_id'),
     updatedAt,
   },
   (t) => [tenantPolicy('jira_sync_states', t.orgId)],
