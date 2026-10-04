@@ -29,7 +29,10 @@ async function orgIdOf(email: string) {
   return row.orgId;
 }
 
-/** Test-only stand-in for an accepted invitation: `email` joins `orgId` as a member. */
+/**
+ * Test-only stand-in for an accepted invitation (there is no invitation UI yet): it writes what
+ * accepting one produces, a `member` row with role `member` and the session's active workspace.
+ */
 async function joinAsMember(email: string, orgId: string) {
   await asOwner(sql`
     insert into member (id, organization_id, user_id, role, created_at)
@@ -117,20 +120,20 @@ test('ask about velocity, then approve and reject proposed Jira comments', async
   await card.getByRole('button', { name: 'Approve' }).click();
   await expect(page.getByText('Done: the comment is posted.')).toBeVisible();
   await expect(card.getByText('Approved')).toBeVisible();
-  expect(await jiraWrites(page)).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        method: 'POST',
-        path: '/rest/api/2/issue/DEMO-1/comment',
-        body: { body: comment },
-      }),
-    ]),
-  );
-  expect(await auditFor(orgId, 'DEMO-1')).toEqual([
-    'agent_action.proposed',
-    'agent_action.approved',
-    'agent_action.executed',
-  ]);
+  // Exactly one write with this run's text, and it stays one (a late duplicate would show here).
+  const posted = async () =>
+    (await jiraWrites(page))
+      .filter((w) => w.path === '/rest/api/2/issue/DEMO-1/comment' && w.body?.body === comment)
+      .map(({ method, path, body }) => ({ method, path, body }));
+  const once = [
+    { method: 'POST', path: '/rest/api/2/issue/DEMO-1/comment', body: { body: comment } },
+  ];
+  await expect.poll(posted).toEqual(once);
+  await page.waitForTimeout(1_500);
+  await expect.poll(posted).toEqual(once);
+  await expect
+    .poll(() => auditFor(orgId, 'DEMO-1'))
+    .toEqual(['agent_action.proposed', 'agent_action.approved', 'agent_action.executed']);
 
   // Rejected: nothing is written
   const other = `Ready for review ${Date.now()}`;
@@ -141,10 +144,9 @@ test('ask about velocity, then approve and reject proposed Jira comments', async
   await expect(page.getByText('Understood, I did not post the comment.')).toBeVisible();
   await expect(second.getByText('Rejected')).toBeVisible();
   expect((await jiraWrites(page)).some((w) => w.body?.body === other)).toBe(false);
-  expect(await auditFor(orgId, 'DEMO-2')).toEqual([
-    'agent_action.proposed',
-    'agent_action.rejected',
-  ]);
+  await expect
+    .poll(() => auditFor(orgId, 'DEMO-2'))
+    .toEqual(['agent_action.proposed', 'agent_action.rejected']);
 
   // The conversation survives a reload (stored server-side), and spend is metered
   await page.reload();
@@ -192,11 +194,11 @@ test('a member gets no Jira change proposals and sees only their own usage', asy
     ).toBeVisible({ timeout: 60_000 });
     await expect(member.locator('[data-approval]')).toHaveCount(0);
     expect((await jiraWrites(member)).some((w) => w.body?.body === note)).toBe(false);
-    expect(await auditFor(orgId, 'DEMO-4')).toEqual([]);
+    await expect.poll(() => auditFor(orgId, 'DEMO-4')).toEqual([]);
 
     // Their own usage only: one answer, one row (theirs), not the admin's
     await member.goto('/settings/usage');
-    await expect(member.getByText(/^Your assistant tokens and cost/)).toBeVisible();
+    await expect(member.locator('[data-usage-scope="own"]')).toBeVisible();
     await expect(kpi(member, '[data-kpi="replies"]')).toHaveText('1');
     await expect(member.locator('tbody tr')).toHaveCount(1);
     await expect(member.locator('tbody tr')).toContainText('Sam Member');
@@ -215,15 +217,18 @@ test('the assistant fits a phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await setUpWorkspace(page);
   await page.goto('/agent');
-  const noOverflow = async () =>
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      ),
-    ).toBeLessThanOrEqual(0);
+  const noOverflow = () =>
+    expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        ),
+      )
+      .toBeLessThanOrEqual(0);
 
   await ask(page, 'What is our velocity?');
   await expect(page.getByText(velocityAnswer)).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('[data-tool="get_metric"]')).toBeVisible();
   await noOverflow();
 
   await ask(page, 'Please comment on DEMO-3: Needs a test plan');

@@ -37,7 +37,7 @@ export default async function UsagePage() {
     <div className="grid gap-6">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">
+        <p className="text-muted-foreground" data-usage-scope={allUsers ? 'all' : 'own'}>
           {t(allUsers ? 'introAll' : 'introOwn', {
             month: format.dateTime(since, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
           })}
