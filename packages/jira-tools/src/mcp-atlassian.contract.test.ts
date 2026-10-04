@@ -18,8 +18,11 @@ import {
   EXPECTED_WRITES,
   exercise,
   outbound,
+  SCENARIO_COMMENT,
   SCENARIO_DESCRIPTION,
 } from './testing/scenario';
+import { WIKI_CASES } from './testing/wiki-cases';
+import { markdownToJiraWiki } from './wiki';
 
 // The mock Jira runs in this process; the containers reach it through Testcontainers' SSH port
 // forwarder under a hostname (mcp-atlassian refuses IP-literal Jira URLs even when allowlisted).
@@ -244,16 +247,14 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
     expect(image.transitions).toEqual({
       transitions: rest.transitions.transitions.map((t) => ({ ...t, to: null })),
     });
-    // The same request bodies (labels included: mcp-atlassian drops fields Jira does not list),
-    // except the description: mcp-atlassian converts the model's Markdown to Jira wiki markup on
-    // Data Center, while the REST backend sends it as written.
-    const imageBodies = viaImage.writes.map((w) => w.body);
-    const restBodies = viaRest.writes.map((w) => w.body);
-    expect(imageBodies.slice(0, -1)).toEqual(restBodies.slice(0, -1));
-    expect(restBodies.at(-1)).toEqual({
-      fields: { labels: ['risk'], description: SCENARIO_DESCRIPTION },
+    // IDENTICAL request bodies (P3-R19): the model's Markdown comment and description arrive as
+    // the same Jira wiki markup; labels arrive too (mcp-atlassian drops fields Jira does not list).
+    expect(viaImage.writes.map((w) => w.body)).toEqual(viaRest.writes.map((w) => w.body));
+    expect(viaRest.writes[0]?.body).toEqual({ body: markdownToJiraWiki(SCENARIO_COMMENT) });
+    expect(viaRest.writes[0]?.body).toEqual({
+      body: 'Blocked by the *API* team:\n* {{npm ci}} fails',
     });
-    expect(imageBodies.at(-1)).toEqual({
+    expect(viaRest.writes.at(-1)?.body).toEqual({
       fields: { labels: ['risk'], description: '*Risk:* the API team is late' },
     });
     // Both Jiras end in the same state where the agent can see it.
@@ -295,6 +296,23 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
     expect(viaImage.requests.length).toBeGreaterThan(EXPECTED_WRITES.length);
     expect(new Set(viaImage.requests.map((r) => r.authorization))).toEqual(
       new Set(['Bearer good-pat']),
+    );
+  });
+
+  it('converts Markdown exactly like the image’s own converter (REST backend parity)', async () => {
+    // mcp-atlassian's JiraPreprocessor.markdown_to_jira, run inside the running image.
+    const script = [
+      'import json, sys',
+      'from mcp_atlassian.preprocessing.jira import JiraPreprocessor',
+      'p = JiraPreprocessor(base_url="")',
+      'print(json.dumps([p.markdown_to_jira(c) for c in json.loads(sys.argv[1])]))',
+    ].join('\n');
+    const corpus = [...WIKI_CASES.map(([md]) => md), SCENARIO_COMMENT, SCENARIO_DESCRIPTION];
+    const r = await shared.exec(['python', '-c', script, JSON.stringify(corpus)]);
+    expect(r.exitCode).toBe(0);
+    const theirs = JSON.parse(r.stdout) as string[];
+    expect(corpus.map((md, i) => ({ md, wiki: theirs[i] }))).toEqual(
+      corpus.map((md) => ({ md, wiki: markdownToJiraWiki(md) })),
     );
   });
 
@@ -370,7 +388,7 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       'POST /rest/api/2/issue',
       'PUT /rest/api/2/issue/DEMO-3',
     ]);
-    // Markdown emphasis becomes wiki markup on the way (the REST backend sends it as written).
+    // Markdown emphasis becomes wiki markup on the way, as markdownToJiraWiki does for REST.
     expect(jira.writes.at(-1)?.body).toEqual({
       fields: { summary: 'Renamed', labels: ['risk'], description: 'Needs a _review_' },
     });

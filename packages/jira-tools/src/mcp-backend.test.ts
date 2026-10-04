@@ -52,7 +52,7 @@ describe('mcp-atlassian backend through the double', () => {
     const r = await exercise(backend(), dc);
     expect(r.writes).toEqual(EXPECTED_WRITES);
     expect(dc.writes[0]).toMatchObject({
-      body: { body: 'Blocked by the API team' },
+      body: { body: 'Blocked by the *API* team:\n* {{npm ci}} fails' },
       authorization: 'Bearer good-pat',
     });
     expect(double.calls.at(0)).toMatchObject({ name: 'jira_search', jiraUrl: dc.url });

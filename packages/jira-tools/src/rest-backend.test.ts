@@ -29,7 +29,9 @@ describe('REST Jira backend (Cloud API tokens) against the mock Jira', () => {
     expect(r.found.issues.map((i) => i.key)).toEqual(['DEMO-1', 'DEMO-2', 'DEMO-3']);
     expect(r.issue.summary).toBe('Set up the release pipeline');
     expect(r.writes).toEqual(EXPECTED_WRITES);
-    expect(cloud.writes[0]?.body).toEqual({ body: 'Blocked by the API team' });
+    expect(cloud.writes[0]?.body).toEqual({
+      body: 'Blocked by the *API* team:\n* {{npm ci}} fails',
+    });
     // Cloud identifies the assignee by accountId.
     expect(cloud.writes[2]?.body).toEqual({ accountId: 'u-alex' });
     expect(cloud.writes.every((w) => w.authorization === CLOUD_AUTH)).toBe(true);
@@ -196,6 +198,42 @@ describe('REST Jira backend (Data Center PAT) against the mock Jira', () => {
     expect(r.writes).toEqual(EXPECTED_WRITES);
     expect(dc.writes[2]?.body).toEqual({ name: 'alex' });
     expect(dc.writes.every((w) => w.authorization === 'Bearer good-pat')).toBe(true);
+  });
+
+  it('posts Markdown as Jira wiki markup, like mcp-atlassian (comments, descriptions)', async () => {
+    dc.writes.length = 0;
+    const md = '**Risk:** see `npm ci`\n- one';
+    const wiki = '*Risk:* see {{npm ci}}\n* one';
+    await run(backend(), 'jira_add_comment', { issueKey: 'DEMO-1', body: md });
+    await run(backend(), 'jira_transition_issue', {
+      issueKey: 'DEMO-2',
+      transitionId: '21',
+      comment: md,
+    });
+    await run(backend(), 'jira_create_issue', {
+      projectKey: 'DEMO',
+      summary: '**Not** converted',
+      issueType: 'Task',
+      description: md,
+    });
+    await run(backend(), 'jira_update_issue', {
+      issueKey: 'DEMO-3',
+      summary: '**Not** converted',
+      description: md,
+    });
+    expect(dc.writes.map((w) => w.body)).toEqual([
+      { body: wiki },
+      { transition: { id: '21' }, update: { comment: [{ add: { body: wiki } }] } },
+      {
+        fields: {
+          project: { key: 'DEMO' },
+          summary: '**Not** converted',
+          issuetype: { name: 'Task' },
+          description: wiki,
+        },
+      },
+      { fields: { summary: '**Not** converted', description: wiki } },
+    ]);
   });
 
   it('assigns only an exact username on Data Center', async () => {

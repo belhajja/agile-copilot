@@ -9,6 +9,7 @@ import {
   type JiraUserCandidate,
 } from './backend';
 import { isJiraToolName, type JiraToolInput, type JiraToolName } from './catalog';
+import { markdownToJiraWiki as wiki } from './wiki';
 
 type RestCredentials = Extract<JiraCredentials, { kind: 'cloud_basic' | 'datacenter_pat' }>;
 
@@ -55,7 +56,8 @@ const brief = (i: RawIssue) => ({
  * Jira tools over Jira's REST API with our own redirect-refusing, DNS-pinned client. Used for Cloud
  * API-token connections, which mcp-atlassian can only serve from one instance per site (see the
  * Phase 3 rulings), and by the e2e double. REST v2 everywhere: on Cloud it still takes and returns
- * plain-text bodies (no ADF), which keeps comments identical across deployments.
+ * wiki-markup bodies (no ADF). The model's Markdown (comments, descriptions) is converted exactly as
+ * mcp-atlassian converts it, so both backends post the same text (ruling P3-R19).
  */
 export function createRestJiraBackend(
   creds: RestCredentials,
@@ -241,7 +243,9 @@ export function createRestJiraBackend(
       return { total, hasMore: total !== null && total > issues.length, issues };
     },
     async jira_add_comment({ issueKey, body }, signal) {
-      const c = (await request(signal, 'POST', `${issuePath(issueKey)}/comment`, { body })) as {
+      const c = (await request(signal, 'POST', `${issuePath(issueKey)}/comment`, {
+        body: wiki(body),
+      })) as {
         id?: unknown;
       };
       return { ok: true, issueKey, commentId: c?.id ?? null };
@@ -249,7 +253,7 @@ export function createRestJiraBackend(
     async jira_transition_issue({ issueKey, transitionId, comment }, signal) {
       await request(signal, 'POST', `${issuePath(issueKey)}/transitions`, {
         transition: { id: transitionId },
-        ...(comment ? { update: { comment: [{ add: { body: comment } }] } } : {}),
+        ...(comment ? { update: { comment: [{ add: { body: wiki(comment) } }] } } : {}),
       });
       return { ok: true, issueKey, transitionId };
     },
@@ -269,7 +273,7 @@ export function createRestJiraBackend(
           project: { key: projectKey },
           summary,
           issuetype: { name: issueType },
-          ...(description ? { description } : {}),
+          ...(description ? { description: wiki(description) } : {}),
         },
       })) as { key?: unknown };
       return { ok: true, key: s(created?.key) };
@@ -278,7 +282,7 @@ export function createRestJiraBackend(
       await request(signal, 'PUT', issuePath(issueKey), {
         fields: {
           ...(summary ? { summary } : {}),
-          ...(description ? { description } : {}),
+          ...(description ? { description: wiki(description) } : {}),
           ...(labels ? { labels } : {}),
         },
       });
