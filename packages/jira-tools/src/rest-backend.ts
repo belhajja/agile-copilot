@@ -3,6 +3,7 @@ import { createOutboundFetch, isBlockedAddressError, type OutboundPolicy } from 
 import {
   callSignal,
   codeForStatus,
+  isoTime,
   type JiraToolBackend,
   JiraToolError,
   type JiraUserCandidate,
@@ -47,7 +48,7 @@ const brief = (i: RawIssue) => ({
   status: s(i.fields?.status?.name),
   assignee: s(i.fields?.assignee?.displayName),
   type: s(i.fields?.issuetype?.name),
-  updated: s(i.fields?.updated),
+  updated: isoTime(i.fields?.updated),
 });
 
 /**

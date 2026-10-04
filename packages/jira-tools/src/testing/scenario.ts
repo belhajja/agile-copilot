@@ -29,14 +29,23 @@ export async function exercise(backend: JiraToolBackend, jira: MockJira) {
     issueKey: 'DEMO-2',
     transitionId: transitions.transitions.find((t) => t.name === 'In Progress')?.id,
   });
-  await run(backend, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'Alex Martin' });
+  const assigned = await run(backend, 'jira_assign_issue', {
+    issueKey: 'DEMO-2',
+    assignee: 'Alex Martin',
+  });
   await run(backend, 'jira_create_issue', {
     projectKey: 'DEMO',
     summary: 'Follow up',
     issueType: 'Task',
   });
   await run(backend, 'jira_update_issue', { issueKey: 'DEMO-3', labels: ['risk'] });
-  return { found, issue, writes: jira.writes.map((w) => `${w.method} ${w.path}`) };
+  return {
+    found,
+    issue,
+    transitions,
+    assigned,
+    writes: jira.writes.map((w) => `${w.method} ${w.path}`),
+  };
 }
 
 export const EXPECTED_WRITES = [

@@ -73,3 +73,19 @@ export function codeForStatus(status: number): JiraToolErrorCode {
   if (status >= 400 && status < 500) return 'invalid_request';
   return 'jira_error';
 }
+
+const JIRA_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
+const MCP_UTC_TIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/;
+
+/**
+ * A time as both backends show it: ISO 8601 UTC to the second. Reads Jira's
+ * `2026-10-03T12:00:00.000+0200` and mcp-atlassian 0.23.1's `2026-10-03 10:00:00 UTC` (it formats
+ * times in its container's zone, UTC in our deployments); any other text is passed on unchanged.
+ */
+export function isoTime(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const mcp = MCP_UTC_TIME.exec(v);
+  const iso = mcp ? `${mcp[1]}T${mcp[2]}Z` : JIRA_TIME.test(v) ? v : null;
+  const ms = iso ? Date.parse(iso.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : Number.NaN;
+  return Number.isNaN(ms) ? v : `${new Date(ms).toISOString().slice(0, 19)}Z`;
+}

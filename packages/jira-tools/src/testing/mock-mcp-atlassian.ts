@@ -38,6 +38,13 @@ const reject = (res: ServerResponse, error: string) => {
   res.end(JSON.stringify({ error }));
 };
 
+const mcpTime = (v: unknown) => {
+  const d = typeof v === 'string' ? new Date(v) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`
+    : v;
+};
+
 /** The REST backend's search result in mcp-atlassian 0.23.1's `jira_search` shape (Data Center). */
 function mcpSearchResult(out: unknown, limit: unknown) {
   const r = out as { total: number | null; issues: Obj[] };
@@ -55,7 +62,8 @@ function mcpSearchResult(out: unknown, limit: unknown) {
           ? { display_name: 'Unassigned' }
           : { display_name: i.assignee, name: i.assignee, account_id: null },
       issue_type: { name: i.type },
-      updated: i.updated,
+      // mcp-atlassian formats times as "YYYY-MM-DD HH:MM:SS <zone>" in its own zone (UTC here).
+      updated: mcpTime(i.updated),
     })),
   };
 }
@@ -65,7 +73,7 @@ function mcpSearchResult(out: unknown, limit: unknown) {
  * Same tool names and argument names as mcp-atlassian 0.23.1 for the enabled tools (the catalog
  * plus the backend-only `jira_search_assignable_users`), same per-request header contract for Data
  * Center PATs (credential-less requests get 401), mcp-atlassian's result shapes where the backend
- * reads them (search, assignable users, assignment), and the calls really reach Jira (the mock
+ * reads them (search, transitions, assignable users, assignment), and the calls really reach Jira (the mock
  * Jira) through the REST backend. The contract test checks the real image against the same
  * expectations.
  */
@@ -122,6 +130,11 @@ export async function startMockMcpAtlassian(
           try {
             const out = await backend.call(name, parsed.data as never);
             if (name === 'jira_search') return text(mcpSearchResult(out, args.limit));
+            if (name === 'jira_get_transitions') {
+              // mcp-atlassian 0.23.1: a bare list, integer ids, no target status against Jira.
+              const { transitions } = out as { transitions: { id: string; name: string }[] };
+              return text(transitions.map((t) => ({ id: Number(t.id), name: t.name })));
+            }
             if (name === 'jira_assign_issue') {
               const who = (out as { assignee: { id: string; displayName: string } }).assignee;
               return text({

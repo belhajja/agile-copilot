@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   callSignal,
+  isoTime,
   type JiraToolBackend,
   JiraToolError,
   type JiraToolErrorCode,
@@ -95,13 +96,31 @@ export function searchFromMcp(raw: unknown, limit: number) {
       status: s(obj(i.status).name),
       assignee: assigned ? s(a.display_name) : null,
       type: s(obj(i.issue_type).name),
-      updated: s(i.updated),
+      updated: isoTime(i.updated),
     };
   });
   return {
     total,
     hasMore: total !== null ? total > start + issues.length : !!r.next_page_token,
     issues,
+  };
+}
+
+/**
+ * mcp-atlassian's `jira_get_transitions` result (a bare list, numeric ids, and against Jira no
+ * target status) → the REST backend's `{ transitions: [{ id, name, to }] }`, with string ids the
+ * model can send back as `jira_transition_issue` input.
+ */
+export function transitionsFromMcp(raw: unknown) {
+  return {
+    transitions: (Array.isArray(raw) ? raw : []).map((v) => {
+      const t = obj(v);
+      return {
+        id: typeof t.id === 'number' ? String(t.id) : s(t.id),
+        name: s(t.name),
+        to: s(t.to_status),
+      };
+    }),
   };
 }
 
@@ -211,6 +230,7 @@ export function createMcpAtlassianBackend(
         if (name === 'jira_search') {
           return searchFromMcp(out, (input as JiraToolInput<'jira_search'>).limit);
         }
+        if (name === 'jira_get_transitions') return transitionsFromMcp(out);
         return out;
       } catch (e) {
         if (e instanceof JiraToolError) throw e;

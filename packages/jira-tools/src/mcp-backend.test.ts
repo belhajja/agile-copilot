@@ -18,6 +18,7 @@ import {
   MCP_ATLASSIAN_ENABLED_TOOLS,
   mcpAtlassianHeaders,
   searchFromMcp,
+  transitionsFromMcp,
 } from './mcp-backend';
 import { createRestJiraBackend } from './rest-backend';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from './testing/mock-mcp-atlassian';
@@ -82,6 +83,28 @@ describe('mcp-atlassian backend through the double', () => {
     await expect(run(down, 'jira_get_issue', { issueKey: 'DEMO-1' })).rejects.toMatchObject({
       code: 'unavailable',
     });
+  });
+
+  it('lists transitions like the REST backend, with string ids', async () => {
+    // mcp-atlassian 0.23.1 answers a bare list with numeric ids and no target status (the double
+    // does the same); the model must get ids it can send back as jira_transition_issue input.
+    const viaMcp = await run(backend(), 'jira_get_transitions', { issueKey: 'DEMO-1' });
+    const viaRest = (await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_transitions',
+      { issueKey: 'DEMO-1' },
+    )) as { transitions: { id: string; name: string; to: string | null }[] };
+    expect(viaMcp).toEqual({
+      transitions: viaRest.transitions.map((t) => ({ ...t, to: null })),
+    });
+    expect(viaRest.transitions[1]).toMatchObject({ id: '21', name: 'In Progress' });
+    expect(transitionsFromMcp([{ id: 21, name: 'In Progress', to_status: 'In Progress' }])).toEqual(
+      { transitions: [{ id: '21', name: 'In Progress', to: 'In Progress' }] },
+    );
+    expect(transitionsFromMcp('not json')).toEqual({ transitions: [] });
   });
 
   it('returns the same search shape as the REST backend', async () => {
@@ -239,7 +262,8 @@ describe('mcp-atlassian backend: pure parts', () => {
       status: { name: 'Done', category: 'Done' },
       assignee: { display_name: 'Unassigned' },
       issue_type: { name: 'Bug' },
-      updated: '2026-10-03T10:00:00.000+0000',
+      // mcp-atlassian 0.23.1 formats times in the container's zone (UTC in our deployments).
+      updated: '2026-10-03 10:00:00 UTC',
     };
     const brief = {
       key: 'DEMO-1',
@@ -247,8 +271,17 @@ describe('mcp-atlassian backend: pure parts', () => {
       status: 'Done',
       assignee: null,
       type: 'Bug',
-      updated: '2026-10-03T10:00:00.000+0000',
+      updated: '2026-10-03T10:00:00Z',
     };
+    // Times are ISO 8601 UTC on both backends; a zone we cannot read is passed on as is.
+    for (const [raw, iso] of [
+      ['2026-10-03T12:00:00.000+0200', '2026-10-03T10:00:00Z'],
+      ['2026-10-03 12:00:00 CEST', '2026-10-03 12:00:00 CEST'],
+    ]) {
+      expect(searchFromMcp({ total: 1, issues: [{ ...issue, updated: raw }] }, 5)).toMatchObject({
+        issues: [{ updated: iso }],
+      });
+    }
     expect(
       searchFromMcp(
         { total: -1, start_at: -1, max_results: -1, issues: [issue], next_page_token: 'n' },
