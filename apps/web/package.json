@@ -24,6 +24,7 @@
     "@agile/metrics": "workspace:*",
     "@agile/net": "workspace:*",
     "@agile/notify": "workspace:*",
+    "@agile/observability": "workspace:*",
     "@agile/privacy": "workspace:*",
     "@agile/skills": "workspace:*",
     "@agile/sync": "workspace:*",

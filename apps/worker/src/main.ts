@@ -1,4 +1,5 @@
-import { EnvError, parseWorkerEnv } from '@agile/config';
+import { EnvError, langfuseConfigOf, parseWorkerEnv } from '@agile/config';
+import { startTracing } from '@agile/observability';
 import { installCrashHandlers } from './crash';
 import { log } from './log';
 import { startWorker, WORKER_STOP_BACKSTOP_MS } from './worker';
@@ -12,6 +13,10 @@ try {
   else log('error', 'worker_config_failed', { error: e instanceof Error ? e.name : 'unknown' });
   process.exit(1);
 }
+
+// Optional LLM tracing (skill runs): off unless LANGFUSE_* is set; redacted before export.
+const langfuse = langfuseConfigOf(env);
+const tracing = langfuse ? startTracing(langfuse) : null;
 
 let worker: Awaited<ReturnType<typeof startWorker>>;
 try {
@@ -34,6 +39,7 @@ async function shutdown(signal: string) {
   }, WORKER_STOP_BACKSTOP_MS).unref();
   try {
     await worker.stop();
+    await tracing?.shutdown().catch(() => undefined);
     log('info', 'worker_stopped');
     process.exit(crashed ? 1 : 0);
   } catch (e) {

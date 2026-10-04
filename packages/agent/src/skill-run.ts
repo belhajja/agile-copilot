@@ -128,6 +128,8 @@ export async function runSkill(
         },
         // No automatic retry (cost control): a failed call fails the run.
         maxRetries: 0,
+        // Traced only when Langfuse is on; never the skill text, data or report.
+        telemetry: { functionId: 'skill-run', recordInputs: false, recordOutputs: false },
       });
       const text = result.text.trim();
       if (!text) return { ok: false, code: 'empty_output' };
@@ -277,6 +279,7 @@ export async function draftSkill(
       },
       // No automatic retry (cost control).
       maxRetries: 0,
+      telemetry: { functionId: 'skill-draft', recordInputs: false, recordOutputs: false },
     });
     const call = result.toolCalls.find((c) => c.toolName === 'propose_skill');
     const parsed = draftSchema.safeParse(call?.input);

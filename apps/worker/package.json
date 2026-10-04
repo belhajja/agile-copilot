@@ -13,6 +13,7 @@
     "@agile/crypto": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/jira": "workspace:*",
+    "@agile/observability": "workspace:*",
     "@agile/privacy": "workspace:*",
     "@agile/sync": "workspace:*",
     "drizzle-orm": "0.45.3",

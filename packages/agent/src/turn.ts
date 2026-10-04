@@ -268,6 +268,8 @@ export async function handleAgentRequest(
       toolApproval,
       stopWhen: stepCountIs(deps.maxSteps ?? 8),
       abortSignal: abort.signal,
+      // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
+      telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },
       onStepEnd: async ({ usage }) => {
         const u = tokenUsageOf(usage);
         used.inputTokens += u.inputTokens;

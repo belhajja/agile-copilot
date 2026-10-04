@@ -107,6 +107,7 @@ export async function probeModel(
       prompt: 'Call the report_status tool with status "ok".',
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+      telemetry: { functionId: 'llm-probe', recordInputs: false, recordOutputs: false },
     });
     const called = result.steps.some((s) =>
       s.toolCalls.some((c) => c.toolName === 'report_status'),
