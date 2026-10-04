@@ -24,7 +24,9 @@ describe('Phase 5 CHECK constraints', () => {
   beforeAll(async () => {
     tdb = await startTestDatabase();
     owner = createDb(tdb.ownerUrl, { max: 1 });
-    await owner.db.execute(sql`insert into "user" (id, name, email) values ('c1', 'C', 'c1@example.com')`);
+    await owner.db.execute(
+      sql`insert into "user" (id, name, email) values ('c1', 'C', 'c1@example.com')`,
+    );
   });
   afterAll(async () => {
     await owner?.close();

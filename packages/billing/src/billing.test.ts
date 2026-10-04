@@ -393,13 +393,13 @@ describe('billing (stripe-mock + Postgres)', () => {
       cus_other_app: { orgId: 'org_deleted' },
       cus_ours_other_ws: { app: 'agile-copilot', agile_copilot_org_id: 'org_other' },
     };
-    const customers = vi
-      .spyOn(stripe.customers, 'retrieve')
-      .mockImplementation((async (id: string) => ({
-        id,
-        object: 'customer',
-        metadata: customerMeta[id] ?? {},
-      })) as never);
+    const customers = vi.spyOn(stripe.customers, 'retrieve').mockImplementation((async (
+      id: string,
+    ) => ({
+      id,
+      object: 'customer',
+      metadata: customerMeta[id] ?? {},
+    })) as never);
     const cancel = vi.spyOn(stripe.subscriptions, 'cancel').mockResolvedValue({} as never);
     try {
       const event = (id: string, customer: string, metadata: Record<string, string>) =>

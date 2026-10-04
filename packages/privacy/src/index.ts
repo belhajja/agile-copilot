@@ -11,8 +11,8 @@ export {
   recentAuditEntries,
 } from './audit-export';
 export {
-  type DeleteAccountResult,
   DELETION_ATTEMPTS_PER_HOUR,
+  type DeleteAccountResult,
   deleteAccount,
   EXPORT_PAGE_SIZE,
   EXPORT_STALE_MS,

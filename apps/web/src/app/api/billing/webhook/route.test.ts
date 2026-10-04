@@ -102,7 +102,8 @@ describe('POST /api/billing/webhook', () => {
       },
       { highWaterMark: 0 },
     );
-    for (const headers of [{}, { 'stripe-signature': '' }]) {
+    const unsigned: Record<string, string>[] = [{}, { 'stripe-signature': '' }];
+    for (const headers of unsigned) {
       const res = await post(body, headers);
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: 'invalid_signature' });

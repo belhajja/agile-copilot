@@ -455,7 +455,9 @@ async function cancelOrphan(
   const wasOurs =
     (await tx.$count(deletedOrganizations, eq(deletedOrganizations.deletedOrgId, orgId))) > 0;
   if (!wasOurs) return ignore('webhook_unknown_workspace');
-  const customer = await stripe.customers.retrieve(idOf(sub.customer), {}, UNDER_LOCK);
+  const customerId = idOf(sub.customer);
+  if (!customerId) return ignore('webhook_unknown_workspace');
+  const customer = await stripe.customers.retrieve(customerId, {}, UNDER_LOCK);
   const meta = customer.deleted ? null : customer.metadata;
   if (meta?.app !== STRIPE_APP_MARKER || orgIdOf(meta) !== orgId) {
     return ignore('webhook_unknown_workspace');

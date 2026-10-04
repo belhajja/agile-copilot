@@ -7,7 +7,11 @@ import { requireSignedIn, services } from '@/server/context';
 
 export type DeleteAccountState =
   | { status: 'idle' }
-  | { status: 'error'; code: 'confirm_mismatch' | 'reauth' | 'sole_owner' | 'rate_limited'; workspaces?: string[] };
+  | {
+      status: 'error';
+      code: 'confirm_mismatch' | 'reauth' | 'sole_owner' | 'rate_limited';
+      workspaces?: string[];
+    };
 
 /** Account deletion needs a sign-in younger than this (L13): a left-open session cannot do it. */
 const FRESH_SIGN_IN_MS = 10 * 60_000;

@@ -355,26 +355,21 @@ async function purgeExpiredAuth(db: Db, now: Date, opts: BatchOptions) {
   const invitations = await drain(
     async (size) =>
       (
-        await db
-          .delete(invitation)
-          .where(
-            inArray(
-              invitation.id,
-              db
-                .select({ id: invitation.id })
-                .from(invitation)
-                .where(
-                  or(
-                    and(ne(invitation.status, 'pending'), lt(invitation.createdAt, invitationCutoff)),
-                    and(
-                      eq(invitation.status, 'pending'),
-                      lt(invitation.expiresAt, invitationCutoff),
-                    ),
-                  ),
-                )
-                .limit(size),
-            ),
-          )
+        await db.delete(invitation).where(
+          inArray(
+            invitation.id,
+            db
+              .select({ id: invitation.id })
+              .from(invitation)
+              .where(
+                or(
+                  and(ne(invitation.status, 'pending'), lt(invitation.createdAt, invitationCutoff)),
+                  and(eq(invitation.status, 'pending'), lt(invitation.expiresAt, invitationCutoff)),
+                ),
+              )
+              .limit(size),
+          ),
+        )
       ).count,
     opts,
   );
