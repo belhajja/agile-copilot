@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseGreenhopperSprint } from './sprint-field';
 import type {
   IssueFieldContext,
   JiraFieldInfo,
@@ -29,8 +30,8 @@ export function parseSprintField(value: unknown): number[] {
       return Number.isInteger(id) ? [id] : [];
     }
     if (typeof v === 'string') {
-      const m = /\bid=(\d+)/.exec(v);
-      return m ? [Number(m[1])] : [];
+      const sprint = parseGreenhopperSprint(v);
+      return sprint ? [sprint.id] : [];
     }
     return [];
   });

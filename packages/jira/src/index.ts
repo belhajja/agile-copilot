@@ -1,3 +1,10 @@
+export {
+  completeHistories,
+  createJiraDataSource,
+  type DataSourceOptions,
+  type JiraCredentialsInput,
+  type JiraDataSource,
+} from './data-source';
 export { mapJiraError } from './errors';
 export {
   buildIssueJql,
@@ -8,6 +15,7 @@ export {
   SYNC_OVERLAP_MINUTES,
   suggestStatusMapping,
 } from './issue-normalize';
+export { createNoRedirectClient, JiraHttpError } from './no-redirect-client';
 export { inferDeployment, normalizeBaseUrl, normalizeCredentials } from './normalize';
 export {
   ATLASSIAN_SCOPES,
@@ -18,6 +26,13 @@ export {
   listAccessibleJiraSites,
 } from './oauth';
 export { type ProbeOptions, probeJira } from './probe';
+export {
+  errorRetryAfterMs,
+  errorStatus,
+  type RetryOptions,
+  withRateLimitRetry,
+} from './rate-limit';
+export { type GreenhopperSprint, parseGreenhopperSprint } from './sprint-field';
 export type {
   IssueFieldContext,
   JiraBoardConfig,
