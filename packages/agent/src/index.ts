@@ -27,4 +27,11 @@ export {
 export { AgentToolError } from './tool-errors';
 export { type AgentErrorCode, agentRequestSchema, handleAgentRequest } from './turn';
 export { asUntrustedData } from './untrusted';
-export { costMicros, type Prices, type UsageTotals, usageSummary } from './usage';
+export {
+  builderCallsSince,
+  costMicros,
+  type Prices,
+  SKILL_BUILDER_HOURLY_LIMIT,
+  type UsageTotals,
+  usageSummary,
+} from './usage';

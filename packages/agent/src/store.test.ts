@@ -25,7 +25,7 @@ import {
 import type { AgentActor } from './deps';
 import { toolErrorText } from './tool-errors';
 import { parseUntrustedData } from './untrusted';
-import { recordUsage, usageSummary } from './usage';
+import { builderCallsSince, recordUsage, usageSummary } from './usage';
 
 const alice: AgentActor = { orgId: 'org_a', userId: 'user_alice', roles: ['member'] };
 const bob: AgentActor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
@@ -713,6 +713,33 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
           allUsers: true,
         }),
       ).toEqual([]);
+    });
+
+    it("counts only the actor's own drafts and previews, in the window (P4-R16)", async () => {
+      const carol: AgentActor = { orgId: 'org_a', userId: 'user_carol', roles: ['member'] };
+      const since = new Date(Date.now() - 60_000);
+      const entry = {
+        llmConnectionId: randomUUID(),
+        provider: 'openai',
+        model: 'gpt-test',
+        usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+        prices: { inputMicros: null, outputMicros: null },
+      };
+      // Two builder calls (a draft and a preview: no conversation, no run)…
+      await recordUsage(app.db, carol, { ...entry, conversationId: null });
+      await recordUsage(app.db, carol, { ...entry, conversationId: null, skillRunId: null });
+      // …not a chat reply, a recorded run, another member's call or another workspace's.
+      await recordUsage(app.db, carol, { ...entry, conversationId: randomUUID() });
+      await recordUsage(app.db, carol, {
+        ...entry,
+        conversationId: null,
+        skillRunId: randomUUID(),
+      });
+      await recordUsage(app.db, alice, { ...entry, conversationId: null });
+      await recordUsage(app.db, { ...carol, orgId: 'org_b' }, { ...entry, conversationId: null });
+
+      expect(await builderCallsSince(app.db, carol, since)).toBe(2);
+      expect(await builderCallsSince(app.db, carol, new Date(Date.now() + 60_000))).toBe(0);
     });
   });
 });

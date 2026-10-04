@@ -88,6 +88,31 @@ export async function recordUsage(
   );
 }
 
+/** Skill-builder drafts and previews per member and rolling hour (P4-R16): BYOK spend bound. */
+export const SKILL_BUILDER_HOURLY_LIMIT = 20;
+
+/**
+ * The actor's skill-builder calls (drafts and previews) metered since `since`: their usage rows
+ * have neither a conversation (chat replies) nor a recorded run (background runs and "Run now").
+ */
+export async function builderCallsSince(db: Db, actor: AgentActor, since: Date): Promise<number> {
+  const [row] = await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(agentUsage)
+      .where(
+        and(
+          eq(agentUsage.orgId, actor.orgId),
+          eq(agentUsage.userId, actor.userId),
+          isNull(agentUsage.conversationId),
+          isNull(agentUsage.skillRunId),
+          gte(agentUsage.createdAt, since),
+        ),
+      ),
+  );
+  return row?.n ?? 0;
+}
+
 export interface UsageTotals {
   userId: string;
   /** The member's display name (null once the account is gone). */
