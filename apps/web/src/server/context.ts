@@ -1,5 +1,11 @@
 import 'server-only';
-import { type Auth, createAuth, getMemberRoles } from '@agile/auth';
+import {
+  type Auth,
+  type AuthHolder,
+  createAuthHolder,
+  getMemberRoles,
+  type SsoConfig,
+} from '@agile/auth';
 import { type ServerEnv, serverEnv } from '@agile/config';
 import type { Actor, LlmDeps } from '@agile/connections';
 import { type Keyring, parseKeyring } from '@agile/crypto';
@@ -11,8 +17,21 @@ import { cache } from 'react';
 interface Services {
   env: ServerEnv;
   db: Db;
-  auth: Auth;
+  /** Rebuilds the auth instance when the identity provider was down at start (see AuthHolder). */
+  authHolder: AuthHolder;
+  readonly auth: Auth;
   keyring: Keyring;
+}
+
+/** The deployment's identity provider, when the three OIDC settings are present. */
+export function ssoConfigOf(env: ServerEnv): SsoConfig | undefined {
+  if (!env.OIDC_ISSUER || !env.OIDC_CLIENT_ID || !env.OIDC_CLIENT_SECRET) return undefined;
+  return {
+    provider: env.OIDC_PROVIDER,
+    issuer: env.OIDC_ISSUER,
+    clientId: env.OIDC_CLIENT_ID,
+    clientSecret: env.OIDC_CLIENT_SECRET,
+  };
 }
 
 // Survives dev hot-reloads so we don't open a new pool per edit. Built lazily so `next build` needs no env.
@@ -22,10 +41,21 @@ export function services(): Services {
   if (!g.__agileServices) {
     const env = serverEnv();
     const { db } = createDb(env.DATABASE_URL);
+    const authHolder = createAuthHolder({
+      db,
+      secret: env.BETTER_AUTH_SECRET,
+      baseURL: env.BETTER_AUTH_URL,
+      sso: ssoConfigOf(env),
+      passwordLogin: env.PASSWORD_LOGIN,
+      breakGlassEmails: env.BREAK_GLASS_EMAILS,
+    });
     g.__agileServices = {
       env,
       db,
-      auth: createAuth({ db, secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL }),
+      authHolder,
+      get auth() {
+        return authHolder.get();
+      },
       keyring: parseKeyring(env.ENCRYPTION_KEYS),
     };
   }
