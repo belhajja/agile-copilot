@@ -77,6 +77,16 @@ export const serverEnvSchema = z
       emptyToUndefined,
       z.coerce.number().int().min(1).max(10_000).default(60),
     ),
+    /**
+     * Reverse proxies in front of the app that append the client address to X-Forwarded-For
+     * (1 = an ingress or load balancer; 2 = a CDN, then the ingress). 0 (default): the header is
+     * never trusted, so a client cannot choose its own address. Used by the pre-auth limit of
+     * `/api/mcp`.
+     */
+    TRUSTED_PROXY_HOPS: z.preprocess(
+      emptyToUndefined,
+      z.coerce.number().int().min(0).max(5).default(0),
+    ),
   })
   .refine(
     (e) => Boolean(e.ATLASSIAN_OAUTH_CLIENT_ID) === Boolean(e.ATLASSIAN_OAUTH_CLIENT_SECRET),

@@ -154,6 +154,17 @@ describe('parseServerEnv', () => {
     }
   });
 
+  it('trusts no forwarding proxy unless told how many there are', () => {
+    expect(parseServerEnv(valid).TRUSTED_PROXY_HOPS).toBe(0);
+    expect(parseServerEnv({ ...valid, TRUSTED_PROXY_HOPS: '' }).TRUSTED_PROXY_HOPS).toBe(0);
+    expect(parseServerEnv({ ...valid, TRUSTED_PROXY_HOPS: '1' }).TRUSTED_PROXY_HOPS).toBe(1);
+    for (const bad of ['-1', '6', '1.5', 'yes']) {
+      expect(() => parseServerEnv({ ...valid, TRUSTED_PROXY_HOPS: bad }), bad).toThrow(
+        /TRUSTED_PROXY_HOPS/,
+      );
+    }
+  });
+
   it('de-duplicates break-glass emails', () => {
     expect(parseServerEnv({ ...valid, BREAK_GLASS_EMAILS: 'A@x.io, a@x.io,b@x.io' })).toMatchObject(
       { BREAK_GLASS_EMAILS: ['a@x.io', 'b@x.io'] },
@@ -178,6 +189,7 @@ describe('parseServerEnv', () => {
       'LANGFUSE_SECRET_KEY',
       'LANGFUSE_BASE_URL',
       'MCP_RATE_LIMIT_PER_MINUTE',
+      'TRUSTED_PROXY_HOPS',
     ];
     for (const key of keys) {
       let message = '';

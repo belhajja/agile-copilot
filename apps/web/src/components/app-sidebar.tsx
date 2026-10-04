@@ -6,6 +6,7 @@ import {
   FileClock,
   LayoutDashboard,
   MessagesSquare,
+  Plug,
   PlugZap,
   ReceiptText,
   Send,
@@ -47,6 +48,7 @@ export function AppSidebar({
     { title: t('members'), url: '/settings/members', icon: Users },
     { title: t('workspace'), url: '/settings/workspace', icon: Settings2 },
     { title: t('audit'), url: '/settings/audit', icon: FileClock },
+    { title: t('mcp'), url: '/settings/mcp', icon: Plug },
     ...(billing ? [{ title: t('billing'), url: '/settings/billing', icon: CreditCard }] : []),
   ];
   return (

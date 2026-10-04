@@ -118,7 +118,8 @@
     "members": "Membres",
     "billing": "Facturation",
     "workspace": "Espace",
-    "audit": "Journal d'audit"
+    "audit": "Journal d'audit",
+    "mcp": "Clients d'IA (MCP)"
   },
   "dashboard": {
     "title": "Pour commencer",
@@ -1088,5 +1089,45 @@
     "deleteMismatch": "Saisissez exactement le nom de l'espace pour confirmer.",
     "deleteButton": "Supprimer l'espace",
     "externalMcpNotInPlan": "Inclus dans l'offre Team. Passez à l'offre Team depuis la page Facturation pour l'activer."
+  },
+  "mcp": {
+    "title": "Clients d'IA externes (MCP)",
+    "intro": "Permettez à Claude Desktop ou à un autre client MCP de lire les indicateurs de cet espace, en votre nom, en lecture seule. Point d'accès : {endpoint}",
+    "createTitle": "Nouveau jeton personnel",
+    "createHint": "Un jeton agit en votre nom dans cet espace uniquement, pour les outils d'analyse (tableaux, indicateurs, prévisions, listes de tickets). Il ne peut jamais modifier Jira.",
+    "name": "Nom",
+    "expires": "Expire après",
+    "days": "{count} jours",
+    "create": "Créer le jeton",
+    "createdTitle": "Copiez votre jeton maintenant",
+    "createdHint": "Il n'est affiché qu'une fois. Conservez-le comme un mot de passe.",
+    "copy": "Copier le jeton",
+    "copied": "Copié",
+    "desktopHint": "Claude Desktop (claude_desktop_config.json), via la passerelle mcp-remote :",
+    "insecureEndpoint": "L'adresse de ce serveur n'est pas en https : aucune configuration de client n'est proposée, car un jeton ne doit jamais circuler en clair. Demandez à votre administrateur de servir l'application en https.",
+    "owner": "Propriétaire",
+    "you": "Vous",
+    "formerMember": "Ancien membre",
+    "lastUsed": "Dernière utilisation",
+    "never": "Jamais",
+    "state": "État",
+    "actions": "Actions",
+    "activeUntil": "Actif jusqu'au {date}",
+    "revoked": "Révoqué",
+    "expired": "Expiré",
+    "revoke": "Révoquer",
+    "revokeTitle": "Révoquer {name} ?",
+    "revokeDescription": "Les clients qui l'utilisent perdent l'accès immédiatement.",
+    "revokedToast": "Jeton révoqué.",
+    "cancel": "Annuler",
+    "errors": {
+      "forbidden_role": "Votre rôle ne permet pas de créer des jetons.",
+      "mcp_disabled": "Les clients d'IA externes sont désactivés pour cet espace. Un propriétaire ou un administrateur peut les autoriser dans les réglages de l'espace.",
+      "plan_limit": "Les clients d'IA externes ne sont pas inclus dans l'offre de cet espace.",
+      "too_many_tokens": "Vous avez déjà 10 jetons actifs. Révoquez-en un d'abord.",
+      "invalid_input": "Donnez un nom au jeton.",
+      "not_found": "Ce jeton n'existe plus.",
+      "unknown": "Une erreur est survenue."
+    }
   }
 }

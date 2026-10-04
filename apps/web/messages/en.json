@@ -118,7 +118,8 @@
     "members": "Members",
     "billing": "Billing",
     "workspace": "Workspace",
-    "audit": "Audit log"
+    "audit": "Audit log",
+    "mcp": "AI clients (MCP)"
   },
   "dashboard": {
     "title": "Get started",
@@ -1088,5 +1089,45 @@
     "deleteMismatch": "Type the workspace name exactly to confirm.",
     "deleteButton": "Delete workspace",
     "externalMcpNotInPlan": "Included in the Team plan. Upgrade on the Billing page to switch it on."
+  },
+  "mcp": {
+    "title": "External AI clients (MCP)",
+    "intro": "Let Claude Desktop or another MCP client read this workspace's metrics, as you, read-only. Endpoint: {endpoint}",
+    "createTitle": "New personal token",
+    "createHint": "A token acts as you in this workspace only, for the analytics tools (boards, metrics, forecasts, issue lists). It can never change Jira.",
+    "name": "Name",
+    "expires": "Expires after",
+    "days": "{count} days",
+    "create": "Create token",
+    "createdTitle": "Copy your token now",
+    "createdHint": "It is shown only once. Store it like a password.",
+    "copy": "Copy token",
+    "copied": "Copied",
+    "desktopHint": "Claude Desktop (claude_desktop_config.json), through the mcp-remote bridge:",
+    "insecureEndpoint": "This server's address is not https, so no client configuration is offered: a token must never travel unencrypted. Ask your administrator to serve the app over https.",
+    "owner": "Owner",
+    "you": "You",
+    "formerMember": "Former member",
+    "lastUsed": "Last used",
+    "never": "Never",
+    "state": "State",
+    "actions": "Actions",
+    "activeUntil": "Active until {date}",
+    "revoked": "Revoked",
+    "expired": "Expired",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke {name}?",
+    "revokeDescription": "Clients using it lose access at once.",
+    "revokedToast": "Token revoked.",
+    "cancel": "Cancel",
+    "errors": {
+      "forbidden_role": "Your role cannot create tokens.",
+      "mcp_disabled": "External AI clients are turned off for this workspace. An owner or admin can allow them in Workspace settings.",
+      "plan_limit": "External AI clients are not included in this workspace's plan.",
+      "too_many_tokens": "You already have 10 active tokens. Revoke one first.",
+      "invalid_input": "Give the token a name.",
+      "not_found": "This token no longer exists.",
+      "unknown": "Something went wrong."
+    }
   }
 }

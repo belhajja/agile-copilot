@@ -65,6 +65,9 @@ importers:
       '@agile/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@agile/mcp-gateway':
+        specifier: workspace:*
+        version: link:../../packages/mcp-gateway
       '@agile/metrics':
         specifier: workspace:*
         version: link:../../packages/metrics

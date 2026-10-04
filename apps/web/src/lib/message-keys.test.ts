@@ -3,6 +3,7 @@ import en from '../../messages/en.json';
 import fr from '../../messages/fr.json';
 import { BILLING_ERROR_CODES, BILLING_STATUSES } from '../app/(app)/settings/billing/billing-codes';
 import { JIRA_CATEGORIES, JIRA_ERROR_CODES } from '../app/(app)/settings/jira/error-codes';
+import { MCP_ERROR_CODES } from '../app/(app)/settings/mcp/error-codes';
 import { SETTINGS_ERROR_CODES } from '../app/(app)/settings/workspace/error-codes';
 import { TOOL_LABELS } from '../components/agent/tool-labels';
 import { AUTH_ERROR_CODES } from './auth-error';
@@ -30,6 +31,7 @@ describe('allowlisted message keys', () => {
     expect([...BILLING_ERROR_CODES].sort()).toEqual(sentences(m.billing.errors));
     expect([...BILLING_STATUSES].sort()).toEqual(sentences(m.billing.status));
     expect([...SETTINGS_ERROR_CODES].sort()).toEqual(sentences(m.workspace.errors));
+    expect([...MCP_ERROR_CODES].sort()).toEqual(sentences(m.mcp.errors));
   });
 
   it('explains every billing refusal and the plan limits', () => {
@@ -94,6 +96,7 @@ describe('allowlisted message keys', () => {
       BILLING_ERROR_CODES,
       BILLING_STATUSES,
       SETTINGS_ERROR_CODES,
+      MCP_ERROR_CODES,
     ]) {
       expect(allowedCode(value, list)).toBeNull();
     }

@@ -51,11 +51,12 @@ describe('proxy', () => {
     expect(res.headers.get('location')).toBe('http://localhost:3200/login');
   });
 
-  it('lets public auth paths and the Stripe webhook through', () => {
+  it('lets public auth paths, the Stripe webhook and token-authenticated MCP through', () => {
     for (const path of [
       '/api/auth/sign-in/email',
       '/api/auth/callback/keycloak',
       '/api/billing/webhook',
+      '/api/mcp',
     ]) {
       const res = proxy(req(path));
       expect(res.status).toBe(200);
@@ -73,6 +74,22 @@ describe('proxy', () => {
     ]) {
       const res = proxy(req(path));
       expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'unauthorized' });
+    }
+  });
+
+  it('makes only the exact MCP path public (no sub-paths, no other case)', async () => {
+    for (const path of [
+      '/api/mcp/x',
+      '/api/mcp/',
+      '/api/mcp-other',
+      '/api/mcpx',
+      '/API/mcp',
+      '/api/MCP',
+      '/Api/Mcp',
+    ]) {
+      const res = proxy(req(path));
+      expect(res.status, path).toBe(401);
       expect(await res.json()).toEqual({ error: 'unauthorized' });
     }
   });

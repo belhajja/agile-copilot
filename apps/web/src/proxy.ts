@@ -3,8 +3,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { loginPath } from './lib/next-path';
 
 const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
-// Stripe, authenticated by its signature over the raw body, not a session. Exact paths only.
-const PUBLIC_PATHS = new Set(['/api/billing/webhook']);
+// Not session-authenticated, exact paths only: /api/billing/webhook (Stripe's signature over the
+// raw body) and /api/mcp (personal tokens of external MCP clients, never the session cookie).
+const PUBLIC_PATHS = new Set(['/api/billing/webhook', '/api/mcp']);
 // Browser navigations (Jira OAuth start/callback): keep the redirect to /login, not JSON.
 const NAVIGATION_API_PREFIXES = ['/api/jira/oauth'];
 
