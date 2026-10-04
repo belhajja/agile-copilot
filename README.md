@@ -131,8 +131,9 @@ The sync never stores raw Jira error messages: a failed sync shows a short reaso
 
 - **Numbers come from the metrics engine.** The assistant calls an internal analytics MCP server (`packages/analytics-mcp`: `list_boards`, `list_metrics`, `get_metric`, `forecast`, `find_issues`, `explain_metric`) that computes the same numbers as the dashboards, from synced data, inside your workspace only. It runs in-process; it is not exposed over the network (an external endpoint for other MCP clients is planned for Phase 5).
 - **Live Jira** goes through an explicit allowlist of 11 tools (search, read issue, transitions, boards, sprints, sprint issues; comment, transition, assign, create, update). Data Center PATs and "Connect with Atlassian" connections use the shared [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) container (the self-host compose runs it; set `MCP_ATLASSIAN_URL` otherwise). Cloud **API-token** connections use a built-in client instead (mcp-atlassian would need one container per Cloud site for them).
-- **Every Jira change needs your approval.** The model can only *propose* a write: the chat shows exactly what will be sent, with **Approve** / **Reject**. Nothing reaches Jira before you approve; each decision and each executed change is written to the audit log (`agent_action.*`). An approval is bound to you, the conversation and the exact proposal, and runs at most once.
-- **Only owners and admins can propose Jira changes** for now (writes use the connection's Jira credentials). Members get the read tools, and the assistant tells them changes are not available for their role. Finer roles (e.g. Manager) come with Phase 5.
+- **Every Jira change needs your approval.** The model can only *propose* a write: the chat shows exactly what will be sent, and to which Jira site, with **Approve** / **Reject**. Nothing reaches Jira before you approve; each decision and each executed change is written to the audit log (`agent_action.*`). An approval is bound to you, the conversation, the Jira site and the exact proposal, and runs at most once. If that site's connection is removed or replaced before you approve, the change is not sent anywhere.
+- **An approved change always ends with a result.** If the reply fails after you approved (the AI model or the server fails before the change is sent), the change is closed as *approved but not sent* (audited as `agent_action.failed`, `not_executed`) and the chat tells you to ask again; the conversation keeps working. A change cut off by a timeout after it was sent is reported as *may or may not have reached Jira*: check Jira before asking again.
+- **Only owners and admins get live Jira** (reads and changes) for now: both use the connection's Jira credentials, which can see more than the boards an admin chose to sync. Members get the analytics tools (synced, selected boards only), and the assistant tells them live Jira queries are not available for their role. Finer roles (e.g. Manager, with explicit scopes) come with Phase 5.
 - **Markdown becomes Jira wiki markup.** Comments, transition comments and descriptions are converted the same way on both backends (the built-in client ports mcp-atlassian's own converter), so `**bold**` and `- lists` render in Jira. NUL characters are removed first; that is the only intended difference from mcp-atlassian's converter.
 - **Jira content is data, not instructions.** Tool results reach the model inside a fixed `<data>` envelope that Jira text cannot close, and the system prompt tells the model never to follow instructions found there. Tools take no workspace or connection ids: the server binds them to you.
 - **Cost meter.** Token usage is recorded per answer. Set your provider's prices per million tokens on the AI model connection to see costs; **Settings → Usage** shows this month's usage (owners/admins see every member).
@@ -147,16 +148,18 @@ The image is pinned by digest (`ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:�
 - `MCP_ALLOWED_URL_DOMAINS` (passed from `.env`): Data Center hosts that resolve to private addresses (list them in `ALLOWED_PRIVATE_HOSTS` too, for the app). Empty = unset. **Once set, it is an allowlist for every Data Center host, public ones included: list them all**, or the others stop working. mcp-atlassian refuses `localhost` and IP-literal URLs even when listed.
 - Each self-host mcp-atlassian container is capped at `mem_limit: 512m`; raise it in the compose file if it is killed under load.
 - The web app does not wait for mcp-atlassian (`depends_on` is `migrate` only): if the sidecar is down or its image cannot be pulled, the app and dashboards still work, and the assistant's Jira tools for Data Center PATs and "Connect with Atlassian" answer *unavailable* until it is back.
+- The self-host compose puts mcp-atlassian on its own `mcp` network, shared only with the web app: it cannot reach Postgres or the worker (its own outbound check, `MCP_ALLOWED_URL_DOMAINS`, is not DNS-pinned like the app's). The app never follows a redirect from `MCP_ATLASSIAN_URL`.
 - `MCP_ATLASSIAN_URL` (web app) is a trusted deployment setting: the app sends users' Jira tokens to it. Point it only at your own internal service (`http://mcp-atlassian:8000/mcp` in the self-host compose, which sets it for you); never publish mcp-atlassian outside the compose network.
 
 ### Checking AI providers and Jira through the assistant by hand
 
-Automated tests cover tool calling, streaming, approvals and usage against an OpenAI-compatible mock, check that every provider adapter (Anthropic, OpenAI, Google, Mistral, OpenAI-compatible) accepts the assistant's tool definitions, and run all 11 Jira tools through the real mcp-atlassian image against a mock Data Center Jira. What they cannot cover needs real keys and real Jira sites. Before a release, and whenever a provider SDK or the mcp-atlassian image is upgraded, run this:
+Automated tests cover tool calling, streaming, approvals and usage against an OpenAI-compatible mock, check that every provider adapter (Anthropic, OpenAI, Google, Mistral, Azure OpenAI, OpenAI-compatible) accepts the assistant's tool definitions, and run all 11 Jira tools through the real mcp-atlassian image against a mock Data Center Jira. What they cannot cover needs real keys and real Jira sites. Before a release, and whenever a provider SDK or the mcp-atlassian image is upgraded, run this:
 
-1. **Providers.** For each of Anthropic, OpenAI, Google Gemini and Ollama (OpenAI-compatible, a tool-capable model such as `llama3.1`): add the connection, make it the default, open **Assistant**.
+1. **Providers.** For each of Anthropic, OpenAI, Google Gemini, Azure OpenAI and Ollama (OpenAI-compatible, a tool-capable model such as `llama3.1`): add the connection, make it the default, open **Assistant**.
    - Ask "What is our velocity?" on a synced Scrum board: the answer quotes the dashboard's number and the chat shows the `get_metric` call.
    - Ask "Comment on <ISSUE-KEY>: test from the assistant": an approval card appears and Jira is unchanged; **Reject** → nothing is written; ask again and **Approve** → the comment appears in Jira once.
    - **Settings → Usage** shows the answers with non-zero tokens (and a cost once prices are set).
+   - Ollama and other OpenAI-compatible servers: propose two changes in one conversation (reject the first, approve the second). Some local servers reuse tool call ids across turns; both proposals must appear in the audit log (`agent_action.proposed` twice) and only the approved one may reach Jira.
 2. **Cloud OAuth through mcp-atlassian.** With an Atlassian OAuth app configured, "Connect with Atlassian" to a Cloud site and repeat step 1 on it. The contract test only proves that mcp-atlassian accepts the bearer token and cloud id; also check:
    - Jira receives the calls (through `api.atlassian.com/ex/jira/<cloudId>`) as the connected user;
    - a search on more than one page of results: Cloud returns no total (`total: -1`, `next_page_token`), so the assistant should still see that more results exist;
@@ -166,7 +169,7 @@ Automated tests cover tool calling, streaming, approvals and usage against an Op
 4. **Latency.** Note how long a Jira tool call takes on each path (mcp-atlassian builds a Jira client per request and calls `/myself` before each call; the built-in client for Cloud API tokens does not). If it hurts, the spec's fallback is a per-site instance.
 5. **Transitions.** On the mcp-atlassian path the target status of a transition (`to`) is `null` (mcp-atlassian 0.23.1 does not return it against Jira); check that the model still picks the right transition by name, and record whether a real Jira returns it.
 6. **Updates really change Jira.** Update an issue's summary, description and labels and check each one in Jira. mcp-atlassian silently drops any field that Jira's `/field` does not list and still reports success; this is harmless for these system fields, but **any field added to the tool catalog later (custom fields in particular) must be checked here**.
-7. **Members.** As a workspace member (not owner/admin), ask for a comment: no approval card appears and the assistant says Jira changes are not available for the role.
+7. **Members.** As a workspace member (not owner/admin), ask for a comment and for a live Jira search: no approval card appears, no `jira_*` tool is called, and the assistant says live Jira is not available for the role (metric questions still work).
 8. **Markdown.** Comment `Blocked by the **API** team:` followed by a ``- `npm ci` fails`` list item on a Cloud API-token connection (built-in client) and on a Data Center connection (mcp-atlassian): both render the same in Jira (bold, bullet, monospace).
 9. Record provider, model, Jira version, date and results below and in the pull request.
 
@@ -177,13 +180,14 @@ Record results here (**NOT YET RUN**: no provider API keys, Atlassian OAuth app,
 | —    | 1. Anthropic tool calling + approvals | — | NOT YET RUN | | |
 | —    | 1. OpenAI tool calling + approvals | — | NOT YET RUN | | |
 | —    | 1. Google Gemini tool calling + approvals | — | NOT YET RUN | | |
+| —    | 1. Azure OpenAI tool calling + approvals | — | NOT YET RUN | | |
 | —    | 1. Ollama tool calling + approvals | — | NOT YET RUN | | |
 | —    | 2. Cloud OAuth through mcp-atlassian | Cloud — | NOT YET RUN | | |
 | —    | 3. Data Center PAT through mcp-atlassian | Data Center — | NOT YET RUN | | |
 | —    | 4. Per-request latency | — | NOT YET RUN | | |
 | —    | 5. Transitions `to` on the mcp-atlassian path | — | NOT YET RUN | | |
 | —    | 6. Updates change Jira (no silently dropped fields) | — | NOT YET RUN | | |
-| —    | 7. Members cannot propose Jira changes | — | NOT YET RUN | | |
+| —    | 7. Members get no live Jira tools | — | NOT YET RUN | | |
 | —    | 8. Markdown → wiki markup on both backends | — | NOT YET RUN | | |
 
 ## Validating against a real Jira
@@ -222,7 +226,8 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 
 - mcp-atlassian applies its own outbound rules (`MCP_ALLOWED_URL_DOMAINS`), separate from `ALLOWED_PRIVATE_HOSTS`.
 - Approval cards show the proposed values, not a before/after diff of the Jira fields.
-- Only workspace owners and admins can propose Jira changes through the assistant until Phase 5 roles.
+- Only workspace owners and admins get live Jira through the assistant (reads and changes) until Phase 5 roles; members use the analytics tools.
+- Assignees: the built-in client (Cloud API tokens) skips deactivated people and Cloud app/customer accounts; mcp-atlassian 0.23.1 does not report those fields, so on its path the exact-name match relies on Jira's assignable-user search (active users who can be assigned the issue).
 - The key-rotation re-wrap command does not exist yet (Phase 5).
 
 ## Development
