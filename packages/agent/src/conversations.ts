@@ -1,4 +1,4 @@
-import { agentConversations, agentMessages, type Db, type Tx, withOrg } from '@agile/db';
+import { agentConversations, agentMessages, type Db, isUuid, type Tx, withOrg } from '@agile/db';
 import type { UIMessage } from 'ai';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
@@ -18,8 +18,8 @@ export class ConversationNotFoundError extends Error {
   }
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const isConversationId = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
+/** Conversation ids are uuids the browser chooses: anything else is refused before any query. */
+export const isConversationId = isUuid;
 
 const ownedBy = (actor: AgentActor, id: string) =>
   and(

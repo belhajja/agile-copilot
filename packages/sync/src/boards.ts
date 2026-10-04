@@ -1,5 +1,6 @@
 import { type Actor, assertCanManage, recordAudit } from '@agile/connections';
 import {
+  isUuid,
   jiraBoards,
   jiraConnections,
   jiraStatusMappings,
@@ -68,8 +69,6 @@ const toBoardView = (b: typeof jiraBoards.$inferSelect): BoardView => ({
   lastError: b.lastError,
 });
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
 const CATEGORIES = new Set(['todo', 'in_progress', 'done']);
 
 /** Maps an error to a stable code (reported to deps.onError for logging). */

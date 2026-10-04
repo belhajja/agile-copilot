@@ -109,13 +109,14 @@ describe('Phase 3 tenant tables (as app_user)', () => {
     inputHash: 'h2',
   });
 
-  it('binds one approval per tool call in a conversation', async () => {
+  it('keys approvals on the approval id: a repeated tool call id is still recorded', async () => {
+    // Some OpenAI-compatible servers reuse tool call ids across turns; the claim re-checks it.
     const result = await pgError(
       withOrg(app.db, 'org_a', (tx) =>
         tx.insert(agentApprovals).values(approval(conversationA, 'ap2', 'tc1')),
       ),
     );
-    expect(result).toEqual({ code: '23505', constraint: 'agent_approvals_conversation_call_uq' });
+    expect(result).toBe('no error');
   });
 
   it('binds one approval per approval id in a conversation', async () => {

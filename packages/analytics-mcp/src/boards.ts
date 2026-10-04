@@ -1,5 +1,5 @@
 import { loadBoardDataset } from '@agile/dashboards';
-import { type Db, jiraBoards, jiraConnections, withOrg } from '@agile/db';
+import { type Db, isUuid, jiraBoards, jiraConnections, withOrg } from '@agile/db';
 import type { BoardDataset } from '@agile/metrics';
 import { and, asc, eq } from 'drizzle-orm';
 
@@ -18,8 +18,6 @@ export interface BoardSummary {
   site: string;
   lastSyncedAt: string | null;
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Selected (synced) boards of the caller's workspace; only `boardId` when given. */
 async function selectedBoards(ctx: AnalyticsContext, boardId?: string): Promise<BoardSummary[]> {
@@ -66,7 +64,7 @@ export async function openBoard(
   ctx: AnalyticsContext,
   boardId: string,
 ): Promise<{ board: BoardSummary; dataset: BoardDataset }> {
-  if (!UUID.test(boardId)) throw new UnknownBoardError();
+  if (!isUuid(boardId)) throw new UnknownBoardError();
   const [board] = await selectedBoards(ctx, boardId);
   if (!board) throw new UnknownBoardError();
   const dataset = await loadBoardDataset(ctx.db, ctx.orgId, boardId);

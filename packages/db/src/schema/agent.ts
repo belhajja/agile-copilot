@@ -96,7 +96,8 @@ export const agentApprovals = pgTable(
   },
   (t) => [
     uniqueIndex('agent_approvals_conversation_approval_uq').on(t.conversationId, t.approvalId),
-    uniqueIndex('agent_approvals_conversation_call_uq').on(t.conversationId, t.toolCallId),
+    // Not unique: some providers reuse tool call ids; the claim matches the call id and the hash.
+    index('agent_approvals_conversation_call_idx').on(t.conversationId, t.toolCallId),
     tenantPolicy('agent_approvals', t.orgId),
   ],
 );
