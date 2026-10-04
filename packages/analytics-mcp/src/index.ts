@@ -6,7 +6,13 @@ export {
   UnknownBoardError,
 } from './boards';
 export { type FindIssuesInput, findIssues, findIssuesInput } from './issues';
-export { METRIC_GUIDE, metricCatalog, metricSpec } from './metrics';
+export {
+  MAX_TABLE_ROWS,
+  METRIC_GUIDE,
+  type MetricData,
+  metricCatalog,
+  metricSpec,
+} from './metrics';
 export {
   type AnalyticsErrorCode,
   type AnalyticsServerOptions,

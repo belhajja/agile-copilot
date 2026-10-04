@@ -11,6 +11,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
   let scrumId = '';
   let kanbanId = '';
+  let connectionId = '';
 
   /** An MCP client talking to a server bound to `orgId` (what the agent does in-process). */
   async function connect(orgId: string, db?: Db, options?: AnalyticsServerOptions) {
@@ -32,7 +33,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
 
   beforeAll(async () => {
     h = await startSyncHarness();
-    const connectionId = await h.connect();
+    connectionId = await h.connect();
     await discoverBoards(h.deps, owner(), connectionId);
     const boards = await listBoards(h.deps, 'org_a', connectionId);
     await setBoardSelection(
@@ -118,6 +119,17 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       params: { sprints: 500 },
     });
     expect(bad).toMatchObject({ isError: true, body: { error: expect.stringMatching(/sprints/) } });
+    // At most 10 params keys: refused by the input schema before any work.
+    const many = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, i]));
+    const tooMany = await mcp.client.callTool({
+      name: 'get_metric',
+      arguments: { boardId: scrumId, metric: 'velocity', params: many },
+    });
+    expect(tooMany.isError).toBe(true);
+    expect((tooMany.content as { text: string }[])[0]?.text).toMatch(/at most 10 params/);
+    const ten = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`k${i}`, i]));
+    const ok = await mcp.call('get_metric', { boardId: scrumId, metric: 'velocity', params: ten });
+    expect(ok.isError).toBe(false);
     await mcp.close();
   });
 
@@ -134,6 +146,29 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
     const leak = await other.call('find_issues', { boardId: scrumId });
     expect(leak.isError).toBe(true);
     await other.close();
+  });
+
+  it('treats a board deselected after setup as unknown', async () => {
+    const mcp = await connect('org_a');
+    try {
+      await setBoardSelection(h.deps, owner(), connectionId, [kanbanId]);
+      for (const [name, args] of [
+        ['get_metric', { boardId: scrumId, metric: 'wip' }],
+        ['forecast', { boardId: scrumId, question: 'how_many' }],
+        ['find_issues', { boardId: scrumId }],
+      ] as const) {
+        expect(await mcp.call(name, args)).toMatchObject({
+          isError: true,
+          body: { error: expect.stringMatching(/Unknown board/) },
+        });
+      }
+      expect((await mcp.call('get_metric', { boardId: kanbanId, metric: 'wip' })).isError).toBe(
+        false,
+      );
+    } finally {
+      await setBoardSelection(h.deps, owner(), connectionId, [scrumId, kanbanId]);
+      await mcp.close();
+    }
   });
 
   it('turns any other failure into a fixed error without driver text', async () => {

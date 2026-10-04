@@ -21,8 +21,8 @@ export interface BoardSummary {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Selected (synced) boards of the caller's workspace. */
-export async function listBoardSummaries(ctx: AnalyticsContext): Promise<BoardSummary[]> {
+/** Selected (synced) boards of the caller's workspace; only `boardId` when given. */
+async function selectedBoards(ctx: AnalyticsContext, boardId?: string): Promise<BoardSummary[]> {
   const rows = await withOrg(ctx.db, ctx.orgId, (tx) =>
     tx
       .select({
@@ -35,11 +35,21 @@ export async function listBoardSummaries(ctx: AnalyticsContext): Promise<BoardSu
       })
       .from(jiraBoards)
       .innerJoin(jiraConnections, eq(jiraConnections.id, jiraBoards.connectionId))
-      .where(and(eq(jiraBoards.orgId, ctx.orgId), eq(jiraBoards.selected, true)))
+      .where(
+        and(
+          eq(jiraBoards.orgId, ctx.orgId),
+          eq(jiraBoards.selected, true),
+          boardId === undefined ? undefined : eq(jiraBoards.id, boardId),
+        ),
+      )
       .orderBy(asc(jiraBoards.name)),
   );
   return rows.map((r) => ({ ...r, lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null }));
 }
+
+/** Selected (synced) boards of the caller's workspace. */
+export const listBoardSummaries = (ctx: AnalyticsContext): Promise<BoardSummary[]> =>
+  selectedBoards(ctx);
 
 export class UnknownBoardError extends Error {
   override name = 'UnknownBoardError';
@@ -57,7 +67,7 @@ export async function openBoard(
   boardId: string,
 ): Promise<{ board: BoardSummary; dataset: BoardDataset }> {
   if (!UUID.test(boardId)) throw new UnknownBoardError();
-  const board = (await listBoardSummaries(ctx)).find((b) => b.id === boardId);
+  const [board] = await selectedBoards(ctx, boardId);
   if (!board) throw new UnknownBoardError();
   const dataset = await loadBoardDataset(ctx.db, ctx.orgId, boardId);
   if (!dataset) throw new UnknownBoardError();

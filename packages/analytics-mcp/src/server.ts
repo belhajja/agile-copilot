@@ -89,7 +89,11 @@ export function createAnalyticsMcpServer(
       inputSchema: {
         boardId: z.string().describe('Board id from list_boards'),
         metric: metricEnum,
-        params: z.record(z.string(), z.unknown()).optional(),
+        params: z
+          .record(z.string(), z.unknown())
+          .refine((p) => Object.keys(p).length <= 10, 'at most 10 params')
+          .optional()
+          .describe('Metric parameters (see list_metrics); at most 10 keys'),
       },
       annotations: readOnly,
     },

@@ -116,8 +116,22 @@ export function metricSpec(
   };
 }
 
-export const computeMetric = (spec: WidgetSpec, dataset: BoardDataset, now: Date): WidgetData =>
-  computeWidget(spec, dataset, now);
+/** Most table rows a tool result carries (hygiene/aging lists can be long; the context is not). */
+export const MAX_TABLE_ROWS = 50;
+
+export type MetricData = WidgetData | (WidgetData & { totalRows: number; truncated: true });
+
+/** computeWidget, with tables capped at MAX_TABLE_ROWS rows for the model (dashboards are not). */
+export function computeMetric(spec: WidgetSpec, dataset: BoardDataset, now: Date): MetricData {
+  const data = computeWidget(spec, dataset, now);
+  if (data.kind !== 'table' || data.rows.length <= MAX_TABLE_ROWS) return data;
+  return {
+    ...data,
+    rows: data.rows.slice(0, MAX_TABLE_ROWS),
+    totalRows: data.rows.length,
+    truncated: true,
+  };
+}
 
 /** Every metric with its summary and default parameters. */
 export function metricCatalog() {
