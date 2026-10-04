@@ -647,5 +647,97 @@
       },
       "unknown": "Une erreur s'est produite."
     }
+  },
+  "skills": {
+    "title": "Compétences",
+    "intro": "Des instructions enregistrées pour l'assistant : à la demande dans la conversation, comme préférences permanentes, selon un planning ou quand une métrique franchit un seuil.",
+    "new": "Nouvelle compétence",
+    "tabs": {
+      "mine": "Mes compétences",
+      "library": "Bibliothèque",
+      "shared": "Partagées dans l'espace"
+    },
+    "empty": "Aucune compétence pour l'instant.",
+    "emptyHint": "Décrivez une analyse récurrente avec vos mots, ou partez de la bibliothèque.",
+    "open": "Ouvrir",
+    "use": "Utiliser",
+    "libraryHint": "Les compétences de la bibliothèque sont disponibles telles quelles dans l'assistant. « Utiliser » en crée une copie modifiable.",
+    "noShared": "Aucun membre n'a encore partagé de compétence.",
+    "sharedHint": "Une compétence partagée n'atteint votre assistant qu'une fois copiée depuis sa propre page : vous lisez d'abord son texte complet, la copie démarre désactivée, et les modifications ultérieures de son auteur ne changent pas votre copie.",
+    "by": "Par {name}",
+    "formerMember": "un ancien membre",
+    "lastRun": "Dernière exécution : {status} {when}",
+    "runStatus": {
+      "queued": "en attente",
+      "running": "en cours",
+      "succeeded": "terminée",
+      "failed": "en échec",
+      "skipped": "ignorée"
+    },
+    "shared": "Partagée",
+    "off": "Désactivée",
+    "triggers": {
+      "on_demand": "À la demande",
+      "always": "Toujours (préférence)",
+      "schedule": "Planifiée",
+      "alert": "Alerte"
+    },
+    "outputs": {
+      "chat": "Conservé sur la page Compétences",
+      "dashboard_card": "Encart du tableau de bord",
+      "email": "E-mail pour moi",
+      "slack": "Slack",
+      "teams": "Microsoft Teams"
+    },
+    "library": {
+      "sprint-health-check": {
+        "title": "Santé du sprint",
+        "description": "Le sprint en cours est-il sur la bonne voie ? Périmètre, avancement, risques et prochaines actions."
+      },
+      "daily-standup-brief": {
+        "title": "Point quotidien",
+        "description": "Ce qui a avancé, ce qui bloque, ce qui demande une décision."
+      },
+      "retro-prep": {
+        "title": "Préparation de rétrospective",
+        "description": "Les faits pour la rétrospective : engagement, changement de périmètre, report, flux."
+      },
+      "stale-work-detector": {
+        "title": "Travail inactif ou vieillissant",
+        "description": "Les éléments qui n'ont pas bougé ou sont en cours depuis trop longtemps."
+      },
+      "scope-creep-watcher": {
+        "title": "Dérive de périmètre",
+        "description": "Le travail ajouté au sprint en cours après son démarrage."
+      },
+      "delivery-forecast": {
+        "title": "Prévision de livraison",
+        "description": "Monte-Carlo : combien d'ici une date, ou quand un nombre d'éléments sera terminé."
+      },
+      "blocker-report": {
+        "title": "Rapport des blocages",
+        "description": "Le travail bloqué ou signalé, et depuis combien de temps."
+      },
+      "kanban-flow-review": {
+        "title": "Revue du flux Kanban",
+        "description": "Débit, temps de cycle, travail en cours et travail vieillissant."
+      },
+      "team-workload-balance": {
+        "title": "Équilibre de la charge",
+        "description": "La répartition du travail en cours, et ce qui n'est pas assigné."
+      }
+    },
+    "read": "Lire",
+    "errors": {
+      "unknown": "Une erreur s'est produite.",
+      "not_found": "Cette compétence n'existe plus ou ne vous est pas accessible.",
+      "forbidden": "Seul le propriétaire de la compétence peut faire cela.",
+      "invalid": "Cette compétence n'est pas valide.",
+      "duplicate_name": "Vous avez déjà une compétence de ce nom.",
+      "invalid_channel": "Ce canal de diffusion n'est pas disponible.",
+      "forbidden_output": "Seuls les propriétaires et administrateurs de l'espace peuvent envoyer des compétences vers Slack ou Teams.",
+      "version_conflict": "Cette compétence a été modifiée ailleurs. Rechargez-la et réessayez.",
+      "not_runnable": "Seules les compétences planifiées et les alertes peuvent s'exécuter maintenant."
+    }
   }
 }

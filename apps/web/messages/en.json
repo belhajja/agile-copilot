@@ -647,5 +647,97 @@
       },
       "unknown": "Something went wrong."
     }
+  },
+  "skills": {
+    "title": "Skills",
+    "intro": "Saved instructions for the assistant: on demand in the chat, as standing preferences, on a schedule or when a metric crosses a threshold.",
+    "new": "New skill",
+    "tabs": {
+      "mine": "My skills",
+      "library": "Library",
+      "shared": "Shared in workspace"
+    },
+    "empty": "No skill yet.",
+    "emptyHint": "Describe a recurring analysis in your own words, or start from the library.",
+    "open": "Open",
+    "use": "Use",
+    "libraryHint": "Library skills are available in the assistant as they are. “Use” makes an editable copy.",
+    "noShared": "No member has shared a skill yet.",
+    "sharedHint": "A shared skill reaches your assistant only once you copy it from its own page: you read its full text first, the copy starts off, and later changes by its author do not change your copy.",
+    "by": "By {name}",
+    "formerMember": "a former member",
+    "lastRun": "Last run: {status} {when}",
+    "runStatus": {
+      "queued": "queued",
+      "running": "running",
+      "succeeded": "done",
+      "failed": "failed",
+      "skipped": "skipped"
+    },
+    "shared": "Shared",
+    "off": "Off",
+    "triggers": {
+      "on_demand": "On demand",
+      "always": "Always (preference)",
+      "schedule": "Scheduled",
+      "alert": "Alert"
+    },
+    "outputs": {
+      "chat": "Kept on the Skills page",
+      "dashboard_card": "Dashboard insight",
+      "email": "Email to me",
+      "slack": "Slack",
+      "teams": "Microsoft Teams"
+    },
+    "library": {
+      "sprint-health-check": {
+        "title": "Sprint health check",
+        "description": "Is the current sprint on track? Scope, progress, risks and what to do next."
+      },
+      "daily-standup-brief": {
+        "title": "Daily stand-up brief",
+        "description": "What moved, what is stuck, what needs a decision."
+      },
+      "retro-prep": {
+        "title": "Retro prep",
+        "description": "Facts for the retrospective: commitment, scope change, carry-over, flow."
+      },
+      "stale-work-detector": {
+        "title": "Stale and aging work",
+        "description": "Work items that have not moved or have been in progress for too long."
+      },
+      "scope-creep-watcher": {
+        "title": "Scope creep watcher",
+        "description": "Work added to the current sprint after it started."
+      },
+      "delivery-forecast": {
+        "title": "Delivery forecast",
+        "description": "Monte Carlo: how much by a date, or when a number of items will be done."
+      },
+      "blocker-report": {
+        "title": "Blocker report",
+        "description": "Blocked and flagged work and how long it has been stuck."
+      },
+      "kanban-flow-review": {
+        "title": "Kanban flow review",
+        "description": "Throughput, cycle time, WIP and aging work."
+      },
+      "team-workload-balance": {
+        "title": "Team workload balance",
+        "description": "How work in progress is spread, and what is unassigned."
+      }
+    },
+    "read": "Read",
+    "errors": {
+      "unknown": "Something went wrong.",
+      "not_found": "This skill no longer exists or is not available to you.",
+      "forbidden": "Only the skill's owner can do that.",
+      "invalid": "This skill is not valid.",
+      "duplicate_name": "You already have a skill with this name.",
+      "invalid_channel": "This delivery channel is not available.",
+      "forbidden_output": "Only workspace owners and admins can send skills to Slack or Teams.",
+      "version_conflict": "This skill was changed elsewhere. Reload it and try again.",
+      "not_runnable": "Only scheduled and alert skills can run now."
+    }
   }
 }
