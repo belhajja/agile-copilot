@@ -7,7 +7,7 @@ import { requireSignedIn, services } from '@/server/context';
 
 export type DeleteAccountState =
   | { status: 'idle' }
-  | { status: 'error'; code: 'confirm_mismatch' | 'reauth' | 'sole_owner'; workspaces?: string[] };
+  | { status: 'error'; code: 'confirm_mismatch' | 'reauth' | 'sole_owner' | 'rate_limited'; workspaces?: string[] };
 
 /** Account deletion needs a sign-in younger than this (L13): a left-open session cannot do it. */
 const FRESH_SIGN_IN_MS = 10 * 60_000;
@@ -48,6 +48,8 @@ export async function deleteAccountAction(
     if (result.code === 'sole_owner') {
       return { status: 'error', code: 'sole_owner', workspaces: result.workspaces };
     }
+    // P5-R44: a few attempts an hour, checked before any costly work.
+    if (result.code === 'rate_limited') return { status: 'error', code: 'rate_limited' };
     // not_found: the account is already gone (deleted elsewhere); so are its sessions.
     await dropAuthCookies();
     redirect('/login');

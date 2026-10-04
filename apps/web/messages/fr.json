@@ -971,6 +971,7 @@
     "deleteButton": "Supprimer mon compte",
     "deleteMismatch": "Saisissez exactement votre adresse e-mail pour confirmer.",
     "deleteReauth": "Par sécurité, déconnectez-vous puis reconnectez-vous, et supprimez votre compte dans les 10 minutes.",
+    "deleteRateLimited": "Trop de tentatives de suppression. Réessayez dans une heure.",
     "deleteSoleOwner": "Vous êtes le seul propriétaire de : {workspaces}. Donnez ce rôle à quelqu'un d'autre ou supprimez d'abord l'espace."
   },
   "members": {

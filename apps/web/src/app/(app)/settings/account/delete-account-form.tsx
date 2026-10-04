@@ -25,7 +25,9 @@ export function DeleteAccountForm({ email }: { email: string }) {
             ? t('deleteSoleOwner', { workspaces: state.workspaces?.join(', ') ?? '' })
             : state.code === 'reauth'
               ? t('deleteReauth')
-              : t('deleteMismatch')}
+              : state.code === 'rate_limited'
+                ? t('deleteRateLimited')
+                : t('deleteMismatch')}
         </FieldError>
       )}
       <div>

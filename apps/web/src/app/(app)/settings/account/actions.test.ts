@@ -83,6 +83,15 @@ describe('deleteAccountAction', () => {
     });
   });
 
+  it('reports too many deletion attempts (P5-R44)', async () => {
+    privacy.deleteAccount.mockResolvedValue({ ok: false, code: 'rate_limited' });
+    expect(await deleteAccountAction(idle, confirm('pat@example.com'))).toEqual({
+      status: 'error',
+      code: 'rate_limited',
+    });
+    expect(cleared).toEqual([]);
+  });
+
   it('deletes the account of the signed-in person and drops the session cookies', async () => {
     privacy.deleteAccount.mockResolvedValue({ ok: true, workspaces: 0 });
     await expect(deleteAccountAction(idle, confirm('pat@example.com'))).rejects.toThrow(

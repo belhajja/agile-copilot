@@ -11,6 +11,7 @@ import {
   mcpTokens,
   member,
   organization,
+  personalDataExports,
   session,
   skillBuilderCalls,
   skillRuns,
@@ -22,6 +23,7 @@ import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  DELETION_ATTEMPTS_PER_HOUR,
   deleteAccount,
   EXPORT_PAGE_SIZE,
   EXPORTS_PER_HOUR,
@@ -471,5 +473,79 @@ describe('personal data: export and account deletion', () => {
     const later = await openUserExport(app.db, 'u_fay', new Date(NOW.getTime() + 61 * 60_000));
     expect(later.ok).toBe(true);
     if (later.ok) await later.finish();
+  });
+  /** `db` counting the raw statements that call `user_org_ids` (the O(workspaces) lookup). */
+  const countingOrgLookups = (db: typeof app.db) => {
+    const seen = { lookups: 0 };
+    const dialect = (db as unknown as { dialect: { sqlToQuery(q: unknown): { sql: string } } })
+      .dialect;
+    const proxied = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === 'execute') {
+          return (query: Parameters<typeof db.execute>[0]) => {
+            if (dialect.sqlToQuery(query).sql.includes('user_org_ids')) seen.lookups++;
+            return target.execute(query);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    return { db: proxied, seen };
+  };
+
+  it('throttles deletion attempts before the workspace lookup; a sole owner never reaches it (P5-R44)', async () => {
+    await raw.db.insert(user).values({ id: 'u_hal', name: 'Hal', email: 'hal@example.com' });
+    await raw.db
+      .insert(organization)
+      .values({ id: 'org_hal', name: 'Hal Inc', slug: 'hal', createdAt: NOW });
+    await raw.db.insert(member).values({
+      id: 'm_hal',
+      organizationId: 'org_hal',
+      userId: 'u_hal',
+      role: 'owner',
+      createdAt: NOW,
+    });
+    const { db, seen } = countingOrgLookups(app.db);
+    for (let i = 0; i < DELETION_ATTEMPTS_PER_HOUR; i++) {
+      expect(await deleteAccount(db, 'u_hal', NOW)).toEqual({
+        ok: false,
+        code: 'sole_owner',
+        workspaces: ['Hal Inc'],
+      });
+    }
+    expect(await deleteAccount(db, 'u_hal', NOW)).toEqual({ ok: false, code: 'rate_limited' });
+    expect(seen.lookups).toBe(0);
+    // An hour later the allowance is back.
+    expect(await deleteAccount(db, 'u_hal', new Date(NOW.getTime() + 61 * 60_000))).toEqual({
+      ok: false,
+      code: 'sole_owner',
+      workspaces: ['Hal Inc'],
+    });
+  });
+
+  it('refuses a person over the hourly allowance before the lookup, deleting nothing (P5-R44)', async () => {
+    await raw.db.insert(user).values({ id: 'u_ivy', name: 'Ivy', email: 'ivy@example.com' });
+    await raw.db.insert(personalDataExports).values(
+      Array.from({ length: DELETION_ATTEMPTS_PER_HOUR }, () => ({
+        userId: 'u_ivy',
+        kind: 'deletion',
+        startedAt: NOW,
+        finishedAt: NOW,
+      })),
+    );
+    const { db, seen } = countingOrgLookups(app.db);
+    expect(await deleteAccount(db, 'u_ivy', NOW)).toEqual({ ok: false, code: 'rate_limited' });
+    expect(seen.lookups).toBe(0);
+    expect(await raw.db.$count(user, eq(user.id, 'u_ivy'))).toBe(1);
+    // Exports are throttled on their own: deletion attempts do not use them up.
+    const exp = await openUserExport(app.db, 'u_ivy', NOW);
+    expect(exp.ok).toBe(true);
+    if (exp.ok) await exp.finish();
+    // A deletion that proceeds does use the lookup.
+    expect(await deleteAccount(db, 'u_ivy', new Date(NOW.getTime() + 61 * 60_000))).toEqual({
+      ok: true,
+      workspaces: 0,
+    });
+    expect(seen.lookups).toBe(1);
   });
 });

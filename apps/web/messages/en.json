@@ -971,6 +971,7 @@
     "deleteButton": "Delete my account",
     "deleteMismatch": "Type your e-mail address exactly to confirm.",
     "deleteReauth": "For your security, sign out and sign in again, then delete your account within 10 minutes.",
+    "deleteRateLimited": "Too many deletion attempts. Try again in an hour.",
     "deleteSoleOwner": "You are the only owner of: {workspaces}. Give the owner role to someone else or delete the workspace first."
   },
   "members": {

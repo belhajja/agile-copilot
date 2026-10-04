@@ -515,7 +515,81 @@ export async function* exportUserData(db: Db, userId: string): AsyncGenerator<st
 export type DeleteAccountResult =
   | { ok: true; workspaces: number }
   | { ok: false; code: 'sole_owner'; workspaces: string[] }
-  | { ok: false; code: 'not_found' };
+  | { ok: false; code: 'not_found' | 'rate_limited' };
+
+/** Account-deletion attempts one person may make per hour (P5-R44). */
+export const DELETION_ATTEMPTS_PER_HOUR = 3;
+const HOUR_MS = 3_600_000;
+
+/**
+ * Counts one deletion attempt against the person's hourly allowance (P5-R44), in its own
+ * transaction under the person's row lock, so attempts at once cannot all pass. Recorded in
+ * `personal_data_exports` as kind `deletion` (finished at once: an attempt is never "running").
+ */
+async function takeDeletionAttempt(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<'ok' | 'not_found' | 'rate_limited'> {
+  return db.transaction(async (tx) => {
+    const [person] = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.id, userId))
+      .for('no key update');
+    if (!person) return 'not_found';
+    const recent = await tx.$count(
+      personalDataExports,
+      and(
+        eq(personalDataExports.userId, userId),
+        eq(personalDataExports.kind, 'deletion'),
+        gt(personalDataExports.startedAt, new Date(now.getTime() - HOUR_MS)),
+      ),
+    );
+    if (recent >= DELETION_ATTEMPTS_PER_HOUR) return 'rate_limited';
+    await tx
+      .insert(personalDataExports)
+      .values({ userId, kind: 'deletion', startedAt: now, finishedAt: now });
+    return 'ok';
+  });
+}
+
+/**
+ * The workspaces the person is the only owner of, from their workspaces' member rows; `lock`
+ * takes those rows `FOR UPDATE` by id (L12).
+ */
+async function soleOwnerWorkspaces(
+  q: Query,
+  userId: string,
+  lock: boolean,
+): Promise<{ orphaned: string[]; current: Set<string> }> {
+  const theirs = q
+    .select({ orgId: member.organizationId })
+    .from(member)
+    .where(eq(member.userId, userId));
+  const query = q
+    .select({
+      orgId: member.organizationId,
+      userId: member.userId,
+      role: member.role,
+      workspace: organization.name,
+    })
+    .from(member)
+    .innerJoin(organization, eq(organization.id, member.organizationId))
+    .where(sql`${member.organizationId} in ${theirs}`)
+    .orderBy(asc(member.id));
+  const rows = lock ? await query.for('update', { of: member }) : await query;
+  const isOwner = (role: string) => parseRoles(role).includes('owner');
+  const memberships = rows.filter((r) => r.userId === userId);
+  const orphaned = memberships
+    .filter(
+      (m) =>
+        isOwner(m.role) &&
+        !rows.some((o) => o.orgId === m.orgId && o.userId !== userId && isOwner(o.role)),
+    )
+    .map((m) => m.workspace);
+  return { orphaned, current: new Set(memberships.map((m) => m.orgId)) };
+}
 
 /**
  * Deletes a person's account (GDPR erasure), in one transaction: their private data in every
@@ -527,11 +601,26 @@ export type DeleteAccountResult =
  * to manage or delete it. The workspaces' member rows are locked first (L12), so two owners
  * leaving at once cannot both pass that check.
  *
+ * Cost (P5-R44): finding the workspaces a former member still has rows in (`user_org_ids`) costs
+ * one indexed probe per workspace of the whole deployment. So it runs last, only once the attempt
+ * fits the person's hourly allowance (`DELETION_ATTEMPTS_PER_HOUR`) and a lock-free sole-owner
+ * check passed; a refused attempt never reaches it. The check is repeated under the locks.
+ *
  * Lock order: user row, then member rows by id, then the person's tenant rows workspace by
  * workspace. A workspace deletion (the auth hook) also takes its member rows by id before any
  * tenant row, so the two serialize on the shared member rows instead of deadlocking.
  */
-export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccountResult> {
+export async function deleteAccount(
+  db: Db,
+  userId: string,
+  now: Date = new Date(),
+): Promise<DeleteAccountResult> {
+  const attempt = await takeDeletionAttempt(db, userId, now);
+  if (attempt !== 'ok') return { ok: false, code: attempt };
+  const precheck = await soleOwnerWorkspaces(db, userId, false);
+  if (precheck.orphaned.length > 0) {
+    return { ok: false, code: 'sole_owner', workspaces: precheck.orphaned };
+  }
   // Before any lock (P5-R37): a workspace the person has rows in now is in this list, member or
   // not; one they join meanwhile is a membership, read under the locks below.
   const known = await personOrgIds(db, userId);
@@ -543,35 +632,10 @@ export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccou
       .for('update');
     if (!person) return { ok: false, code: 'not_found' };
 
-    const theirs = tx
-      .select({ orgId: member.organizationId })
-      .from(member)
-      .where(eq(member.userId, userId));
-    const rows = await tx
-      .select({
-        orgId: member.organizationId,
-        userId: member.userId,
-        role: member.role,
-        workspace: organization.name,
-      })
-      .from(member)
-      .innerJoin(organization, eq(organization.id, member.organizationId))
-      .where(sql`${member.organizationId} in ${theirs}`)
-      .orderBy(asc(member.id))
-      .for('update', { of: member });
-    const isOwner = (role: string) => parseRoles(role).includes('owner');
-    const memberships = rows.filter((r) => r.userId === userId);
-    const orphaned = memberships
-      .filter(
-        (m) =>
-          isOwner(m.role) &&
-          !rows.some((o) => o.orgId === m.orgId && o.userId !== userId && isOwner(o.role)),
-      )
-      .map((m) => m.workspace);
+    const { orphaned, current } = await soleOwnerWorkspaces(tx, userId, true);
     if (orphaned.length > 0) return { ok: false, code: 'sole_owner', workspaces: orphaned };
 
     const tables = await personalTables(tx);
-    const current = new Set(memberships.map((m) => m.orgId));
     const former = await formerWorkspaces(tx, known, current);
     const orgIds = [...current, ...former.map((f) => f.orgId)];
     const erased = tables.filter((t) => !KEPT_ON_DELETION.has(t.table));
@@ -610,7 +674,6 @@ export async function deleteAccount(db: Db, userId: string): Promise<DeleteAccou
 export const EXPORTS_PER_HOUR = 5;
 /** An export still marked running after this long was abandoned (a crash): it no longer blocks. */
 export const EXPORT_STALE_MS = 30 * 60_000;
-const HOUR_MS = 3_600_000;
 
 export type OpenExportResult =
   | {
