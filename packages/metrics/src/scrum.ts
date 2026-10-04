@@ -42,7 +42,11 @@ export interface CarryOver {
 const ms = (d: Date) => d.getTime();
 const total = (values: number[]) => round(sum(values), 2);
 
-/** Issues in the sprint at its start, excluding ones already done then (completed elsewhere). */
+/**
+ * Issues in the sprint at its start, excluding ones already done then (Jira's "completed outside
+ * this sprint"). An issue done at start, reopened and re-done inside the sprint stays excluded on
+ * purpose; velocity and the burn charts apply the same rule.
+ */
 function committedIssues(
   sprint: MetricSprint & { startAt: Date },
   byId: Map<string, MetricIssue>,
@@ -214,10 +218,11 @@ export function sprintBurn(
       return { day: isoDay(day), remaining: null, ideal, scope: null, completed: null };
     }
     const at = endOfDayCapped(day, cap);
-    const members =
+    const members = (
       sprint.completeAt && ms(at) >= ms(sprint.completeAt)
         ? closeMembers({ ...sprint, completeAt: sprint.completeAt }, byId)
-        : pick(membersAt(sprint, at), byId);
+        : pick(membersAt(sprint, at), byId)
+    ).filter((i) => categoryAt(i, start) !== 'done');
     const done = members.filter((i) => categoryAt(i, at) === 'done');
     const scope = total(members.map((i) => valueAt(i, at, unit)));
     const completed = total(done.map((i) => valueAt(i, at, unit)));

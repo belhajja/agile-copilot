@@ -174,6 +174,16 @@ describe('scrum metrics: review fixes', () => {
       completedCount: 1,
     });
     expect(scopeChange(ds, s, { now: d(20) })?.committed).toBe(2);
+    // burn ignores X too: day 0 scope 2 / completed 0 / remaining 2 / ideal 2; close row matches velocity
+    const rows = sprintBurn(ds, s, { now: d(20) });
+    expect(rows?.[0]).toEqual({
+      day: '2026-01-05',
+      remaining: 2,
+      ideal: 2,
+      scope: 2,
+      completed: 0,
+    });
+    expect(rows?.at(-1)).toMatchObject({ scope: 2, completed: 2, remaining: 0 });
   });
 
   it('returns null for a closed sprint without completeAt', () => {
