@@ -1,0 +1,233 @@
+import { createDb } from '@agile/db';
+import { expect, type Page, test } from '@playwright/test';
+import { sql } from 'drizzle-orm';
+import { connectionItem, signUp, signUpWithWorkspace } from '../helpers';
+
+// Mocks (e2e/mocks/serve.ts): Jira with the demo boards on 4010, the scripted model on 4020, the
+// mcp-atlassian double on 4050. The scripted model answers "velocity" with the analytics tools and
+// "comment on KEY: text" with a jira_add_comment proposal (when the tool is offered).
+test.describe.configure({ mode: 'serial', timeout: 240_000 });
+
+const ownerUrl =
+  process.env.DATABASE_OWNER_URL ?? 'postgres://agile:agile_dev_password@localhost:5433/agile';
+
+/** Runs one query as the database owner (audit rows and test-only membership setup). */
+async function asOwner<T>(query: ReturnType<typeof sql>): Promise<T[]> {
+  const { db, close } = createDb(ownerUrl, { max: 1 });
+  try {
+    return (await db.execute(query)) as unknown as T[];
+  } finally {
+    await close();
+  }
+}
+
+async function orgIdOf(email: string) {
+  const [row] = await asOwner<{ orgId: string }>(sql`
+    select m.organization_id as "orgId" from member m join "user" u on u.id = m.user_id
+    where u.email = ${email}`);
+  if (!row) throw new Error(`no workspace for ${email}`);
+  return row.orgId;
+}
+
+/** Test-only stand-in for an accepted invitation: `email` joins `orgId` as a member. */
+async function joinAsMember(email: string, orgId: string) {
+  await asOwner(sql`
+    insert into member (id, organization_id, user_id, role, created_at)
+    select gen_random_uuid()::text, ${orgId}, u.id, 'member', now() from "user" u
+    where u.email = ${email}`);
+  await asOwner(sql`
+    update session set active_organization_id = ${orgId}
+    where user_id = (select id from "user" where email = ${email})`);
+}
+
+async function setUpWorkspace(page: Page) {
+  const { email } = await signUpWithWorkspace(page);
+  await page.goto('/settings/jira');
+  await page.getByLabel('Connection name').fill('Demo Jira');
+  await page.getByLabel('Jira URL').fill('http://127.0.0.1:4010');
+  await page.getByLabel('Data Center / Server').check();
+  await page.getByLabel('Personal access token').fill('good-pat');
+  await page.getByRole('button', { name: 'Test and save' }).click();
+  await expect(connectionItem(page, 'Demo Jira').getByText('Connected')).toBeVisible();
+  await connectionItem(page, 'Demo Jira').getByRole('link', { name: 'Boards' }).click();
+  await page.getByRole('button', { name: 'Load boards from Jira' }).click();
+  await page.getByLabel('DEMO Scrum').check();
+  await page.getByRole('button', { name: 'Save selection' }).click();
+  await expect(page.getByText('Board selection saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Sync now' }).click();
+  await expect(page.getByText(/^Synced /)).toBeVisible({ timeout: 90_000 });
+
+  await page.goto('/settings/llm');
+  await page.getByLabel('Provider').selectOption('openai_compatible');
+  await page.getByLabel('Label').fill('Mock model');
+  await page.getByLabel('Model').fill('mock');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:4020/v1');
+  await page.getByLabel('API key').fill('good-key');
+  await page.getByRole('button', { name: 'Test and save' }).click();
+  await expect(connectionItem(page, 'Mock model').getByText('Connected')).toBeVisible();
+  const prices = connectionItem(page, 'Mock model');
+  await prices.getByLabel('Input, per 1M tokens').fill('3');
+  await prices.getByLabel('Output, per 1M tokens').fill('15');
+  await prices.getByRole('button', { name: 'Save prices' }).click();
+  await expect(prices.getByText('Prices saved.')).toBeVisible();
+  return { email, orgId: await orgIdOf(email) };
+}
+
+async function ask(page: Page, text: string) {
+  await page.getByRole('textbox', { name: 'Message' }).fill(text);
+  await page.getByRole('button', { name: 'Send' }).click();
+}
+
+const jiraWrites = async (page: Page) =>
+  (await (await page.request.get('http://127.0.0.1:4010/__mock/writes')).json()) as {
+    method: string;
+    path: string;
+    body: { body?: string };
+  }[];
+
+async function auditFor(orgId: string, issueKey: string) {
+  const rows = await asOwner<{ action: string }>(sql`
+    select action from audit_log
+    where org_id = ${orgId} and action like 'agent_action.%' and metadata->>'issueKey' = ${issueKey}
+    order by created_at`);
+  return rows.map((r) => r.action);
+}
+
+const velocityAnswer = 'The average velocity of DEMO Scrum is 19 points per sprint.';
+const kpi = (page: Page, selector: string) => page.locator(`${selector} [data-slot="card-title"]`);
+
+test('ask about velocity, then approve and reject proposed Jira comments', async ({ page }) => {
+  const { orgId } = await setUpWorkspace(page);
+
+  await page.getByRole('link', { name: 'Assistant' }).click();
+  await expect(page.getByText('Ask about your boards')).toBeVisible({ timeout: 60_000 });
+
+  // A question answered with the analytics tools and the demo numbers
+  await ask(page, 'What is our velocity?');
+  await expect(page.getByText(velocityAnswer)).toBeVisible();
+  await expect(page.locator('[data-tool="get_metric"]')).toBeVisible();
+  await expect(page).toHaveURL(/\/agent\/[0-9a-f-]{36}$/);
+
+  // A proposed comment waits for approval; nothing reaches Jira before it
+  const comment = `Blocked by the API team ${Date.now()}`;
+  await ask(page, `Please comment on DEMO-1: ${comment}`);
+  const card = page.locator('[data-approval]').last();
+  await expect(card.getByText(comment)).toBeVisible();
+  expect((await jiraWrites(page)).some((w) => w.body?.body === comment)).toBe(false);
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect(page.getByText('Done: the comment is posted.')).toBeVisible();
+  await expect(card.getByText('Approved')).toBeVisible();
+  expect(await jiraWrites(page)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        method: 'POST',
+        path: '/rest/api/2/issue/DEMO-1/comment',
+        body: { body: comment },
+      }),
+    ]),
+  );
+  expect(await auditFor(orgId, 'DEMO-1')).toEqual([
+    'agent_action.proposed',
+    'agent_action.approved',
+    'agent_action.executed',
+  ]);
+
+  // Rejected: nothing is written
+  const other = `Ready for review ${Date.now()}`;
+  await ask(page, `Please comment on DEMO-2: ${other}`);
+  const second = page.locator('[data-approval]').last();
+  await expect(second.getByText(other)).toBeVisible();
+  await second.getByRole('button', { name: 'Reject' }).click();
+  await expect(page.getByText('Understood, I did not post the comment.')).toBeVisible();
+  await expect(second.getByText('Rejected')).toBeVisible();
+  expect((await jiraWrites(page)).some((w) => w.body?.body === other)).toBe(false);
+  expect(await auditFor(orgId, 'DEMO-2')).toEqual([
+    'agent_action.proposed',
+    'agent_action.rejected',
+  ]);
+
+  // The conversation survives a reload (stored server-side), and spend is metered
+  await page.reload();
+  await expect(page.getByText('Done: the comment is posted.')).toBeVisible();
+  await page.goto('/settings/usage');
+  await expect(kpi(page, '[data-kpi="replies"]')).toHaveText('5');
+
+  // The assistant's number is the dashboard's number
+  await page.goto('/');
+  await page.getByRole('link', { name: /DEMO Scrum/ }).click();
+  await expect(kpi(page, '[data-widget="avg-velocity"]')).toHaveText('19 pts', {
+    timeout: 60_000,
+  });
+
+  // French UI
+  await page.goto('/agent');
+  await page.getByRole('button', { name: /Pat Manager/ }).click();
+  await page.getByRole('menuitem', { name: 'Français' }).click();
+  await expect(page.getByText('Posez une question sur vos tableaux')).toBeVisible();
+});
+
+test('a member gets no Jira change proposals and sees only their own usage', async ({
+  page,
+  browser,
+}) => {
+  const { orgId } = await setUpWorkspace(page);
+  await page.goto('/agent');
+  await ask(page, 'What is our velocity?');
+  await expect(page.getByText(velocityAnswer)).toBeVisible({ timeout: 60_000 });
+
+  const context = await browser.newContext();
+  try {
+    const member = await context.newPage();
+    const { email } = await signUp(member, 'Sam Member');
+    await joinAsMember(email, orgId);
+
+    // Members are offered no Jira write tools, so no approval card can appear.
+    await member.goto('/agent');
+    const note = `Member note ${Date.now()}`;
+    await ask(member, `Please comment on DEMO-4: ${note}`);
+    await expect(
+      member.getByText(
+        'I can answer questions about your boards and act in Jira with your approval.',
+      ),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(member.locator('[data-approval]')).toHaveCount(0);
+    expect((await jiraWrites(member)).some((w) => w.body?.body === note)).toBe(false);
+    expect(await auditFor(orgId, 'DEMO-4')).toEqual([]);
+
+    // Their own usage only: one answer, one row (theirs), not the admin's
+    await member.goto('/settings/usage');
+    await expect(member.getByText(/^Your assistant tokens and cost/)).toBeVisible();
+    await expect(kpi(member, '[data-kpi="replies"]')).toHaveText('1');
+    await expect(member.locator('tbody tr')).toHaveCount(1);
+    await expect(member.locator('tbody tr')).toContainText('Sam Member');
+    await expect(member.getByRole('cell', { name: 'Pat Manager' })).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+
+  // The admin sees the whole workspace
+  await page.goto('/settings/usage');
+  await expect(kpi(page, '[data-kpi="replies"]')).toHaveText('2');
+  await expect(page.locator('tbody tr')).toHaveCount(2);
+});
+
+test('the assistant fits a phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await setUpWorkspace(page);
+  await page.goto('/agent');
+  const noOverflow = async () =>
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+
+  await ask(page, 'What is our velocity?');
+  await expect(page.getByText(velocityAnswer)).toBeVisible({ timeout: 60_000 });
+  await noOverflow();
+
+  await ask(page, 'Please comment on DEMO-3: Needs a test plan');
+  const card = page.locator('[data-approval]').last();
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeInViewport();
+  await noOverflow();
+});

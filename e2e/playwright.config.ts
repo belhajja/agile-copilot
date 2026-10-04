@@ -13,6 +13,8 @@ const env = {
   BETTER_AUTH_URL: 'http://localhost:3200',
   ENCRYPTION_KEYS: `v1:${Buffer.alloc(32, 9).toString('base64')}`,
   ALLOWED_PRIVATE_HOSTS: '127.0.0.1',
+  // The mcp-atlassian test double started by `pnpm mocks`.
+  MCP_ATLASSIAN_URL: 'http://127.0.0.1:4050/mcp',
 };
 
 export default defineConfig({
@@ -22,6 +24,7 @@ export default defineConfig({
   expect: { timeout: process.env.CI ? 30_000 : 5_000 },
   use: { baseURL: 'http://localhost:3200', trace: 'retain-on-failure' },
   webServer: [
+    // 4010 opens last (after 4020 and 4050); global-setup checks that 4050 answers.
     { command: 'pnpm mocks', port: 4010, reuseExistingServer: !process.env.CI },
     {
       // The sync worker (pg-boss); its /health answers once it is connected and scheduled.

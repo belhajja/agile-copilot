@@ -214,12 +214,18 @@ importers:
       '@agile/jira':
         specifier: workspace:*
         version: link:../packages/jira
+      '@agile/jira-tools':
+        specifier: workspace:*
+        version: link:../packages/jira-tools
       '@agile/llm':
         specifier: workspace:*
         version: link:../packages/llm
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
       tsx:
         specifier: ^4.20.0
         version: 4.23.15
