@@ -182,6 +182,34 @@ importers:
         specifier: ^4.20.0
         version: 4.23.15
 
+  packages/analytics-mcp:
+    dependencies:
+      '@agile/dashboards':
+        specifier: workspace:*
+        version: link:../dashboards
+      '@agile/db':
+        specifier: workspace:*
+        version: link:../db
+      '@agile/metrics':
+        specifier: workspace:*
+        version: link:../metrics
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.0
+        version: 1.32.0(zod@4.6.5)
+      drizzle-orm:
+        specifier: 0.45.3
+        version: 0.45.3(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@agile/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@testcontainers/postgresql':
+        specifier: 12.2.0
+        version: 12.2.0
+
   packages/auth:
     dependencies:
       '@agile/db':
