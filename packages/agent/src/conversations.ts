@@ -1,13 +1,6 @@
-import {
-  agentConversations,
-  agentMessages,
-  type Db,
-  isUniqueViolation,
-  type Tx,
-  withOrg,
-} from '@agile/db';
+import { agentConversations, agentMessages, type Db, type Tx, withOrg } from '@agile/db';
 import type { UIMessage } from 'ai';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
 
 export interface ConversationSummary {
@@ -111,17 +104,89 @@ export async function openOrCreateConversation(
   id: string,
 ): Promise<{ id: string; messages: UIMessage[] } | null> {
   if (!isConversationId(id)) return null;
-  try {
-    return await withOrg(db, actor.orgId, async (tx) => {
-      const [row] = await tx.select().from(agentConversations).where(ownedBy(actor, id));
-      if (row) return { id, messages: await readMessages(tx, id) };
-      await tx.insert(agentConversations).values({ id, orgId: actor.orgId, userId: actor.userId });
-      return { id, messages: [] };
-    });
-  } catch (e) {
-    if (isUniqueViolation(e)) return null; // the id belongs to someone else
-    throw e;
+  return withOrg(db, actor.orgId, async (tx) => {
+    // Two first messages racing on a new id both land here: the loser waits for the winner's
+    // insert, does nothing, then finds the row. An id taken by someone else stays invisible.
+    await tx
+      .insert(agentConversations)
+      .values({ id, orgId: actor.orgId, userId: actor.userId })
+      .onConflictDoNothing();
+    const [row] = await tx.select().from(agentConversations).where(ownedBy(actor, id));
+    if (!row) return null; // the id belongs to someone else
+    return { id, messages: await readMessages(tx, id) };
+  });
+}
+
+/** How long a chat turn may hold its conversation before another turn can take it over. */
+export const TURN_LEASE_SECONDS = 600;
+
+/** Another turn of this conversation is still running. */
+export class TurnInProgressError extends Error {
+  override name = 'TurnInProgressError';
+  readonly code = 'turn_in_progress';
+  constructor() {
+    super('Another reply is still in progress');
   }
+}
+
+/** The turn's lease was taken over (it ran past the lease): its reply is not stored. */
+export class TurnLostError extends Error {
+  override name = 'TurnLostError';
+  readonly code = 'turn_lost';
+  constructor() {
+    super('The reply no longer holds its conversation');
+  }
+}
+
+/**
+ * Starts a chat turn inside the caller's tenant transaction: locks the actor's conversation, takes
+ * its turn lease (or throws `TurnInProgressError` while another turn holds it) and only THEN reads
+ * the history, so two turns never both start from the same history and overwrite each other.
+ */
+export async function beginTurn(
+  tx: Tx,
+  actor: AgentActor,
+  id: string,
+  turnId: string,
+): Promise<UIMessage[]> {
+  if (!isConversationId(id)) throw new ConversationNotFoundError();
+  const [row] = await tx
+    .select({
+      busy: sql<boolean>`(${agentConversations.turnId} is not null and ${agentConversations.turnStartedAt} > now() - make_interval(secs => ${TURN_LEASE_SECONDS}))`,
+    })
+    .from(agentConversations)
+    .where(ownedBy(actor, id))
+    .for('update');
+  if (!row) throw new ConversationNotFoundError();
+  if (row.busy) throw new TurnInProgressError();
+  await tx
+    .update(agentConversations)
+    .set({ turnId, turnStartedAt: sql`now()` })
+    .where(ownedBy(actor, id));
+  return readMessages(tx, id);
+}
+
+/**
+ * Ends a chat turn inside the caller's transaction (before storing its reply there): throws
+ * `TurnLostError` if the turn no longer holds the conversation, otherwise releases it.
+ */
+export async function endTurn(tx: Tx, actor: AgentActor, id: string, turnId: string) {
+  const released = await tx
+    .update(agentConversations)
+    .set({ turnId: null, turnStartedAt: null })
+    .where(and(ownedBy(actor, id), eq(agentConversations.turnId, turnId)))
+    .returning({ id: agentConversations.id });
+  if (released.length === 0) throw new TurnLostError();
+}
+
+/** Best-effort release of a turn that ends without storing a reply (setup or storage failed). */
+export async function releaseTurn(db: Db, actor: AgentActor, id: string, turnId: string) {
+  await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .update(agentConversations)
+      .set({ turnId: null, turnStartedAt: null })
+      .where(and(ownedBy(actor, id), eq(agentConversations.turnId, turnId))),
+  );
 }
 
 const titleOf = (messages: UIMessage[]) => {

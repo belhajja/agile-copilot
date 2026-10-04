@@ -13,19 +13,29 @@ const safeId = (id: string) => id.replace(/[^a-z0-9_-]/gi, '');
  * The system prompt. Rules first, facts after; no user, admin or Jira text is ever interpolated:
  * sites appear by id and deployment only, their names reach the model as data (`jiraSitesData`).
  */
-export function systemPrompt(opts: { now: Date; jiraSites: PromptSite[]; liveJira: boolean }) {
+export function systemPrompt(opts: {
+  now: Date;
+  jiraSites: PromptSite[];
+  liveJira: boolean;
+  /** Whether the user may propose Jira changes (workspace owners and admins). Default true. */
+  jiraWrites?: boolean;
+}) {
   const sites =
     opts.jiraSites.length > 1
       ? `\nJira sites (pass the id as "site" to Jira tools; their names are in the <data source="jira_sites"> block):\n${opts.jiraSites
           .map((s) => `- ${safeId(s.id)} (${s.deployment === 'cloud' ? 'cloud' : 'datacenter'})`)
           .join('\n')}`
       : '';
-  const jira = opts.liveJira
-    ? `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
+  const jira = !opts.liveJira
+    ? 'Live Jira tools are not available in this workspace: use the synced data only.'
+    : opts.jiraWrites === false
+      ? `Live Jira tools (names start with "jira_") read current Jira data.
+Jira changes are not available for your role. If the user asks for one, say so and suggest
+asking a workspace owner or admin.${sites}`
+      : `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
 Every Jira change (comment, transition, assignment, creation, update) is only a proposal: the app
 shows it to the user, who approves or rejects it. Propose one change at a time, with the exact
-final text. If the user rejects a change, do not propose it again unless they ask.${sites}`
-    : 'Live Jira tools are not available in this workspace: use the synced data only.';
+final text. If the user rejects a change, do not propose it again unless they ask.${sites}`;
   return `You are Agile Copilot, an assistant for Scrum and Kanban delivery managers.
 Today is ${opts.now.toISOString().slice(0, 10)} (UTC).
 
