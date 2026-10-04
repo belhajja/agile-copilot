@@ -161,8 +161,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
         const page = boardPageSchema.parse(
           await call((k) => k.agile.board.getAllBoards({ startAt, maxResults: PAGE })),
         );
-        if (pager.isRepeat(page.values[0]?.id)) return boards;
-        boards.push(...page.values.map(toBoardInfo));
+        boards.push(...pager.fresh(page.values, (b) => b.id).map(toBoardInfo));
         startAt += page.values.length;
         if (pager.done(page, page.values.length)) return boards;
       }
@@ -179,8 +178,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
         const page = sprintPageSchema.parse(
           await call((k) => k.agile.board.getAllSprints({ boardId, startAt, maxResults: PAGE })),
         );
-        if (pager.isRepeat(page.values[0]?.jiraSprintId)) return sprints;
-        sprints.push(...page.values);
+        sprints.push(...pager.fresh(page.values, (x) => x.jiraSprintId));
         startAt += page.values.length;
         if (pager.done(page, page.values.length)) return sprints;
       }
@@ -207,8 +205,9 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
             }),
           ),
         );
-        if (page.issues.length > 0) yield page.issues;
-        nextPageToken = pager.next(page.issues.length, page.isLast, page.nextPageToken);
+        const issues = pager.fresh(page.issues, (i) => i.id);
+        if (issues.length > 0) yield issues;
+        nextPageToken = pager.next(page.isLast, page.nextPageToken);
       } while (nextPageToken);
     },
     async getFullChangelog(issueKey) {
@@ -220,8 +219,7 @@ function cloud(getCreds: () => Promise<CloudCredentials>, opts: DataSourceOption
             k.jira.issues.getChangeLogs({ issueIdOrKey: issueKey, startAt, maxResults: 100 }),
           ),
         );
-        if (pager.isRepeat(page.values[0]?.id)) return histories;
-        histories.push(...page.values);
+        histories.push(...pager.fresh(page.values, (h) => h.id));
         startAt += page.values.length;
         if (pager.done(page, page.values.length)) return histories;
       }
@@ -267,8 +265,7 @@ function dataCenter(
         const page = boardPageSchema.parse(
           await call((k) => k.agile.board.getAllBoards<unknown>({ startAt, maxResults: PAGE })),
         );
-        if (pager.isRepeat(page.values[0]?.id)) return boards;
-        boards.push(...page.values.map(toBoardInfo));
+        boards.push(...pager.fresh(page.values, (b) => b.id).map(toBoardInfo));
         startAt += page.values.length;
         if (pager.done(page, page.values.length)) return boards;
       }
@@ -287,8 +284,7 @@ function dataCenter(
             k.agile.board.getAllSprints<unknown>({ boardId, startAt, maxResults: PAGE }),
           ),
         );
-        if (pager.isRepeat(page.values[0]?.jiraSprintId)) return sprints;
-        sprints.push(...page.values);
+        sprints.push(...pager.fresh(page.values, (x) => x.jiraSprintId));
         startAt += page.values.length;
         if (pager.done(page, page.values.length)) return sprints;
       }
@@ -315,8 +311,8 @@ function dataCenter(
             }),
           ),
         );
-        if (pager.isRepeat(page.issues[0]?.id)) return;
-        if (page.issues.length > 0) yield page.issues;
+        const issues = pager.fresh(page.issues, (i) => i.id);
+        if (issues.length > 0) yield issues;
         startAt += page.issues.length;
         if (pager.done(page, page.issues.length)) return;
       }

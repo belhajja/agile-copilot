@@ -25,7 +25,7 @@ export {
   createAtlassianOAuth,
   listAccessibleJiraSites,
 } from './oauth';
-export { JiraPaginationLimitError } from './pagination';
+export { JiraPaginationError, JiraPaginationLimitError } from './pagination';
 export { type ProbeOptions, probeJira } from './probe';
 export {
   errorRetryAfterMs,

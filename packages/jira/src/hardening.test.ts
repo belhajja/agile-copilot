@@ -4,7 +4,7 @@ import { inspect } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createJiraDataSource, type JiraDataSource } from './data-source';
 import { mapJiraError } from './errors';
-import { JiraPaginationLimitError } from './pagination';
+import { JiraPaginationError, JiraPaginationLimitError } from './pagination';
 import { errorRetryAfterMs, errorStatus } from './rate-limit';
 import { demoDataset, startMockJira } from './testing/mock-jira-server';
 import type { JiraCredentials } from './types';
@@ -56,10 +56,13 @@ const drain = async (source: JiraDataSource) => {
 };
 
 describe('pagination against hostile servers', () => {
-  it('Cloud search stops when a page token repeats', async () => {
+  it('Cloud search throws when a page token repeats', async () => {
     const s = await hostile(() => ({ issues: [issue(1)], nextPageToken: 'same' }));
     const source = createJiraDataSource(cloudCreds(s.url), { retry: noWait });
-    expect((await drain(source)).length).toBeLessThanOrEqual(2);
+    await expect(drain(source)).rejects.toMatchObject({
+      name: 'JiraPaginationError',
+      reason: 'repeated_token',
+    });
     expect(s.hits()).toBeLessThanOrEqual(2);
   });
 
@@ -107,27 +110,68 @@ describe('pagination against hostile servers', () => {
     ['Cloud', cloudCreds],
     ['Data Center', dcCreds],
   ])(
-    '%s boards: stops on a short page without total, and when startAt is ignored',
+    '%s boards: stops on a short page when neither total nor isLast is given',
     async (_n, creds) => {
       const short = await hostile(() => ({ values: [{ id: 1, name: 'b', type: 'scrum' }] }));
       expect(
         await createJiraDataSource(creds(short.url), { retry: noWait }).listBoards(),
       ).toHaveLength(1);
       expect(short.hits()).toBe(1);
-
-      // Always the same full page: startAt is not honoured.
-      const same = await hostile((_p, q) => ({
-        values: Array.from({ length: Number(q.get('maxResults')) }, (_, i) => ({
-          id: i,
-          name: 'b',
-          type: 'scrum',
-        })),
-      }));
-      const boards = await createJiraDataSource(creds(same.url), { retry: noWait }).listBoards();
-      expect(boards).toHaveLength(50);
-      expect(same.hits()).toBe(2);
     },
   );
+
+  it.each([
+    ['Cloud', cloudCreds],
+    ['Data Center', dcCreds],
+  ])('%s boards: throws (not truncates) when startAt is ignored', async (_n, creds) => {
+    const same = await hostile((_p, q) => ({
+      values: Array.from({ length: Number(q.get('maxResults')) }, (_, i) => ({
+        id: i,
+        name: 'b',
+        type: 'scrum',
+      })),
+    }));
+    const err = await createJiraDataSource(creds(same.url), { retry: noWait })
+      .listBoards()
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(JiraPaginationError);
+    expect(err).toMatchObject({ reason: 'repeated_page' });
+    expect(err.message).not.toContain('127.0.0.1');
+    expect(same.hits()).toBe(2);
+  });
+
+  it.each([
+    ['Cloud', cloudCreds],
+    ['Data Center', dcCreds],
+  ])(
+    '%s: an explicit isLast:false continues past a short page (boards and sprints)',
+    async (_n, creds) => {
+      const pages = (hit: number) =>
+        hit === 1
+          ? { isLast: false, values: [{ id: 1, name: 'a', type: 'scrum', state: 'closed' }] }
+          : { isLast: true, values: [{ id: 2, name: 'b', type: 'scrum', state: 'closed' }] };
+      const boards = await hostile((_p, _q, hit) => pages(hit));
+      const listed = await createJiraDataSource(creds(boards.url), { retry: noWait }).listBoards();
+      expect(listed.map((b) => b.jiraBoardId)).toEqual([1, 2]);
+      const sprints = await hostile((_p, _q, hit) => pages(hit));
+      const sp = await createJiraDataSource(creds(sprints.url), { retry: noWait }).listSprints(1);
+      expect(sp.map((x) => x.jiraSprintId)).toEqual([1, 2]);
+    },
+  );
+
+  it.each([
+    ['Cloud', cloudCreds],
+    ['Data Center', dcCreds],
+  ])('%s: items repeated across overlapping pages are kept once', async (_n, creds) => {
+    const row = (id: number) => ({ id, name: `b${id}`, type: 'scrum' });
+    const s = await hostile((_p, _q, hit) =>
+      hit === 1
+        ? { isLast: false, values: [row(1), row(2)] }
+        : { isLast: true, values: [row(2), row(3)] },
+    );
+    const boards = await createJiraDataSource(creds(s.url), { retry: noWait }).listBoards();
+    expect(boards.map((b) => b.jiraBoardId)).toEqual([1, 2, 3]);
+  });
 
   it('Data Center search: endless full pages cap; short page without total stops; ignored startAt stops', async () => {
     const endless = await hostile((_p, q, hit) => ({
@@ -147,9 +191,9 @@ describe('pagination against hostile servers', () => {
     const same = await hostile((_p, q) => ({
       issues: Array.from({ length: Number(q.get('maxResults')) }, (_, i) => issue(i)),
     }));
-    expect(
-      await drain(createJiraDataSource(dcCreds(same.url), { retry: noWait, pageSize: 10 })),
-    ).toEqual([10]);
+    await expect(
+      drain(createJiraDataSource(dcCreds(same.url), { retry: noWait, pageSize: 10 })),
+    ).rejects.toMatchObject({ name: 'JiraPaginationError', reason: 'repeated_page' });
   });
 
   it('Cloud changelog and sprints are bounded too', async () => {
