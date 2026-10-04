@@ -604,6 +604,117 @@ describe('cancellation, deadlines and refusals', () => {
     }
   });
 
+  it('reports an unknown outcome for a sent REST write whose connection or 2xx body fails', async () => {
+    const comment = { issueKey: 'DEMO-1', body: 'x' };
+    // The socket is reset once the whole request (body included) has arrived.
+    const reset = await listen((req, res) => {
+      req.resume();
+      req.on('end', () => res.socket?.destroy());
+    });
+    // 2xx, then the connection dies half-way through the body.
+    const truncated = await listen((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(201, { 'content-type': 'application/json', 'content-length': '100' });
+        res.write('{"id":"1');
+        setTimeout(() => res.socket?.destroy(), 20);
+      });
+    });
+    // 2xx with a body above the 5 MB cap, and 2xx with a body that is not JSON.
+    const huge = await listen((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end(Buffer.alloc(6 * 1024 * 1024, 0x20));
+      });
+    });
+    const garbled = await listen((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end('{not json');
+      });
+    });
+    try {
+      for (const server of [reset, truncated, huge, garbled]) {
+        const backend = createRestJiraBackend(pat(server.url), { outbound });
+        await expect(callWith(backend, 'jira_add_comment', comment)).rejects.toMatchObject({
+          code: 'unknown_outcome',
+        });
+        // The same failure on a read is not in doubt: nothing changed in Jira.
+        await expect(
+          callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
+        ).rejects.toMatchObject({
+          code: server === reset || server === truncated ? 'unavailable' : 'jira_error',
+        });
+      }
+      // A write that never left (nothing listens there) is plainly unavailable.
+      const closed = await listen(() => {});
+      await closed.close();
+      await expect(
+        callWith(createRestJiraBackend(pat(closed.url), { outbound }), 'jira_add_comment', comment),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+    } finally {
+      await Promise.all([reset.close(), truncated.close(), huge.close(), garbled.close()]);
+    }
+  });
+
+  it('reports an unknown outcome when the mcp-atlassian connection dies after a write was sent', async () => {
+    // Forwards everything to the double except the write's tools/call, whose socket is reset.
+    const reset = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if (
+          /"method":"tools\/call"/.test(body.toString()) &&
+          /jira_add_comment/.test(body.toString())
+        ) {
+          res.socket?.destroy();
+          return;
+        }
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        upstream.end(body);
+      });
+    });
+    try {
+      const backend = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${reset.url}/mcp`,
+        timeoutMs: 5_000,
+      });
+      await expect(
+        callWith(backend, 'jira_add_comment', { issueKey: 'DEMO-1', body: 'x' }),
+      ).rejects.toMatchObject({ code: 'unknown_outcome' });
+      // Reads through the same proxy still work; a dead instance before any write is unavailable.
+      await expect(
+        callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
+      ).resolves.toMatchObject({});
+      await expect(
+        callWith(
+          createMcpAtlassianBackend(pat(dc.url), { url: 'http://127.0.0.1:9/mcp' }),
+          'jira_add_comment',
+          { issueKey: 'DEMO-1', body: 'x' },
+        ),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+    } finally {
+      await reset.close();
+    }
+  });
+
   it('never follows a redirect from the mcp-atlassian URL, not even within its origin', async () => {
     const before = double.calls.length;
     // /mcp redirects to /real, which would forward to the double; another origin is the double.

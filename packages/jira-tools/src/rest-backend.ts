@@ -7,6 +7,7 @@ import {
   isoTime,
   type JiraToolBackend,
   JiraToolError,
+  type JiraToolErrorCode,
   type JiraUserCandidate,
 } from './backend';
 import { isJiraToolName, type JiraToolInput, type JiraToolName } from './catalog';
@@ -40,6 +41,29 @@ interface RawUser {
   emailAddress?: unknown;
   active?: unknown;
   accountType?: unknown;
+}
+
+/**
+ * Connection errors raised before a single byte of the request left: refused, unresolvable or
+ * unroutable hosts, a connect timeout, a TLS handshake failure. Anything else may come after.
+ */
+const NOT_SENT_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+const TLS_CODE = /^(ERR_TLS_|ERR_SSL_)|CERT/;
+
+function neverSent(e: unknown): boolean {
+  for (let cause = e, depth = 0; cause && depth < 5; depth++) {
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === 'string' && (NOT_SENT_CODES.has(code) || TLS_CODE.test(code))) return true;
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 const s = (v: unknown) => (typeof v === 'string' ? v : null);
@@ -78,9 +102,7 @@ export function createRestJiraBackend(
     path: string,
     body?: unknown,
   ): Promise<unknown> {
-    // A write cut off once its request may have left can have run in Jira: say so.
-    const cutOff = () =>
-      new JiraToolError(method !== 'GET' && signal.aborted ? 'unknown_outcome' : 'unavailable');
+    const write = method !== 'GET';
     let res: Response;
     try {
       res = await fetch(new URL(base + path), {
@@ -94,23 +116,30 @@ export function createRestJiraBackend(
         signal,
       });
     } catch (e) {
-      throw isBlockedAddressError(e) ? new JiraToolError('blocked_url') : cutOff();
+      if (isBlockedAddressError(e)) throw new JiraToolError('blocked_url');
+      // A write cut off once its request may have left (reset, abort, deadline) can have run in
+      // Jira: say so. Only a failure to connect at all proves it was never sent.
+      throw new JiraToolError(write && !neverSent(e) ? 'unknown_outcome' : 'unavailable');
     }
     if (!res.ok) {
       await res.body?.cancel();
       throw new JiraToolError(codeForStatus(res.status));
     }
+    // From here on Jira accepted the request: a write whose answer cannot be read did run, but
+    // what it did is unknown (P3 #43).
+    const unreadable = (code: JiraToolErrorCode) =>
+      new JiraToolError(write ? 'unknown_outcome' : code);
     let text: string;
     try {
       // Counts bytes while streaming and aborts above the cap: a hostile Jira cannot make us buffer it.
       text = await readCapped(res, MAX_BODY);
     } catch (e) {
-      throw e instanceof ResponseTooLargeError ? new JiraToolError('jira_error') : cutOff();
+      throw unreadable(e instanceof ResponseTooLargeError ? 'jira_error' : 'unavailable');
     }
     try {
       return text ? JSON.parse(text) : null;
     } catch {
-      throw new JiraToolError('jira_error');
+      throw unreadable('jira_error');
     }
   }
   const q = (params: Record<string, string | number | undefined>) => {

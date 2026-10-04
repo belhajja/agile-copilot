@@ -256,10 +256,14 @@ export function createMcpAtlassianBackend(
         return out;
       } catch (e) {
         if (e instanceof JiraToolError) throw e;
-        if (writeSent && (signal.aborted || isRequestTimeout(e))) {
+        const code = codeFromError(e);
+        // Once the write's request is on its way, a cut-off (deadline, abort, reset connection,
+        // unreadable answer) may have reached Jira. Only the instance refusing the credentials
+        // proves it did not run (P3 #43).
+        if (writeSent && (code === 'unavailable' || signal.aborted || isRequestTimeout(e))) {
           throw new JiraToolError('unknown_outcome');
         }
-        throw new JiraToolError(codeFromError(e));
+        throw new JiraToolError(code);
       } finally {
         await client.close().catch(() => {});
       }
