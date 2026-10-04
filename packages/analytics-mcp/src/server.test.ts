@@ -118,7 +118,10 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       metric: 'velocity',
       params: { sprints: 500 },
     });
-    expect(bad).toMatchObject({ isError: true, body: { error: expect.stringMatching(/sprints/) } });
+    expect(bad).toMatchObject({
+      isError: true,
+      body: { error: expect.stringMatching(/sprints/), code: 'invalid_params' },
+    });
     // At most 10 params keys: refused by the input schema before any work.
     const many = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, i]));
     const tooMany = await mcp.client.callTool({
@@ -140,7 +143,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       const r = await other.call('get_metric', { boardId, metric: 'wip' });
       expect(r).toMatchObject({
         isError: true,
-        body: { error: expect.stringMatching(/Unknown board/) },
+        body: { error: expect.stringMatching(/Unknown board/), code: 'unknown_board' },
       });
     }
     const leak = await other.call('find_issues', { boardId: scrumId });
@@ -159,7 +162,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       ] as const) {
         expect(await mcp.call(name, args)).toMatchObject({
           isError: true,
-          body: { error: expect.stringMatching(/Unknown board/) },
+          body: { error: expect.stringMatching(/Unknown board/), code: 'unknown_board' },
         });
       }
       expect((await mcp.call('get_metric', { boardId: kanbanId, metric: 'wip' })).isError).toBe(
@@ -192,8 +195,11 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       const r = await mcp.call(name, args);
       expect(r).toEqual({
         isError: true,
-        text: JSON.stringify({ error: 'The analytics tool failed (internal_error).' }),
-        body: { error: 'The analytics tool failed (internal_error).' },
+        text: JSON.stringify({
+          error: 'The analytics tool failed (internal_error).',
+          code: 'internal_error',
+        }),
+        body: { error: 'The analytics tool failed (internal_error).', code: 'internal_error' },
       });
       expect(r.text).not.toContain('s3cr3t');
       expect(r.text).not.toContain('db.internal');

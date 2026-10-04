@@ -275,6 +275,9 @@ importers:
       '@ai-sdk/anthropic':
         specifier: 4.0.71
         version: 4.0.71(zod@4.6.5)
+      '@ai-sdk/azure':
+        specifier: 4.0.90
+        version: 4.0.90(zod@4.6.5)
       '@ai-sdk/google':
         specifier: 4.0.87
         version: 4.0.87(zod@4.6.5)

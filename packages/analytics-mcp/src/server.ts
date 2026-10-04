@@ -8,8 +8,11 @@ import { computeMetric, METRIC_GUIDE, metricCatalog, metricSpec } from './metric
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
 });
-const failure = (message: string) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+/** What a failed tool reports: a fixed `error` sentence (the model may act on it) and its `code`. */
+export type AnalyticsFailureCode = 'internal_error' | 'unknown_board' | 'invalid_params';
+
+const failure = (code: AnalyticsFailureCode, message: string) => ({
+  content: [{ type: 'text' as const, text: JSON.stringify({ error: message, code }) }],
   isError: true,
 });
 
@@ -37,13 +40,13 @@ async function guarded(
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof UnknownBoardError) return failure(e.message);
+    if (e instanceof UnknownBoardError) return failure('unknown_board', e.message);
     try {
       options.onError?.(e, 'internal_error');
     } catch {
       // A failing logger must not turn into a tool error with its own text.
     }
-    return failure(INTERNAL_ERROR);
+    return failure('internal_error', INTERNAL_ERROR);
   }
 }
 
@@ -100,7 +103,7 @@ export function createAnalyticsMcpServer(
     async ({ boardId, metric, params }) =>
       guarded(options, async () => {
         const spec = metricSpec(metric as (typeof METRIC_KEYS)[number], params);
-        if (!spec.ok) return failure(`Invalid params: ${spec.issues.join('; ')}`);
+        if (!spec.ok) return failure('invalid_params', `Invalid params: ${spec.issues.join('; ')}`);
         const { board, dataset } = await openBoard(ctx, boardId);
         return result({
           board: { id: board.id, name: board.name },
@@ -132,7 +135,7 @@ export function createAnalyticsMcpServer(
           metric,
           question === 'how_many' ? { days, historyDays } : { items, historyDays },
         );
-        if (!spec.ok) return failure(`Invalid params: ${spec.issues.join('; ')}`);
+        if (!spec.ok) return failure('invalid_params', `Invalid params: ${spec.issues.join('; ')}`);
         const { board, dataset } = await openBoard(ctx, boardId);
         return result({
           board: { id: board.id, name: board.name },

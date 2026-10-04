@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createAzure } from '@ai-sdk/azure';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -50,12 +51,14 @@ describe('agent tool schemas through every provider adapter', () => {
         name: 'A',
         deployment: 'cloud' as const,
         authType: 'basic' as const,
+        usable: true,
       },
       {
         id: '22222222-2222-4222-8222-222222222222',
         name: 'B',
         deployment: 'datacenter' as const,
         authType: 'pat' as const,
+        usable: true,
       },
     ];
     tools = {
@@ -100,6 +103,11 @@ describe('agent tool schemas through every provider adapter', () => {
       'mistral',
       () => createMistral({ apiKey: 'k', baseURL: `${base}/v1` })('mistral-large-latest'),
       (b) => (b.tools as { function: { name: string } }[]).map((t) => t.function.name),
+    ],
+    [
+      'azure (openai responses)',
+      () => createAzure({ apiKey: 'k', baseURL: `${base}/openai` })('my-deployment'),
+      (b) => (b.tools as { name: string }[]).map((t) => t.name),
     ],
     [
       'openai-compatible (Ollama, vLLM…)',

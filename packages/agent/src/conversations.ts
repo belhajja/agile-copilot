@@ -179,6 +179,25 @@ export async function endTurn(tx: Tx, actor: AgentActor, id: string, turnId: str
   if (released.length === 0) throw new TurnLostError();
 }
 
+/**
+ * The stored history of a turn that still holds its conversation (locked in the caller's
+ * transaction), or null when the lease was taken over: a failed turn repairs its history only
+ * while no other turn can be writing it.
+ */
+export async function heldHistory(
+  tx: Tx,
+  actor: AgentActor,
+  id: string,
+  turnId: string,
+): Promise<UIMessage[] | null> {
+  const [row] = await tx
+    .select({ turnId: agentConversations.turnId })
+    .from(agentConversations)
+    .where(ownedBy(actor, id))
+    .for('update');
+  return row?.turnId === turnId ? readMessages(tx, id) : null;
+}
+
 /** Whether the turn still holds its conversation (checked between model steps). */
 export async function holdsTurn(
   db: Db,

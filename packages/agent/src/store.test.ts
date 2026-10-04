@@ -12,6 +12,8 @@ import {
   DecisionError,
   hashInput,
   recordApprovalRequests,
+  refuseApprovedExecution,
+  settleApprovedParts,
 } from './approvals';
 import {
   ConversationNotFoundError,
@@ -21,6 +23,8 @@ import {
   saveConversation,
 } from './conversations';
 import type { AgentActor } from './deps';
+import { toolErrorText } from './tool-errors';
+import { parseUntrustedData } from './untrusted';
 import { recordUsage, usageSummary } from './usage';
 
 const alice: AgentActor = { orgId: 'org_a', userId: 'user_alice', roles: ['member'] };
@@ -322,13 +326,34 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
           ]),
         );
         // Even an approved-but-unexecuted change is closed as not approved: the SDK must never
-        // run it on a later turn. The row keeps the recorded decision.
+        // run it on a later turn. A denied row keeps its decision; an approved one is closed as
+        // failed/not_executed (M1), so no row stays armed.
         expect(partOf(out, 'ap1')).toMatchObject({
           state: 'approval-responded',
           approval: { id: 'ap1', approved: false, reason: 'The user moved on without approving.' },
         });
-        expect((await approvalRow(id, 'ap1'))?.status).toBe(approved ? 'approved' : 'denied');
-        expect((await audits(id)).length).toBe(before);
+        if (approved) {
+          expect(await approvalRow(id, 'ap1')).toMatchObject({
+            status: 'failed',
+            resultCode: 'not_executed',
+          });
+          expect((await audits(id)).slice(before)).toEqual([
+            {
+              action: 'agent_action.failed',
+              actor: alice.userId,
+              metadata: {
+                tool: 'jira_add_comment',
+                approvalId: 'ap1',
+                issueKey: 'DEMO-1',
+                result: 'not_executed',
+                reason: 'superseded',
+              },
+            },
+          ]);
+        } else {
+          expect((await approvalRow(id, 'ap1'))?.status).toBe('denied');
+          expect((await audits(id)).length).toBe(before);
+        }
       }
     });
 
@@ -467,6 +492,163 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
         claimApprovedExecution(app.db, alice, call(id)),
       ]);
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    });
+  });
+
+  describe('approved changes that never ran (P3-R26, M1, M3)', () => {
+    const call = (conversationId: string, overrides: Record<string, unknown> = {}) => ({
+      conversationId,
+      toolCallId: 'tc1',
+      toolName: 'jira_add_comment',
+      input: INPUT,
+      ...overrides,
+    });
+    /** A conversation whose proposal was approved (stored part: approval-responded, approved). */
+    async function approvedConversation() {
+      const { id, messages } = await proposed(alice);
+      const decided = await withOrg(app.db, alice.orgId, async (tx) => {
+        const out = await applyDecisions(tx, alice, id, messages, [
+          { approvalId: 'ap1', approved: true },
+        ]);
+        await saveConversation(tx, alice, id, out);
+        return out;
+      });
+      return { id, messages: decided };
+    }
+    const settle = (id: string, messages: UIMessage[]) =>
+      withOrg(app.db, alice.orgId, (tx) =>
+        settleApprovedParts(tx, alice, id, structuredClone(messages)),
+      );
+    const toolPart = (messages: UIMessage[]) =>
+      partOf(messages, 'ap1') as unknown as {
+        state: string;
+        errorText?: string;
+        output?: unknown;
+        approval: { approved?: boolean };
+      };
+
+    it('closes an approved change that never ran: row, audit and a stored tool result', async () => {
+      const { id, messages } = await approvedConversation();
+      const out = await settle(id, messages);
+      expect(toolPart(out)).toMatchObject({
+        state: 'output-error',
+        errorText: 'The change was approved but not sent. Ask again to retry.',
+        approval: { approved: true },
+      });
+      expect(await approvalRow(id, 'ap1')).toMatchObject({
+        status: 'failed',
+        resultCode: 'not_executed',
+      });
+      expect((await audits(id)).at(-1)).toMatchObject({
+        action: 'agent_action.failed',
+        metadata: { approvalId: 'ap1', result: 'not_executed' },
+      });
+      // Settled once: a second pass changes nothing and audits nothing.
+      const before = (await audits(id)).length;
+      expect(await settle(id, out)).toEqual(out);
+      expect((await audits(id)).length).toBe(before);
+      // The change can no longer be claimed.
+      await expect(claimApprovedExecution(app.db, alice, call(id))).rejects.toBeInstanceOf(
+        ApprovalRequiredError,
+      );
+    });
+
+    it('stores what is known when the change ran but its result was not stored', async () => {
+      for (const [resultCode, expected] of [
+        ['ok', { state: 'output-available' }],
+        ['not_found', { state: 'output-error', errorText: toolErrorText('not_found') }],
+        [null, { state: 'output-error', errorText: toolErrorText('unknown_outcome') }],
+      ] as const) {
+        const { id, messages } = await approvedConversation();
+        const claim = await claimApprovedExecution(app.db, alice, call(id));
+        if (resultCode) await claim.finish(resultCode);
+        const before = await approvalRow(id, 'ap1');
+        const out = await settle(id, messages);
+        expect(toolPart(out)).toMatchObject(expected);
+        if (resultCode === 'ok') {
+          expect(parseUntrustedData(String(toolPart(out).output))?.value).toMatchObject({
+            ok: true,
+          });
+        }
+        // The row already holds the outcome (or the claim): it is left as it is.
+        expect(await approvalRow(id, 'ap1')).toEqual(before);
+      }
+    });
+
+    it('leaves pending, denied and finished parts alone', async () => {
+      const { id, messages } = await proposed(alice);
+      expect(await settle(id, messages)).toEqual(messages);
+      const denied = await withOrg(app.db, alice.orgId, (tx) =>
+        applyDecisions(tx, alice, id, structuredClone(messages), [
+          { approvalId: 'ap1', approved: false },
+        ]),
+      );
+      expect(await settle(id, denied)).toEqual(denied);
+      expect((await approvalRow(id, 'ap1'))?.status).toBe('denied');
+    });
+
+    it('closes an approved row a refusal stopped before the claim (M1)', async () => {
+      const { id } = await approvedConversation();
+      await refuseApprovedExecution(app.db, alice, call(id), 'not_found');
+      expect(await approvalRow(id, 'ap1')).toMatchObject({
+        status: 'failed',
+        resultCode: 'not_found',
+      });
+      expect((await audits(id)).at(-1)).toMatchObject({
+        action: 'agent_action.failed',
+        metadata: { approvalId: 'ap1', result: 'not_found' },
+      });
+      // Nothing to refuse for a call that has no approved row (another input, another user).
+      const before = (await audits(id)).length;
+      await refuseApprovedExecution(
+        app.db,
+        alice,
+        call(id, { input: { ...INPUT, body: 'x' } }),
+        'not_found',
+      );
+      await refuseApprovedExecution(app.db, bob, call(id), 'not_found');
+      expect((await audits(id)).length).toBe(before);
+    });
+
+    it('records proposals that reuse a tool call id and claims exactly one matching row (M3)', async () => {
+      const id = randomUUID();
+      await openOrCreateConversation(app.db, alice, id);
+      const other = { ...INPUT, body: 'Another change' };
+      const messages = [
+        proposal('apA', 'dup'),
+        proposal('apB', 'dup', other),
+        proposal('apC', 'dup'),
+      ];
+      await withOrg(app.db, alice.orgId, async (tx) => {
+        await recordApprovalRequests(tx, alice, id, messages);
+        await applyDecisions(tx, alice, id, messages, [
+          { approvalId: 'apA', approved: true },
+          { approvalId: 'apB', approved: true },
+          { approvalId: 'apC', approved: true },
+        ]);
+      });
+      expect((await audits(id)).filter((a) => a.action === 'agent_action.proposed')).toHaveLength(
+        3,
+      );
+      const claim = await claimApprovedExecution(
+        app.db,
+        alice,
+        call(id, { toolCallId: 'dup', input: other }),
+      );
+      expect(claim.approvalId).toBe('apB');
+      // Same call id and input twice: one claim takes one row, never both.
+      await claimApprovedExecution(app.db, alice, call(id, { toolCallId: 'dup' }));
+      const statuses = [
+        (await approvalRow(id, 'apA'))?.status,
+        (await approvalRow(id, 'apC'))?.status,
+      ].sort();
+      expect(statuses).toEqual(['approved', 'executed']);
+    });
+
+    it('names its code when there is no approval to claim', async () => {
+      expect(new ApprovalRequiredError().message).toBe(
+        'This Jira change was not approved by the user (approval_required).',
+      );
     });
   });
 

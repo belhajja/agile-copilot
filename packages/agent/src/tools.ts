@@ -15,9 +15,23 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { type Tool, type ToolSet, tool } from 'ai';
 import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { claimApprovedExecution, type ExecutionResultCode } from './approvals';
+import {
+  ApprovalRequiredError,
+  claimApprovedExecution,
+  type ExecutionResultCode,
+  refuseApprovedExecution,
+  WRITE_DONE_UNREADABLE,
+} from './approvals';
 import type { AgentActor, AgentDeps } from './deps';
-import type { PromptSite } from './prompt';
+import type { JiraAccess, PromptSite } from './prompt';
+import {
+  ANALYTICS_ERROR_CODES,
+  type AnalyticsErrorCode,
+  CREDENTIAL_ERROR_CODES,
+  type CredentialErrorCode,
+  type ToolErrorCode,
+  toolErrorText,
+} from './tool-errors';
 import { asUntrustedData, UntrustedDataError } from './untrusted';
 
 /** MCP tool results → plain JSON (the text content the analytics server writes). */
@@ -33,20 +47,34 @@ function unwrapMcp(result: unknown): unknown {
 }
 
 /**
- * What the model and the user see when a tool fails: a fixed sentence with a code. For Jira
- * errors that carry data for the model (e.g. the candidates of an ambiguous assignee), the data
- * follows the sentence, framed by `asUntrustedData`; it is never logged.
+ * What the model and the user see when a tool fails: a fixed sentence with a code
+ * (`toolErrorText`). For errors that carry data for the model (e.g. the candidates of an ambiguous
+ * assignee, the hint of an unknown board), the data follows the sentence, framed by
+ * `asUntrustedData`; it is never logged.
  */
 export class AgentToolError extends Error {
   override name = 'AgentToolError';
   constructor(
-    readonly code: string,
+    readonly code: ToolErrorCode,
     opts: { tool?: 'jira' | 'analytics'; data?: string } = {},
   ) {
-    super(
-      `${opts.tool === 'analytics' ? 'The analytics tool failed' : 'The Jira request failed'} (${code}).${opts.data ? `\n${opts.data}` : ''}`,
-    );
+    super(`${toolErrorText(code, opts.tool)}${opts.data ? `\n${opts.data}` : ''}`);
   }
+}
+
+/**
+ * The code of a failed analytics call. `@ai-sdk/mcp` returns `isError` results instead of
+ * throwing; the server names the code, and the MCP SDK's own input validation reads as invalid
+ * params.
+ */
+function analyticsCodeOf(payload: unknown): AnalyticsErrorCode {
+  const code = (payload as { code?: unknown } | null)?.code;
+  if ((ANALYTICS_ERROR_CODES as readonly unknown[]).includes(code)) {
+    return code as AnalyticsErrorCode;
+  }
+  return typeof payload === 'string' && /-32602|validation/i.test(payload)
+    ? 'invalid_params'
+    : 'internal_error';
 }
 
 /** A tool result framed as untrusted data, or a fixed tool error when it cannot be serialised. */
@@ -71,9 +99,12 @@ export async function analyticsTools(deps: AgentDeps, actor: AgentActor) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = await createMCPClient({ transport: clientTransport });
+  // Never throws: a failing close is logged by code, and never hides the turn's own outcome.
   const close = async () => {
-    await client.close();
-    await server.close();
+    const results = await Promise.allSettled([client.close(), server.close()]);
+    for (const r of results) {
+      if (r.status === 'rejected') deps.onError?.(r.reason, 'mcp_close_failed');
+    }
   };
   try {
     const discovered = await client.tools();
@@ -83,8 +114,18 @@ export async function analyticsTools(deps: AgentDeps, actor: AgentActor) {
       tools[name] = tool({
         description: t.description,
         inputSchema: t.inputSchema,
-        execute: async (input, options) =>
-          frame(name, unwrapMcp(await t.execute(input, options)), 'analytics'),
+        execute: async (input, options) => {
+          const result = await t.execute(input, options);
+          const payload = unwrapMcp(result);
+          if ((result as { isError?: unknown } | null)?.isError === true) {
+            // A failure is an error the UI shows as one, never "done" with an error inside.
+            throw new AgentToolError(analyticsCodeOf(payload), {
+              tool: 'analytics',
+              data: frame(`${name}_error`, payload, 'analytics'),
+            });
+          }
+          return frame(name, payload, 'analytics');
+        },
       }) as Tool;
     }
     return { tools, close };
@@ -96,9 +137,11 @@ export async function analyticsTools(deps: AgentDeps, actor: AgentActor) {
 
 export interface JiraSite extends PromptSite {
   authType: 'basic' | 'oauth' | 'pat';
+  /** Its Jira tools can run here (API tokens always; PAT/OAuth need mcp-atlassian). */
+  usable: boolean;
 }
 
-/** Connections whose Jira tools can run here (API tokens always; PAT/OAuth need mcp-atlassian). */
+/** The workspace's Jira connections, oldest first, each marked usable or not. */
 async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<JiraSite[]> {
   const rows = await withOrg(deps.db, actor.orgId, (tx) =>
     tx
@@ -112,11 +155,18 @@ async function jiraSites(deps: AgentDeps, actor: AgentActor): Promise<JiraSite[]
       .where(eq(jiraConnections.orgId, actor.orgId))
       .orderBy(asc(jiraConnections.createdAt)),
   );
-  return rows.filter((r) => r.authType === 'basic' || Boolean(deps.mcpAtlassianUrl));
+  return rows.map((r) => ({
+    ...r,
+    usable: r.authType === 'basic' || Boolean(deps.mcpAtlassianUrl),
+  }));
 }
 
-/** Jira changes are for workspace owners and admins (P3-R5); members get the read tools. */
-export function canWriteJira(actor: AgentActor): boolean {
+/**
+ * Live Jira tools, reads and writes, are for workspace owners and admins (P3-R5, P3-R25): they run
+ * with the connection owner's Jira credentials, which reach beyond the boards an admin shared.
+ * Members get the analytics tools (synced, selected boards) until Phase 5 roles.
+ */
+export function canUseLiveJira(actor: AgentActor): boolean {
   try {
     assertCanManage(actor);
     return true;
@@ -126,49 +176,73 @@ export function canWriteJira(actor: AgentActor): boolean {
   }
 }
 
-const WRITE_DONE_UNREADABLE = 'The change was made in Jira; its result could not be shown.';
+/** The stored outcome of a failed Jira call (one of `ExecutionResultCode`). */
+const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
+  if (e instanceof JiraToolError) return e.code;
+  if (e instanceof SyncError && (CREDENTIAL_ERROR_CODES as readonly string[]).includes(e.code)) {
+    return e.code as CredentialErrorCode;
+  }
+  return 'jira_error';
+};
 
-/** The stored outcome of a failed Jira call (kept in step with `ExecutionResultCode`). */
-const codeOf = (e: unknown): ExecutionResultCode =>
-  e instanceof JiraToolError || e instanceof SyncError ? e.code : 'jira_error';
-
+/**
+ * The Jira tools of one reply, bound to the actor's workspace on the server. Every call names its
+ * site (P3-R24): with several sites the model picks one from the server's list (an enum, never a
+ * free id); with one, the server adds it to the input before it is proposed, hashed and approved,
+ * and the model never sees the field. A call runs against exactly that connection, or fails
+ * (`not_found` when it is gone, `unavailable` when its tools cannot run here): never another one.
+ */
 export function jiraTools(
   deps: AgentDeps,
   actor: AgentActor,
   conversationId: string,
   sites: JiraSite[],
 ): ToolSet {
-  const first = sites[0];
-  if (!first) return {};
-  const writes = canWriteJira(actor);
-  const siteIds = sites.map((s) => s.id) as [string, ...string[]];
+  const offered = sites.filter((s) => s.usable);
+  const [first] = offered;
+  if (!first || !canUseLiveJira(actor)) return {};
+  const siteIds = offered.map((s) => s.id) as [string, ...string[]];
   const tools: ToolSet = {};
   for (const name of JIRA_TOOL_NAMES) {
     const write = isJiraWriteTool(name);
-    if (write && !writes) continue;
     const def = JIRA_TOOLS[name];
-    // With several sites the model picks one from the server's list (an enum): never a free id.
     const inputSchema =
-      sites.length > 1
+      offered.length > 1
         ? def.input.extend({ site: z.enum(siteIds).describe('Jira site id (see system prompt)') })
-        : def.input;
+        : def.input.transform((i) => ({ ...i, site: first.id }));
     tools[name] = tool({
       description: def.description,
-      inputSchema: inputSchema as z.ZodType<Record<string, unknown>>,
+      inputSchema: inputSchema as unknown as z.ZodType<Record<string, unknown>>,
       execute: async (input, { toolCallId, abortSignal }) => {
         const { site, ...args } = input as { site?: string } & Record<string, unknown>;
-        // Defence in depth: the role is re-checked even though members never get write tools.
-        if (write && !canWriteJira(actor)) throw new AgentToolError('forbidden');
-        const target = sites.find((s) => s.id === (site ?? first.id));
-        if (!target) throw new AgentToolError('not_found');
-        const gate = write
-          ? await claimApprovedExecution(deps.db, actor, {
-              conversationId,
-              toolCallId,
-              toolName: name,
-              input,
-            })
-          : null;
+        const call = { conversationId, toolCallId, toolName: name, input };
+        // Refused before anything is sent; an approved write is closed, never left armed (M1).
+        const refuse = async (code: 'forbidden_role' | 'not_found' | 'unavailable') => {
+          if (write) {
+            try {
+              await refuseApprovedExecution(deps.db, actor, call, code);
+            } catch (e) {
+              deps.onError?.(e, 'approval_finish_failed');
+            }
+          }
+          return new AgentToolError(code);
+        };
+        // Defence in depth: the role is re-checked even though members never get these tools.
+        if (!canUseLiveJira(actor)) throw await refuse('forbidden_role');
+        const target = sites.find((s) => s.id === site);
+        if (!target) throw await refuse('not_found');
+        if (!target.usable) throw await refuse('unavailable');
+        let gate: Awaited<ReturnType<typeof claimApprovedExecution>> | null = null;
+        if (write) {
+          try {
+            gate = await claimApprovedExecution(deps.db, actor, call);
+          } catch (e) {
+            if (e instanceof ApprovalRequiredError) throw new AgentToolError('approval_required');
+            // A database error's text (query, parameters) must never reach the model (M2).
+            deps.onError?.(e, 'approval_claim_failed');
+            throw new AgentToolError('jira_error');
+          }
+        }
         let out: unknown;
         try {
           const creds = await resolveCredentials(deps, actor.orgId, target.id);
@@ -218,10 +292,20 @@ export async function buildAgentTools(deps: AgentDeps, actor: AgentActor, conver
   const analytics = await analyticsTools(deps, actor);
   try {
     const sites = await jiraSites(deps, actor);
+    const jira = jiraTools(deps, actor, conversationId, sites);
+    const offered = sites.filter((s) => s.usable);
     return {
-      tools: { ...analytics.tools, ...jiraTools(deps, actor, conversationId, sites) },
-      sites: sites.map(({ id, name, deployment }) => ({ id, name, deployment })),
-      jiraWrites: canWriteJira(actor),
+      tools: { ...analytics.tools, ...jira },
+      /** The sites the model may name (none when it has no Jira tools). */
+      sites:
+        Object.keys(jira).length > 0
+          ? offered.map(({ id, name, deployment }) => ({ id, name, deployment }))
+          : [],
+      jira: (offered.length === 0
+        ? 'unavailable'
+        : canUseLiveJira(actor)
+          ? 'full'
+          : 'forbidden_role') as JiraAccess,
       close: analytics.close,
     };
   } catch (e) {

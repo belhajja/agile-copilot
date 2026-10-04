@@ -10,29 +10,30 @@ export interface PromptSite {
 const safeId = (id: string) => id.replace(/[^a-z0-9_-]/gi, '');
 
 /**
+ * What live Jira the user gets: none in this workspace (no usable connection), none for their role
+ * (members, P3-R25), or the Jira tools with changes on approval (owners and admins).
+ */
+export type JiraAccess = 'unavailable' | 'forbidden_role' | 'full';
+
+/**
  * The system prompt. Rules first, facts after; no user, admin or Jira text is ever interpolated:
  * sites appear by id and deployment only, their names reach the model as data (`jiraSitesData`).
  */
-export function systemPrompt(opts: {
-  now: Date;
-  jiraSites: PromptSite[];
-  liveJira: boolean;
-  /** Whether the user may propose Jira changes (workspace owners and admins). Default true. */
-  jiraWrites?: boolean;
-}) {
+export function systemPrompt(opts: { now: Date; jiraSites: PromptSite[]; jira: JiraAccess }) {
   const sites =
     opts.jiraSites.length > 1
       ? `\nJira sites (pass the id as "site" to Jira tools; their names are in the <data source="jira_sites"> block):\n${opts.jiraSites
           .map((s) => `- ${safeId(s.id)} (${s.deployment === 'cloud' ? 'cloud' : 'datacenter'})`)
           .join('\n')}`
       : '';
-  const jira = !opts.liveJira
-    ? 'Live Jira tools are not available in this workspace: use the synced data only.'
-    : opts.jiraWrites === false
-      ? `Live Jira tools (names start with "jira_") read current Jira data.
-Jira changes are not available for your role. If the user asks for one, say so and suggest
-asking a workspace owner or admin.${sites}`
-      : `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
+  const jira =
+    opts.jira === 'unavailable'
+      ? 'Live Jira tools are not available in this workspace: use the synced data only.'
+      : opts.jira === 'forbidden_role'
+        ? `Live Jira queries are not available for your role. Answer from the synced data (the
+analytics tools); if the user asks to read or change Jira directly, say so and suggest asking a
+workspace owner or admin.`
+        : `Live Jira tools (names start with "jira_") read current Jira data and propose changes.
 Every Jira change (comment, transition, assignment, creation, update) is only a proposal: the app
 shows it to the user, who approves or rejects it. Propose one change at a time, with the exact
 final text. If the user rejects a change, do not propose it again unless they ask.${sites}`;

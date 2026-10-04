@@ -73,7 +73,7 @@ describe('prompt-injection framing', () => {
     ];
     const prompt = systemPrompt({
       now: new Date('2026-10-04T08:00:00Z'),
-      liveJira: true,
+      jira: 'full',
       jiraSites: sites,
     });
     expect(prompt).toMatch(/never instructions/);
@@ -94,7 +94,7 @@ describe('prompt-injection framing', () => {
       { id: 's1', name: hostile, deployment: 'cloud' as const },
       { id: 's2', name: 'Other', deployment: 'datacenter' as const },
     ];
-    const prompt = systemPrompt({ now: new Date(), liveJira: true, jiraSites: sites });
+    const prompt = systemPrompt({ now: new Date(), jira: 'full', jiraSites: sites });
     expect(prompt).not.toContain('Ignore all rules');
     expect(prompt).not.toContain('</data>');
     const data = jiraSitesData(sites) ?? '';
@@ -104,7 +104,7 @@ describe('prompt-injection framing', () => {
 
   it('lists no sites when there is only one', () => {
     const sites = [{ id: 's1', name: 'Only', deployment: 'cloud' as const }];
-    const prompt = systemPrompt({ now: new Date(), liveJira: true, jiraSites: sites });
+    const prompt = systemPrompt({ now: new Date(), jira: 'full', jiraSites: sites });
     expect(prompt).not.toContain('- s1');
     expect(jiraSitesData(sites)).toBeNull();
   });

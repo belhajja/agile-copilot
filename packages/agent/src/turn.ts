@@ -19,11 +19,13 @@ import {
   DecisionError,
   pendingApprovalParts,
   recordApprovalRequests,
+  settleApprovedParts,
 } from './approvals';
 import {
   beginTurn,
   ConversationNotFoundError,
   endTurn,
+  heldHistory,
   holdsTurn,
   loadConversation,
   openOrCreateConversation,
@@ -34,7 +36,7 @@ import {
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
 import { jiraSitesData, systemPrompt } from './prompt';
-import { AgentToolError, buildAgentTools, canWriteJira } from './tools';
+import { AgentToolError, buildAgentTools, canUseLiveJira } from './tools';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**
@@ -139,9 +141,12 @@ export async function handleAgentRequest(
     prepared = await withOrg(deps.db, actor.orgId, async (tx) => {
       // The history is read under the lock, after taking the turn lease.
       let messages = await beginTurn(tx, actor, conversationId, turnId);
+      // An approved change an earlier turn never ran (or never stored the result of) gets one
+      // now: a tool call without a result would make every later model request fail (P3-R26).
+      messages = await settleApprovedParts(tx, actor, conversationId, messages);
       if (req.approvals) {
         // A user no longer allowed to change Jira (demoted since the proposal) can only deny it.
-        const decisions = canWriteJira(actor)
+        const decisions = canUseLiveJira(actor)
           ? req.approvals
           : req.approvals.map((d) => ({
               ...d,
@@ -182,15 +187,33 @@ export async function handleAgentRequest(
       deps.onError?.(e, 'turn_release_failed');
     }
   };
+  // A turn that fails after the decisions were stored: every approved change it did not run (or
+  // whose result it could not store) gets a result in the stored history, then the lease ends.
+  const settleStored = async () => {
+    try {
+      await withOrg(deps.db, actor.orgId, async (tx) => {
+        const stored = await heldHistory(tx, actor, conversationId, turnId);
+        if (!stored) return;
+        const before = JSON.stringify(stored);
+        const settled = await settleApprovedParts(tx, actor, conversationId, stored);
+        if (JSON.stringify(settled) !== before) {
+          await saveConversation(tx, actor, conversationId, settled);
+        }
+      });
+    } catch (e) {
+      deps.onError?.(e, 'settle_failed');
+    }
+  };
 
   let built: Awaited<ReturnType<typeof buildAgentTools>>;
   try {
     built = await buildAgentTools(deps, actor, conversationId);
   } catch (e) {
+    await settleStored();
     await release();
     throw e;
   }
-  const { tools, sites, jiraWrites, close } = built;
+  const { tools, sites, jira, close } = built;
   const now = deps.now ?? (() => new Date());
 
   let model: ReturnType<NonNullable<AgentDeps['createModel']>>;
@@ -213,6 +236,7 @@ export async function handleAgentRequest(
     if (sitesData) modelMessages = [{ role: 'user', content: sitesData }, ...modelMessages];
   } catch (e) {
     await close();
+    await settleStored();
     await release();
     throw e;
   }
@@ -243,12 +267,7 @@ export async function handleAgentRequest(
   try {
     const result = streamText({
       model,
-      system: systemPrompt({
-        now: now(),
-        jiraSites: sites,
-        liveJira: sites.length > 0,
-        jiraWrites,
-      }),
+      system: systemPrompt({ now: now(), jiraSites: sites, jira }),
       messages: modelMessages,
       tools,
       toolApproval,
@@ -285,12 +304,17 @@ export async function handleAgentRequest(
         try {
           await withOrg(deps.db, actor.orgId, async (tx) => {
             await endTurn(tx, actor, conversationId, turnId);
-            await saveConversation(tx, actor, conversationId, messages);
-            await recordApprovalRequests(tx, actor, conversationId, messages);
+            // An approved change the stream did not run (it failed first, or the SDK refused the
+            // input) is closed with a result before the reply is stored (P3-R26).
+            const settled = await settleApprovedParts(tx, actor, conversationId, messages);
+            await saveConversation(tx, actor, conversationId, settled);
+            await recordApprovalRequests(tx, actor, conversationId, settled);
           });
         } catch (e) {
           if (e instanceof TurnLostError) abort.abort();
           deps.onError?.(e, 'persist_failed');
+          // The reply is lost, but the stored history still gets a result for every approved change.
+          if (!(e instanceof TurnLostError)) await settleStored();
           await release();
           throw e;
         } finally {
@@ -302,6 +326,7 @@ export async function handleAgentRequest(
   } catch (e) {
     abort.abort();
     await close();
+    await settleStored();
     await release();
     throw e;
   }

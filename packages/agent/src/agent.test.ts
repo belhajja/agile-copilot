@@ -2,22 +2,26 @@ import { randomUUID } from 'node:crypto';
 import {
   agentApprovals,
   agentConversations,
+  agentMessages,
   agentUsage,
   auditLog,
+  jiraBoards as jiraBoardsTable,
   jiraConnections,
 } from '@agile/db';
 import { createLanguageModel, type LlmConfig } from '@agile/llm';
 import { agentDemoScript, type MockChatMessage, type MockScript } from '@agile/llm/testing';
 import { createOutboundFetch } from '@agile/net';
 import { member, owner } from '@agile/sync/testing';
-import type { LanguageModel } from 'ai';
+import { asSchema, type LanguageModel } from 'ai';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ApprovalRequiredError, claimApprovedExecution } from './approvals';
+import { ApprovalRequiredError, claimApprovedExecution, hashInput } from './approvals';
 import { loadConversation } from './conversations';
 import type { AgentDeps } from './deps';
 import { startAgentHarness, textOf } from './test-harness';
+import { toolErrorText } from './tool-errors';
+import { AgentToolError, analyticsTools, jiraTools } from './tools';
 import { handleAgentRequest } from './turn';
 import { usageSummary } from './usage';
 
@@ -114,6 +118,17 @@ async function waitFor(check: () => Promise<boolean>, ms = 10_000) {
 const contentOf = (m: MockChatMessage | undefined) =>
   typeof m?.content === 'string' ? m.content : JSON.stringify(m?.content ?? '');
 
+/** Tool calls the model is shown without a result: most providers reject such a request. */
+const danglingToolCalls = (messages: MockChatMessage[] = []) => {
+  const answered = new Set(messages.flatMap((m) => (m.role === 'tool' ? [m.tool_call_id] : [])));
+  return messages
+    .flatMap((m) => m.tool_calls ?? [])
+    .map((c) => c.id)
+    .filter((id) => !answered.has(id));
+};
+
+const NOT_SENT = 'The change was approved but not sent. Ask again to retry.';
+
 describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', () => {
   let h: Awaited<ReturnType<typeof startAgentHarness>>;
   beforeAll(async () => {
@@ -135,6 +150,56 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
       .filter((a) => a.startsWith('agent_action.'));
   const approvalRows = (conversationId: string) =>
     h.rawDb.select().from(agentApprovals).where(eq(agentApprovals.conversationId, conversationId));
+  const auditActionsOf = async (approvalId: string) =>
+    (await h.rawDb.select().from(auditLog).where(eq(auditLog.orgId, 'org_a')))
+      .filter((r) => (r.metadata as { approvalId?: string }).approvalId === approvalId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((r) => r.action);
+
+  /** Rewrites the stored Jira-comment part of a conversation (simulating an earlier state). */
+  const rewritePart = async (
+    conversationId: string,
+    change: (part: Record<string, unknown>) => Record<string, unknown>,
+  ) => {
+    const rows = await h.rawDb
+      .select()
+      .from(agentMessages)
+      .where(eq(agentMessages.conversationId, conversationId));
+    for (const row of rows) {
+      const parts = (row.parts as Record<string, unknown>[]).map((p) =>
+        p.type === 'tool-jira_add_comment' ? change(p) : p,
+      );
+      await h.rawDb
+        .update(agentMessages)
+        .set({ parts })
+        .where(and(eq(agentMessages.conversationId, conversationId), eq(agentMessages.id, row.id)));
+    }
+  };
+
+  /** Changes a pending proposal's input everywhere it is stored (part, row, hash). */
+  const rewriteProposal = async (conversationId: string, approvalId: string, input: unknown) => {
+    await rewritePart(conversationId, (p) => ({ ...p, input }));
+    await h.rawDb
+      .update(agentApprovals)
+      .set({ input: input as Record<string, unknown>, inputHash: hashInput(input) })
+      .where(eq(agentApprovals.approvalId, approvalId));
+  };
+
+  /** A new message gets an answer, and the model is shown no tool call without its result. */
+  const expectNextMessageWorks = async (conversationId: string) => {
+    const r = await h.ask(owner(), conversationId, 'What is our velocity?');
+    expect(r.status).toBe(200);
+    expect(textOf(r.chunks)).toMatch(/19 points/);
+    // The first model call of that turn carries the whole history.
+    const first = h.llm.requests.findLast(
+      (q) =>
+        q.messages.at(-1)?.role === 'user' &&
+        contentOf(q.messages.at(-1)) === 'What is our velocity?',
+    );
+    expect(first).toBeDefined();
+    expect(danglingToolCalls(first?.messages)).toEqual([]);
+    return first?.messages.find((m) => m.role === 'tool');
+  };
 
   it('answers a metric question with the analytics tools, stores it and meters it', async () => {
     const id = randomUUID();
@@ -318,30 +383,340 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(JSON.stringify(h.mock.writes[0]?.body)).toContain('"Follow up"');
     const [row] = await approvalRows(id);
     // The proposal and the execution both saw the schema's output (trimmed, unknown key dropped).
-    expect(row?.input).toEqual({ projectKey: 'DEMO', summary: 'Follow up', issueType: 'Task' });
+    expect(row?.input).toEqual({
+      projectKey: 'DEMO',
+      summary: 'Follow up',
+      issueType: 'Task',
+      site: h.connectionId,
+    });
     expect(row).toMatchObject({ status: 'executed', resultCode: 'ok' });
   });
 
-  it('members get read-only Jira tools: no write tool, no proposal', async () => {
+  it('members get no live Jira tools, only the analytics tools (P3-R25)', async () => {
     const id = randomUUID();
     h.mock.writes.length = 0;
     const r = await h.ask(member(), id, 'Please comment on DEMO-1: Members cannot write');
     expect(r.status).toBe(200);
     expect(r.chunks.some((c) => c.type === 'tool-approval-request')).toBe(false);
     const sent = h.llm.requests.at(-1);
-    expect(sent?.tools).toContain('jira_search');
-    expect(sent?.tools).not.toContain('jira_add_comment');
-    expect(sent?.tools.filter((t) => t.startsWith('jira_'))).toEqual([
-      'jira_search',
-      'jira_get_issue',
-      'jira_get_transitions',
-      'jira_get_agile_boards',
-      'jira_get_sprints_from_board',
-      'jira_get_sprint_issues',
-    ]);
-    expect(contentOf(sent?.messages[0])).toContain('Jira changes are not available for your role.');
+    // Live Jira reads use the connection owner's credentials and reach beyond the boards an admin
+    // shared: owners and admins only, like writes.
+    expect(sent?.tools.filter((t) => t.startsWith('jira_'))).toEqual([]);
+    expect(sent?.tools).toEqual(
+      expect.arrayContaining(['list_boards', 'get_metric', 'forecast', 'find_issues']),
+    );
+    expect(contentOf(sent?.messages[0])).toContain(
+      'Live Jira queries are not available for your role.',
+    );
+    expect(JSON.stringify(sent?.messages)).not.toContain('<data source="jira_sites">');
     expect(await approvalRows(id)).toEqual([]);
     expect(h.mock.writes).toEqual([]);
+  });
+
+  it('binds the Jira site into every proposal, even with one site (P3-R24)', async () => {
+    const id = randomUUID();
+    await h.ask(owner(), id, 'Please comment on DEMO-7: Site check');
+    const { input } = await approvalPartOf(id);
+    expect(input).toEqual({ issueKey: 'DEMO-7', body: 'Site check', site: h.connectionId });
+    const [row] = await approvalRows(id);
+    expect(row?.input).toEqual(input);
+    expect(row?.inputHash).toBe(hashInput(input));
+    // With one site the model never chooses it: the schema it sees has no `site`.
+    const tools = jiraTools(h.deps, owner(), id, [
+      {
+        id: h.connectionId,
+        name: 'Corp Jira',
+        deployment: 'datacenter',
+        authType: 'pat',
+        usable: true,
+      },
+    ]);
+    const schema = (await asSchema(tools.jira_add_comment?.inputSchema).jsonSchema) as {
+      properties: Record<string, unknown>;
+    };
+    expect(Object.keys(schema.properties).sort()).toEqual(['body', 'issueKey']);
+  });
+
+  it('never sends an approved change to another site than the one it names (P3-R24)', async () => {
+    const id = randomUUID();
+    h.mock.writes.length = 0;
+    const mcpCalls = h.mcp.calls.length;
+    await h.ask(owner(), id, 'Please comment on DEMO-8: Old site');
+    const { approvalId, input } = await approvalPartOf(id);
+    // As if the proposal was made for a connection since deleted (e.g. replaced by a reconnect).
+    const gone = { ...(input as Record<string, unknown>), site: randomUUID() };
+    await rewriteProposal(id, approvalId, gone);
+    const r = await h.send(owner(), {
+      conversationId: id,
+      approvals: [{ approvalId, approved: true }],
+    });
+    expect(r.status).toBe(200);
+    expect(h.mock.writes).toEqual([]);
+    expect(h.mcp.calls.length).toBe(mcpCalls);
+    expect((await approvalRows(id))[0]).toMatchObject({ status: 'failed' });
+    expect(['not_executed', 'not_found']).toContain((await approvalRows(id))[0]?.resultCode);
+    await expectNextMessageWorks(id);
+  });
+
+  it('closes an approved row a refusal stops before the claim (M1)', async () => {
+    const id = randomUUID();
+    await h.ask(owner(), id, 'Please comment on DEMO-9: Refused');
+    const { approvalId, input } = await approvalPartOf(id);
+    await h.rawDb
+      .update(agentApprovals)
+      .set({ status: 'approved' })
+      .where(eq(agentApprovals.approvalId, approvalId));
+    const [row] = await approvalRows(id);
+    // The tools of a later turn, when the proposal's site is no longer a connection.
+    const tools = jiraTools(h.deps, owner(), id, [
+      { id: randomUUID(), name: 'Other', deployment: 'cloud', authType: 'basic', usable: true },
+    ]);
+    const err = await tools.jira_add_comment
+      ?.execute?.(input as never, { toolCallId: row?.toolCallId ?? '', messages: [], context: {} })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AgentToolError);
+    expect((err as AgentToolError).message).toBe(toolErrorText('not_found'));
+    expect((await approvalRows(id))[0]).toMatchObject({
+      status: 'failed',
+      resultCode: 'not_found',
+    });
+    expect(await auditActionsOf(approvalId)).toContain('agent_action.failed');
+  });
+
+  describe('an approvals turn that fails before its change ran (P3-R26)', () => {
+    /**
+     * Proposes a comment, then approves it with `deps`; `fault` (if any) is armed between the two
+     * and always disarmed afterwards.
+     */
+    async function approveWith(
+      text: string,
+      deps: AgentDeps,
+      fault?: { arm: () => Promise<unknown>; disarm: () => Promise<unknown> },
+    ) {
+      const id = randomUUID();
+      await h.ask(owner(), id, `Please comment on ${text}`);
+      const { approvalId } = await approvalPartOf(id);
+      h.mock.writes.length = 0;
+      const decide = { conversationId: id, approvals: [{ approvalId, approved: true }] };
+      await fault?.arm();
+      try {
+        const result = await h.sendWith(deps, owner(), decide).catch((e: unknown) => e);
+        return { id, approvalId, decide, result };
+      } finally {
+        await fault?.disarm();
+      }
+    }
+
+    /** Not sent, closed, audited, stored with a result; a retry is refused; the chat goes on. */
+    async function expectClosedNotSent(
+      id: string,
+      approvalId: string,
+      decide: Record<string, unknown>,
+    ) {
+      expect(h.mock.writes).toEqual([]);
+      expect((await approvalRows(id))[0]).toMatchObject({
+        status: 'failed',
+        resultCode: 'not_executed',
+      });
+      expect(await auditActionsOf(approvalId)).toEqual([
+        'agent_action.proposed',
+        'agent_action.approved',
+        'agent_action.failed',
+      ]);
+      const part = (await loadConversation(h.db, owner(), id))?.messages
+        .flatMap((m) => m.parts)
+        .find((p) => p.type === 'tool-jira_add_comment') as { state: string; errorText?: string };
+      expect(part).toMatchObject({ state: 'output-error', errorText: NOT_SENT });
+      expect(await h.send(owner(), decide)).toMatchObject({
+        status: 409,
+        error: 'already_decided',
+      });
+      const tool = await expectNextMessageWorks(id);
+      expect(contentOf(tool)).toContain(NOT_SENT);
+    }
+
+    it('when the tools cannot be built', async () => {
+      const run = await approveWith('DEMO-10: Tools down', h.deps, {
+        arm: () => h.rawDb.execute(sql`revoke select on jira_connections from app_user`),
+        disarm: () => h.rawDb.execute(sql`grant select on jira_connections to app_user`),
+      });
+      expect(run.result).toBeInstanceOf(Error);
+      await expectClosedNotSent(run.id, run.approvalId, run.decide);
+    });
+
+    it('when the model cannot be created', async () => {
+      const run = await approveWith('DEMO-11: No model', {
+        ...h.deps,
+        createModel: () => {
+          throw new Error('model setup failed');
+        },
+      });
+      expect(run.result).toBeInstanceOf(Error);
+      await expectClosedNotSent(run.id, run.approvalId, run.decide);
+    });
+
+    it('when the stream fails before the change is sent (claim error, M2)', async () => {
+      const run = await approveWith('DEMO-12: Claim fails', h.deps, {
+        arm: async () => {
+          await h.rawDb.execute(sql`
+            create or replace function test_fail_claim() returns trigger language plpgsql as $$
+            begin
+              if new.status = 'executed' then raise exception 'claim broken: secret detail'; end if;
+              return new;
+            end $$`);
+          await h.rawDb.execute(sql`
+            create trigger test_fail_claim before update on agent_approvals
+            for each row execute function test_fail_claim()`);
+        },
+        disarm: async () => {
+          await h.rawDb.execute(sql`drop trigger test_fail_claim on agent_approvals`);
+          await h.rawDb.execute(sql`drop function test_fail_claim()`);
+        },
+      });
+      expect(run.result).toMatchObject({ status: 200 });
+      // The model was told a fixed sentence, never the database's text.
+      const toolMessage = h.llm.requests.at(-1)?.messages.find((m) => m.role === 'tool');
+      expect(contentOf(toolMessage)).toContain('The Jira request failed (jira_error).');
+      expect(JSON.stringify(h.llm.requests.at(-1)?.messages)).not.toContain('secret detail');
+      await expectClosedNotSent(run.id, run.approvalId, run.decide);
+    });
+
+    it('when storing the reply fails after the change was sent', async () => {
+      const errors: string[] = [];
+      const run = await approveWith(
+        'DEMO-13: Stored later',
+        { ...h.deps, onError: (_e, code) => errors.push(code) },
+        {
+          arm: async () => {
+            await h.rawDb.execute(sql`
+              create or replace function test_fail_store() returns trigger language plpgsql as $$
+              begin
+                if new.parts::text like '%Done: the comment is posted%' then
+                  raise exception 'store broken';
+                end if;
+                return new;
+              end $$`);
+            await h.rawDb.execute(sql`
+              create trigger test_fail_store before insert on agent_messages
+              for each row execute function test_fail_store()`);
+          },
+          disarm: async () => {
+            await waitFor(async () => errors.includes('persist_failed'));
+            await h.rawDb.execute(sql`drop trigger test_fail_store on agent_messages`);
+            await h.rawDb.execute(sql`drop function test_fail_store()`);
+          },
+        },
+      );
+      // The comment was posted once; the stored history says so, with a result for the call.
+      expect(h.mock.writes.map((w) => w.path)).toEqual(['/rest/api/2/issue/DEMO-13/comment']);
+      expect((await approvalRows(run.id))[0]).toMatchObject({
+        status: 'executed',
+        resultCode: 'ok',
+      });
+      const part = (await loadConversation(h.db, owner(), run.id))?.messages
+        .flatMap((m) => m.parts)
+        .find((p) => p.type === 'tool-jira_add_comment') as { state: string };
+      expect(part.state).toBe('output-available');
+      await expectNextMessageWorks(run.id);
+      expect(h.mock.writes).toHaveLength(1);
+    });
+
+    it('repairs a conversation an earlier failure left stuck', async () => {
+      const id = randomUUID();
+      await h.ask(owner(), id, 'Please comment on DEMO-14: Stuck');
+      const { approvalId } = await approvalPartOf(id);
+      // The state an approvals turn used to leave behind: decided, never run, no result.
+      await h.rawDb
+        .update(agentApprovals)
+        .set({ status: 'approved' })
+        .where(eq(agentApprovals.approvalId, approvalId));
+      await rewritePart(id, (p) => ({
+        ...p,
+        state: 'approval-responded',
+        approval: { id: approvalId, approved: true },
+      }));
+      h.mock.writes.length = 0;
+      const tool = await expectNextMessageWorks(id);
+      expect(contentOf(tool)).toContain(NOT_SENT);
+      expect((await approvalRows(id))[0]).toMatchObject({
+        status: 'failed',
+        resultCode: 'not_executed',
+      });
+      expect(h.mock.writes).toEqual([]);
+    });
+  });
+
+  it('records proposals whose tool call ids repeat, and runs only the approved one (M3)', async () => {
+    const id = randomUUID();
+    h.mock.writes.length = 0;
+    const propose = (body: string) => [
+      { type: 'stream-start', warnings: [] },
+      {
+        type: 'tool-call',
+        toolCallId: 'call_1',
+        toolName: 'jira_add_comment',
+        input: JSON.stringify({ issueKey: 'DEMO-15', body }),
+      },
+      {
+        type: 'finish',
+        finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+        usage: usageOf(1, 1),
+      },
+    ];
+    const createModel = scriptedModel([
+      propose('First'),
+      propose('Second'),
+      [
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't' },
+        { type: 'text-delta', id: 't', delta: 'Posted.' },
+        { type: 'text-end', id: 't' },
+        { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usageOf(1, 1) },
+      ],
+    ]);
+    const deps = { ...h.deps, createModel };
+    const ask = (text: string) =>
+      h.sendWith(deps, owner(), { conversationId: id, message: { id: randomUUID(), text } });
+    await ask('first');
+    await ask('second');
+    const rows = await approvalRows(id);
+    expect(rows.map((r) => [r.toolCallId, r.status]).sort()).toEqual([
+      ['call_1', 'denied'],
+      ['call_1', 'pending'],
+    ]);
+    const second = rows.find((r) => r.status === 'pending');
+    const r = await h.sendWith(deps, owner(), {
+      conversationId: id,
+      approvals: [{ approvalId: second?.approvalId ?? '', approved: true }],
+    });
+    expect(r.status).toBe(200);
+    expect(h.mock.writes.map((w) => w.body)).toEqual([{ body: 'Second' }]);
+  });
+
+  it('shows failed analytics calls as errors, with the hint as data (M6)', async () => {
+    const analytics = await analyticsTools(h.deps, owner());
+    try {
+      const run = (input: unknown) =>
+        analytics.tools.get_metric
+          ?.execute?.(input as never, { toolCallId: 't', messages: [], context: {} })
+          .catch((e: unknown) => e);
+      const unknown = await run({ boardId: randomUUID(), metric: 'average_velocity' });
+      expect(unknown).toBeInstanceOf(AgentToolError);
+      expect((unknown as AgentToolError).code).toBe('unknown_board');
+      expect((unknown as Error).message).toMatch(
+        /^The analytics tool failed \(unknown_board\)\.\n<data source="get_metric_error">/,
+      );
+      expect((unknown as Error).message).toContain('list_boards');
+      const [board] = await h.rawDb.select({ id: jiraBoardsTable.id }).from(jiraBoardsTable);
+      const invalid = await run({
+        boardId: board?.id,
+        metric: 'average_velocity',
+        params: { sprints: -3 },
+      });
+      expect((invalid as AgentToolError).code).toBe('invalid_params');
+    } finally {
+      await analytics.close();
+    }
   });
 
   it('serialises turns of one conversation: a concurrent message gets 409 turn_in_progress', async () => {
