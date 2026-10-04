@@ -9,9 +9,9 @@ export interface CapturedPost {
 /**
  * A stand-in for Slack/Teams incoming webhooks: records every POST. `/fail` (and any path added
  * to `failing`) answers 500, `/redirect` 302 and `/slow` never answers (for timeouts); any other
- * path answers 200 "ok".
+ * path answers 200 "ok". Listens on a random port unless `port` (the e2e mocks process).
  */
-export async function startMockWebhook() {
+export async function startMockWebhook(opts: { port?: number } = {}) {
   const posts: CapturedPost[] = [];
   const failing = new Set<string>(['/fail']);
   const server = createServer((req, res) => {
@@ -35,7 +35,7 @@ export async function startMockWebhook() {
       else res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const port = (server.address() as AddressInfo).port;
   return {
     url: `http://127.0.0.1:${port}`,

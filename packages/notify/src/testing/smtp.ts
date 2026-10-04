@@ -15,7 +15,8 @@ export interface CapturedMail {
 
 /**
  * An in-process SMTP server (Nodemailer's smtp-server) that keeps what it receives: for unit
- * tests and the e2e mocks. Plain SMTP (no TLS) on 127.0.0.1; `auth` makes it require a login.
+ * tests and the e2e mocks. Plain SMTP (no TLS) on 127.0.0.1 (a random port unless `port`); `auth`
+ * makes it require a login.
  */
 export async function startMockSmtp(
   opts: {
@@ -26,6 +27,8 @@ export async function startMockSmtp(
     rejectRecipients?: boolean;
     /** Implicit TLS with this key/certificate (tests use a self-signed one). */
     tls?: { key: string; cert: string };
+    /** A fixed port (the e2e mocks process); random when absent. */
+    port?: number;
   } = {},
 ) {
   const mails: CapturedMail[] = [];
@@ -82,7 +85,7 @@ export async function startMockSmtp(
   server.on('error', () => {
     tlsClientErrors++;
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const port = (server.server.address() as AddressInfo).port;
   return {
     port,

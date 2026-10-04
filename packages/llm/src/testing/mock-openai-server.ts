@@ -72,6 +72,9 @@ const runSkillOf = (text: string) =>
  * - "pin … cycle time" → list_boards → pin_widget(cycle_time kpi) on "DEMO Scrum";
  * - "stand-up" (when load_skill is offered) → load_skill(daily-standup-brief) → a short brief;
  * - a skill run ("Run this skill now" + `<skill name>`) → list_boards → "Report for <name>…";
+ *   when the skill's text names `jira_search` (and it is offered), a live read first
+ *   (jira_search "filter = 101"); when it contains `<!channel>`, the report ends with it (the
+ *   kind of text an injected report would carry, for the delivery escaping tests);
  * - a skill draft (propose_skill offered) → propose_skill with fields read from the request;
  * - anything else → a short text answer.
  * Text answers end with "(preferences: a, b)" when standing preferences were sent.
@@ -111,7 +114,10 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
     const content = textOf(last);
     if (name === 'list_boards') {
       const boards = toolPayload(content) as { boards?: { id: string; name: string }[] };
-      if (run) return say(`Report for ${run}: ${boards?.boards?.length ?? 0} boards checked.`);
+      if (run) {
+        const report = `Report for ${run}: ${boards?.boards?.length ?? 0} boards checked.`;
+        return say(/<!channel>/.test(ask) ? `${report} <!channel>` : report);
+      }
       const board = boards?.boards?.find((b) => b.name === 'DEMO Scrum') ?? boards?.boards?.[0];
       if (!board) return say('I could not find any synced board.');
       if (/\bpin\b/i.test(ask) && tools.includes('pin_widget')) {
@@ -136,6 +142,7 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
         `The average velocity of DEMO Scrum is ${metric?.data?.value ?? 'unknown'} points per sprint.`,
       );
     }
+    if (name === 'jira_search' && run) return { toolCalls: [{ name: 'list_boards', args: {} }] };
     if (name === 'pin_widget') {
       return /"pinned":true/.test(content)
         ? say('Pinned: the cycle time is on your dashboard.')
@@ -156,6 +163,9 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
     return say('Here is what I found.');
   }
   if (run) {
+    if (/jira_search/.test(ask) && tools.includes('jira_search')) {
+      return { toolCalls: [{ name: 'jira_search', args: { jql: 'filter = 101', limit: 5 } }] };
+    }
     return tools.includes('list_boards')
       ? { toolCalls: [{ name: 'list_boards', args: {} }] }
       : say(`Report for ${run}: no tools.`);

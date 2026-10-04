@@ -232,6 +232,9 @@ importers:
       '@agile/llm':
         specifier: workspace:*
         version: link:../packages/llm
+      '@agile/notify':
+        specifier: workspace:*
+        version: link:../packages/notify
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
