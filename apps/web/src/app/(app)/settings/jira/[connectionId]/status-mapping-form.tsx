@@ -24,6 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { allowedCode } from '@/lib/error-code';
+import { JIRA_CATEGORIES } from '../error-codes';
 import { type ActionState, saveStatusMappingAction } from './actions';
 
 type Category = StatusMappingView['category'];
@@ -44,6 +46,11 @@ export function StatusMappingForm({
   canManage: boolean;
 }) {
   const t = useTranslations('boards');
+  // The category key comes from Jira: labelled only when it is one we know.
+  const categoryLabel = (key: string) => {
+    const known = allowedCode(key, JIRA_CATEGORIES);
+    return known ? t(`jiraCategories.${known}`) : key;
+  };
   const [rows, setRows] = useState(mappings);
   const [state, action, pending] = useActionState<ActionState, FormData>(
     saveStatusMappingAction.bind(null, connectionId, boardId),
@@ -93,11 +100,7 @@ export function StatusMappingForm({
                 <TableRow key={r.jiraStatusId} data-status={r.statusName}>
                   <TableCell className="font-medium">{r.statusName}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {t.has(`jiraCategories.${r.jiraCategory}`)
-                        ? t(`jiraCategories.${r.jiraCategory}`)
-                        : r.jiraCategory}
-                    </Badge>
+                    <Badge variant="outline">{categoryLabel(r.jiraCategory)}</Badge>
                   </TableCell>
                   <TableCell>
                     <NativeSelect

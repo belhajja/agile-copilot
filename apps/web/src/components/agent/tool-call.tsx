@@ -8,6 +8,7 @@ import { CodeBlock } from '@/components/ai-elements/code-block';
 import { Tool, ToolContent } from '@/components/ai-elements/tool';
 import { Badge } from '@/components/ui/badge';
 import { CollapsibleTrigger } from '@/components/ui/collapsible';
+import { toolLabel } from './tool-labels';
 import { pinnedBoardId, readableOutput, readToolError } from './tool-output';
 
 /** A failed tool call, translated from its code (plus the people Jira matched, if ambiguous). */
@@ -62,9 +63,7 @@ function ToolDetails({
       <CollapsibleTrigger className="flex w-full min-w-0 items-center justify-between gap-2 p-3 text-left">
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <Wrench className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="min-w-0 truncate text-sm font-medium">
-            {t.has(`tools.${toolName}`) ? t(`tools.${toolName}`) : toolName}
-          </span>
+          <span className="min-w-0 truncate text-sm font-medium">{toolLabel(t, toolName)}</span>
           <Badge variant={part.state === 'output-error' ? 'destructive' : 'secondary'}>
             {t(`status.${running ? 'running' : part.state === 'output-error' ? 'error' : 'done'}`)}
           </Badge>

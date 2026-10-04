@@ -11,7 +11,9 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { ItemGroup } from '@/components/ui/item';
+import { pickCode } from '@/lib/error-code';
 import { connectionDeps, requireActor, services } from '@/server/context';
+import { JIRA_ERROR_CODES } from './error-codes';
 import { JiraConnectionForm } from './jira-connection-form';
 import { JiraConnectionItem } from './jira-connection-item';
 
@@ -39,9 +41,7 @@ export default async function JiraSettingsPage({
       )}
       {error && (
         <Alert variant="destructive">
-          <AlertDescription>
-            {t.has(`errors.${error}`) ? t(`errors.${error}`) : t('errors.unknown')}
-          </AlertDescription>
+          <AlertDescription>{t(`errors.${pickCode(error, JIRA_ERROR_CODES)}`)}</AlertDescription>
         </Alert>
       )}
       {connections.length === 0 ? (

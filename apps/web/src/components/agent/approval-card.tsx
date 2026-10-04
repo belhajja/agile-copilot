@@ -15,6 +15,7 @@ import {
 import { APPROVAL_FIELDS, CONVERTED_FIELDS } from './approval-fields';
 import type { ApprovalView } from './approval-view';
 import { ToolError } from './tool-call';
+import { toolLabel } from './tool-labels';
 import { assignedTo } from './tool-output';
 
 /**
@@ -72,9 +73,7 @@ export function ApprovalCard({
       className="max-w-full min-w-0"
     >
       <ConfirmationTitle>
-        <span className="font-medium">
-          {t.has(`tools.${toolName}`) ? t(`tools.${toolName}`) : toolName}
-        </span>
+        <span className="font-medium">{toolLabel(t, toolName)}</span>
         {typeof input.issueKey === 'string' ? ` · ${input.issueKey}` : ''}
       </ConfirmationTitle>
       <dl className="grid min-w-0 gap-2 text-sm">
