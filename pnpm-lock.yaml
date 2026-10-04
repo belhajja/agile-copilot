@@ -382,6 +382,9 @@ importers:
 
   packages/dashboards:
     dependencies:
+      '@agile/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@agile/db':
         specifier: workspace:*
         version: link:../db

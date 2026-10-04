@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@agile/connections": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/jira": "workspace:*",
     "@agile/metrics": "workspace:*",
