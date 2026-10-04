@@ -3,7 +3,9 @@ import type { AddressInfo } from 'node:net';
 
 /** Minimal OpenAI-compatible chat endpoint that always calls the requested tool. */
 export async function startMockOpenAI(opts: { validKey: string }) {
+  const requests: string[] = [];
   const server = createServer((req, res) => {
+    requests.push(`${req.method} ${req.url}`);
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
@@ -48,6 +50,8 @@ export async function startMockOpenAI(opts: { validKey: string }) {
   const { port } = server.address() as AddressInfo;
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
+    /** Every request that reached the server ("METHOD /path"). */
+    requests,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

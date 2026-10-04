@@ -1,5 +1,6 @@
 import { auditLog, llmConnections } from '@agile/db';
 import type { LlmConfig } from '@agile/llm';
+import { startMockOpenAI } from '@agile/llm/testing';
 import { desc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -105,6 +106,31 @@ describe('llm connections', () => {
     expect(await createLlmConnection(allowed, owner(), { label: 'Ollama', config })).toMatchObject({
       ok: true,
     });
+  });
+
+  it('pins the probe to the checked address: a rebinding host never reaches the LLM', async () => {
+    const mock = await startMockOpenAI({ validKey: 'k' });
+    try {
+      let calls = 0;
+      const rebinding: LlmDeps = {
+        db: h.db,
+        keyring,
+        allowedPrivateHosts: [],
+        // Public for the URL check, then the local mock (DNS rebinding) for the connection.
+        resolve: async () => (calls++ === 0 ? ['93.184.216.34'] : ['127.0.0.1']),
+      };
+      const config: LlmConfig = {
+        provider: 'openai_compatible',
+        model: 'mock',
+        baseUrl: mock.baseUrl.replace('127.0.0.1', 'llm.rebind.example'),
+        apiKey: 'k',
+      };
+      const result = await createLlmConnection(rebinding, owner(), { label: 'Rebind', config });
+      expect(result).toMatchObject({ ok: false, code: 'blocked_url' });
+      expect(mock.requests).toEqual([]);
+    } finally {
+      await mock.close();
+    }
   });
 
   it('race: concurrent creates for a fresh org leave exactly one default', async () => {

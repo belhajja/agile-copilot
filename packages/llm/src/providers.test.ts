@@ -1,4 +1,4 @@
-import type { LanguageModel } from 'ai';
+import { type LanguageModel, streamText } from 'ai';
 import { describe, expect, it } from 'vitest';
 import { createLanguageModel, type LlmConfig } from './providers';
 
@@ -38,5 +38,20 @@ describe('createLanguageModel', () => {
         resourceName: 'my-resource',
       }),
     ).not.toThrow();
+  });
+
+  it('asks an OpenAI-compatible server for token usage in streamed answers', async () => {
+    const bodies: unknown[] = [];
+    const capture = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response('{}', { status: 500 });
+    }) as typeof fetch;
+    const model = createLanguageModel(
+      { provider: 'openai_compatible', model: 'm', baseUrl: 'http://llm.test/v1' },
+      { fetch: capture },
+    );
+    const result = streamText({ model, prompt: 'hi', maxRetries: 0, onError: () => {} });
+    await result.consumeStream({ onError: () => {} });
+    expect(bodies[0]).toMatchObject({ stream: true, stream_options: { include_usage: true } });
   });
 });

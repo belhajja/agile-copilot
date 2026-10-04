@@ -47,6 +47,18 @@ describe('Jira requests are pinned to the address that passed the URL policy', (
     expect(cloud.requests).toEqual([]);
   });
 
+  it('Data Center data source blocked mid-sync maps to blocked_url without leaking axios config', async () => {
+    const source = createJiraDataSource(
+      { kind: 'datacenter_pat', baseUrl: rebound(dc), token: 'pat' },
+      { outbound: { allowedPrivateHosts: [], resolve: async () => ['127.0.0.1'] } },
+    );
+    const error = await source.listBoards().catch((e: unknown) => e);
+    expect(mapJiraError(error).code).toBe('blocked_url');
+    expect(error).toMatchObject({ name: 'BlockedAddressError' });
+    expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain('pat');
+    expect(dc.requests).toEqual([]);
+  });
+
   it('still reaches allowlisted private hosts', async () => {
     const result = await testJiraConnection(
       { kind: 'datacenter_pat', baseUrl: dc.url, token: 'pat' },

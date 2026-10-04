@@ -1,3 +1,4 @@
+import { isBlockedAddressError } from '@agile/net';
 import {
   APICallError,
   generateText,
@@ -16,6 +17,7 @@ export type ProbeFailureCode =
   | 'rate_limited'
   | 'no_tool_calling'
   | 'unreachable'
+  | 'blocked_url'
   | 'provider_error';
 
 export type LlmProbeResult =
@@ -32,6 +34,9 @@ const isRedirectBlocked = (e: unknown) => e instanceof Error && e.name === 'Redi
 
 function mapLlmError(e: unknown): LlmProbeResult {
   const err = RetryError.isInstance(e) ? e.lastError : e;
+  if (isBlockedAddressError(err)) {
+    return fail('blocked_url', 'This host now points to a private or reserved address.');
+  }
   if (
     isRedirectBlocked(err) ||
     isRedirectBlocked((err as { cause?: unknown } | undefined)?.cause)

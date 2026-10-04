@@ -114,12 +114,18 @@ async function probe(
   if (deps.probe) return deps.probe(config);
   let model: ReturnType<typeof createLanguageModel>;
   try {
-    model = createLanguageModel(config, {
-      fetch: createOutboundFetch({
-        allowedPrivateHosts: deps.allowedPrivateHosts,
-        resolve: deps.resolve,
-      }),
-    });
+    // Only the OpenAI-compatible provider has a user-supplied URL to pin.
+    model = createLanguageModel(
+      config,
+      config.provider === 'openai_compatible'
+        ? {
+            fetch: createOutboundFetch({
+              allowedPrivateHosts: deps.allowedPrivateHosts,
+              resolve: deps.resolve,
+            }),
+          }
+        : {},
+    );
   } catch (e) {
     if (config.provider === 'azure' && e instanceof TypeError)
       return { ok: false, code: 'provider_error', message: 'Invalid Azure resource name.' };
