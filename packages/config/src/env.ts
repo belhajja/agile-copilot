@@ -1,3 +1,4 @@
+import { isAllowlistedHost, normalizeHost } from '@agile/net';
 import { z } from 'zod';
 
 const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v);
@@ -21,6 +22,7 @@ const emailList = z
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
   )
+  .transform((l) => [...new Set(l)])
   .pipe(z.array(z.email()));
 
 export const serverEnvSchema = z
@@ -118,7 +120,25 @@ export const serverEnvSchema = z
         'PASSWORD_LOGIN=admin_only needs SSO (OIDC_ISSUER…) and at least one BREAK_GLASS_EMAILS address',
       path: ['PASSWORD_LOGIN'],
     },
-  );
+  )
+  .superRefine((e, ctx) => {
+    // Secrets travel to these URLs: plaintext only for loopback or an allowlisted host.
+    for (const key of ['OIDC_ISSUER', 'STRIPE_API_URL', 'LANGFUSE_BASE_URL'] as const) {
+      const raw = e[key];
+      if (!raw) continue;
+      const url = new URL(raw);
+      const host = normalizeHost(url.hostname);
+      const local = ['127.0.0.1', '::1', 'localhost'].includes(host);
+      if (url.protocol === 'https:') continue;
+      if (url.protocol === 'http:' && (local || isAllowlistedHost(host, e.ALLOWED_PRIVATE_HOSTS)))
+        continue;
+      ctx.addIssue({
+        code: 'custom',
+        message: `${key} must use https (http only for localhost or ALLOWED_PRIVATE_HOSTS)`,
+        path: [key],
+      });
+    }
+  });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 

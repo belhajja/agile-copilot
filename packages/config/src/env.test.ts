@@ -130,6 +130,66 @@ describe('parseServerEnv', () => {
     );
   });
 
+  it('requires https for URLs that receive secrets, except loopback and allowlisted hosts', () => {
+    for (const key of ['OIDC_ISSUER', 'STRIPE_API_URL', 'LANGFUSE_BASE_URL']) {
+      const withUrl = (url: string, extra: Record<string, string> = {}) => {
+        const base: Record<string, string> = { ...valid, ...extra, [key]: url };
+        if (key === 'OIDC_ISSUER') {
+          base.OIDC_CLIENT_ID = 'agile';
+          base.OIDC_CLIENT_SECRET = 'secret';
+        }
+        return parseServerEnv(base);
+      };
+      expect(() => withUrl('http://id.example.com/realm')).toThrow(new RegExp(`${key}.*https`));
+      expect(() => withUrl('ftp://id.example.com')).toThrow(key);
+      expect(() => withUrl('javascript:alert(1)')).toThrow(key);
+      expect(() => withUrl('https://id.example.com/realm')).not.toThrow();
+      expect(() => withUrl('http://127.0.0.1:4090')).not.toThrow();
+      expect(() => withUrl('http://localhost:4100/realms/x')).not.toThrow();
+      expect(() => withUrl('http://[::1]:4100')).not.toThrow();
+      expect(() => withUrl('http://idp.corp.test')).toThrow(key);
+      expect(() =>
+        withUrl('http://idp.corp.test', { ALLOWED_PRIVATE_HOSTS: 'corp.test' }),
+      ).not.toThrow();
+    }
+  });
+
+  it('de-duplicates break-glass emails', () => {
+    expect(parseServerEnv({ ...valid, BREAK_GLASS_EMAILS: 'A@x.io, a@x.io,b@x.io' })).toMatchObject(
+      { BREAK_GLASS_EMAILS: ['a@x.io', 'b@x.io'] },
+    );
+  });
+
+  it('never puts a configured value in the error text', () => {
+    const marker = 'MARKER-s3cr3t-value';
+    const keys = [
+      'OIDC_PROVIDER',
+      'OIDC_ISSUER',
+      'OIDC_CLIENT_ID',
+      'OIDC_CLIENT_SECRET',
+      'OIDC_DISPLAY_NAME',
+      'PASSWORD_LOGIN',
+      'BREAK_GLASS_EMAILS',
+      'STRIPE_SECRET_KEY',
+      'STRIPE_WEBHOOK_SECRET',
+      'STRIPE_PRICE_TEAM',
+      'STRIPE_API_URL',
+      'LANGFUSE_PUBLIC_KEY',
+      'LANGFUSE_SECRET_KEY',
+      'LANGFUSE_BASE_URL',
+      'MCP_RATE_LIMIT_PER_MINUTE',
+    ];
+    for (const key of keys) {
+      let message = '';
+      try {
+        parseServerEnv({ ...valid, [key]: marker });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, key).not.toContain(marker);
+    }
+  });
+
   it('normalises the private host allowlist', () => {
     const env = parseServerEnv({
       ...valid,
