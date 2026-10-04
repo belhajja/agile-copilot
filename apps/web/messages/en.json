@@ -34,8 +34,7 @@
       "YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS": "You have reached the maximum number of workspaces.",
       "ORGANIZATION_NOT_FOUND": "Workspace not found.",
       "USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION": "You are not a member of this workspace.",
-      "PASSWORD_LOGIN_DISABLED": "Password sign-in is reserved for platform administrators. Use single sign-on.",
-      "SIGN_UP_NOT_ALLOWED": "This address cannot be used to sign up here. Ask an administrator.",
+      "SIGN_UP_NOT_ALLOWED": "Sign-up is not available here. Ask an administrator for an invitation.",
       "ID_TOKEN_SIGN_IN_DISABLED": "Sign in through your organisation's sign-in page.",
       "SCOPES_NOT_ALLOWED": "This sign-in request is not allowed.",
       "INVALID_CALLBACK_URL": "This sign-in link is not valid for this site. Start again from the sign-in page.",
@@ -82,12 +81,14 @@
       "login_required": "Sign in at your identity provider first, then try again.",
       "temporarily_unavailable": "Your identity provider is temporarily unavailable. Try again in a minute.",
       "server_error": "Your identity provider reported an error. Try again in a minute.",
-      "invalid_request": "Your identity provider refused the sign-in request."
+      "invalid_request": "Your identity provider refused the sign-in request.",
+      "SSO_UNLINK_NOT_ALLOWED": "Sign-in methods cannot be removed while password sign-in is reserved for administrators."
     },
     "ssoButton": "Continue with {name}",
     "ssoUnavailable": "Single sign-on is not reachable right now. Try again in a minute.",
     "orPassword": "Or with a password",
-    "adminSignIn": "Platform administrator sign-in"
+    "adminSignIn": "Platform administrator sign-in",
+    "adminSignInHint": "Password sign-in is reserved for platform administrators. Everyone else signs in with single sign-on."
   },
   "onboarding": {
     "title": "Create your workspace",

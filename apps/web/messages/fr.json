@@ -34,8 +34,7 @@
       "YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS": "Vous avez atteint le nombre maximal d'espaces.",
       "ORGANIZATION_NOT_FOUND": "Espace introuvable.",
       "USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION": "Vous n'êtes pas membre de cet espace.",
-      "PASSWORD_LOGIN_DISABLED": "La connexion par mot de passe est réservée aux administrateurs de la plateforme. Utilisez l'authentification unique.",
-      "SIGN_UP_NOT_ALLOWED": "Cette adresse ne peut pas servir à créer un compte ici. Demandez à un administrateur.",
+      "SIGN_UP_NOT_ALLOWED": "La création de compte n'est pas disponible ici. Demandez une invitation à un administrateur.",
       "ID_TOKEN_SIGN_IN_DISABLED": "Connectez-vous par la page de connexion de votre organisation.",
       "SCOPES_NOT_ALLOWED": "Cette demande de connexion n'est pas autorisée.",
       "INVALID_CALLBACK_URL": "Ce lien de connexion n'est pas valable pour ce site. Recommencez depuis la page de connexion.",
@@ -82,12 +81,14 @@
       "login_required": "Connectez-vous d'abord auprès de votre fournisseur d'identité, puis réessayez.",
       "temporarily_unavailable": "Votre fournisseur d'identité est momentanément indisponible. Réessayez dans une minute.",
       "server_error": "Votre fournisseur d'identité a signalé une erreur. Réessayez dans une minute.",
-      "invalid_request": "Votre fournisseur d'identité a refusé la demande de connexion."
+      "invalid_request": "Votre fournisseur d'identité a refusé la demande de connexion.",
+      "SSO_UNLINK_NOT_ALLOWED": "Les méthodes de connexion ne peuvent pas être retirées tant que le mot de passe est réservé aux administrateurs."
     },
     "ssoButton": "Continuer avec {name}",
     "ssoUnavailable": "L'authentification unique est injoignable pour le moment. Réessayez dans une minute.",
     "orPassword": "Ou avec un mot de passe",
-    "adminSignIn": "Connexion administrateur de la plateforme"
+    "adminSignIn": "Connexion administrateur de la plateforme",
+    "adminSignInHint": "La connexion par mot de passe est réservée aux administrateurs de la plateforme. Les autres se connectent par authentification unique."
   },
   "onboarding": {
     "title": "Créer votre espace de travail",

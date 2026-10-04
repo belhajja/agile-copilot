@@ -329,11 +329,12 @@ describe('SSO (OIDC) and the password policy', () => {
       auth.api.signUpEmail({
         body: { email: 'new@example.com', password: 'new-password-1', name: 'New' },
       }),
-    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'PASSWORD_LOGIN_DISABLED' } });
-    // bob@example.com has a password (set before the switch) but is not a platform admin.
+    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'SIGN_UP_NOT_ALLOWED' } });
+    // bob@example.com has a password (set before the switch) but is not a platform admin: his
+    // right password reads exactly like a wrong one (P5-R39).
     await expect(
       auth.api.signInEmail({ body: { email: 'bob@example.com', password: 'bob-password-1' } }),
-    ).rejects.toMatchObject({ statusCode: 403, body: { code: 'PASSWORD_LOGIN_DISABLED' } });
+    ).rejects.toMatchObject({ statusCode: 401, body: { code: 'INVALID_EMAIL_OR_PASSWORD' } });
     const root = await auth.api.signInEmail({
       body: { email: 'root@example.com', password: 'break-glass-pass' },
     });
@@ -344,6 +345,73 @@ describe('SSO (OIDC) and the password policy', () => {
     expect((await auth.api.getSession({ headers: jarHeaders(viaSso.cookies) }))?.user.email).toBe(
       'bob@example.com',
     );
+    // Nor can Bob drop his SSO identity: that sign-in is the only one left to him.
+    const [bobSso] = await conn.db
+      .select({ id: account.id })
+      .from(account)
+      .innerJoin(user, eq(user.id, account.userId))
+      .where(eq(user.email, 'bob@example.com'));
+    const unlink = await httpPost(
+      auth,
+      '/unlink-account',
+      { accountId: bobSso?.id ?? '' },
+      jarHeaders(viaSso.cookies).get('cookie') ?? '',
+    );
+    expect(unlink.status).toBe(403);
+    expect(await unlink.json()).toMatchObject({ code: 'SSO_UNLINK_NOT_ALLOWED' });
+    expect(await accountsOf('bob@example.com')).toContain('keycloak');
+  });
+
+  it('never tells who is a platform administrator (P5-R39): identical refusals', async () => {
+    const auth = createAuth({ ...options, passwordLogin: 'admin_only' });
+    const answer = async (path: string, body: Record<string, string>) => {
+      const res = await httpPost(auth, path, body);
+      return { status: res.status, body: await res.json() };
+    };
+    // Sign-in: a non-admin's right password, an unknown address, an admin's wrong password.
+    const signIns = [
+      await answer('/sign-in/email', { email: 'bob@example.com', password: 'bob-password-1' }),
+      await answer('/sign-in/email', { email: 'nobody@example.com', password: 'whatever-pass-1' }),
+      await answer('/sign-in/email', { email: 'root@example.com', password: 'wrong-password-1' }),
+    ];
+    expect(signIns[0]).toEqual({
+      status: 401,
+      body: { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' },
+    });
+    expect(signIns[1]).toEqual(signIns[0]);
+    expect(signIns[2]).toEqual(signIns[0]);
+    // Sign-up: an admin address and any other address get the same refusal.
+    const signUp = (email: string) =>
+      answer('/sign-up/email', { email, password: 'p-password-12', name: 'P' });
+    const signUps = [
+      await signUp('root@example.com'),
+      await signUp('zed@example.com'),
+      await signUp('bob@example.com'),
+    ];
+    expect(signUps[0]?.status).toBe(403);
+    expect(signUps[1]).toEqual(signUps[0]);
+    expect(signUps[2]).toEqual(signUps[0]);
+  });
+
+  it('spends a password hash on a refused non-admin sign-in, like on an unknown address', async () => {
+    const auth = createAuth({ ...options, passwordLogin: 'admin_only' });
+    const { password } = await auth.$context;
+    const hash = vi.spyOn(password, 'hash');
+    const verify = vi.spyOn(password, 'verify');
+    try {
+      for (const email of ['nobody@example.com', 'bob@example.com']) {
+        hash.mockClear();
+        verify.mockClear();
+        const res = await httpPost(auth, '/sign-in/email', { email, password: 'bob-password-1' });
+        expect(res.status).toBe(401);
+        // Timing: the refusal costs one hash, as for any address without a password account.
+        expect(hash).toHaveBeenCalledTimes(1);
+        expect(verify).not.toHaveBeenCalled();
+      }
+    } finally {
+      hash.mockRestore();
+      verify.mockRestore();
+    }
   });
 
   it('never attaches an SSO identity to a break-glass account', async () => {
@@ -444,7 +512,7 @@ describe('SSO (OIDC) and the password policy', () => {
           .api.signInEmail({ body: { email: 'bob@example.com', password: 'bob-password-1' } })
           .catch((e: unknown) => e),
       );
-      expect(refused.value).toMatchObject({ body: { code: 'PASSWORD_LOGIN_DISABLED' } });
+      expect(refused.value).toMatchObject({ body: { code: 'INVALID_EMAIL_OR_PASSWORD' } });
       expect(refused.ms).toBeLessThan(1_000);
       // Discovery gives up after its timeout; SSO stays off.
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -529,19 +597,17 @@ describe('SSO (OIDC) and the password policy', () => {
       password: 'break-glass-pass',
       name: 'Ops',
     });
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ code: 'SIGN_UP_NOT_ALLOWED' });
     expect(await userRow('ops2@example.com')).toBeUndefined();
     // Ordinary sign-ups are untouched in `all` mode.
-    expect(
-      (
-        await httpPost(auth, '/sign-up/email', {
-          email: 'frank@example.com',
-          password: 'frank-password-1',
-          name: 'Frank',
-        })
-      ).status,
-    ).toBe(200);
+    const frank = { email: 'frank@example.com', password: 'frank-password-1', name: 'Frank' };
+    expect((await httpPost(auth, '/sign-up/email', frank)).status).toBe(200);
+    // The refusal reads like any taken address (P5-R39): nothing says "platform administrator".
+    const taken = await httpPost(auth, '/sign-up/email', frank);
+    expect(taken.status).toBe(422);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: taken.status,
+      body: await taken.json(),
+    });
     // The server-side helper refuses addresses that are not break-glass.
     await expect(
       createBreakGlassAccount(auth, ['ops2@example.com'], {

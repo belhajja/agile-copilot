@@ -1,14 +1,13 @@
-import { isBreakGlass } from '@agile/auth';
 import { headers } from 'next/headers';
 import { getTranslations } from 'next-intl/server';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { allowedCode } from '@/lib/error-code';
-import { SSO_ERROR_CODES } from '@/lib/sso-error-codes';
+import { ssoErrorOf } from '@/lib/sso-error-codes';
 import { requireSignedIn, services } from '@/server/context';
 import { AccountDataSection } from './account-data-section';
 import { LinkSsoButton } from './link-sso-button';
+import { canLinkSso } from './sign-in-methods';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,12 +30,16 @@ export default async function AccountPage({
   const ssoName = env.OIDC_DISPLAY_NAME;
   const hasSso = Boolean(env.OIDC_ISSUER) && providers.has(env.OIDC_PROVIDER);
   // Break-glass accounts stay password-only (they must work when the IdP is down or compromised).
-  const canLink =
-    Boolean(env.OIDC_ISSUER) &&
-    !hasSso &&
-    !isBreakGlass(session.user.email, env.BREAK_GLASS_EMAILS);
+  const canLink = canLinkSso({
+    ssoConfigured: Boolean(env.OIDC_ISSUER),
+    ssoProvider: env.OIDC_PROVIDER,
+    linkedProviders: providers,
+    email: session.user.email,
+    breakGlassEmails: env.BREAK_GLASS_EMAILS,
+  });
   // Why linking failed, from the SSO callback: only allowlisted codes are explained (L6).
-  const reason = error === undefined ? null : allowedCode(error, SSO_ERROR_CODES);
+  const code = ssoErrorOf(error);
+  const reason = code === 'unknown' ? null : code;
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6">
       <div className="grid gap-1">
@@ -58,7 +61,7 @@ export default async function AccountPage({
               <AlertDescription>{t('linked', { name: ssoName })}</AlertDescription>
             </Alert>
           )}
-          {error !== undefined && (
+          {code && (
             <Alert variant="destructive">
               <AlertDescription>
                 {t('linkFailed', { name: ssoName })}

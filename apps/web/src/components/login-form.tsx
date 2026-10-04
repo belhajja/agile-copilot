@@ -168,7 +168,12 @@ export function LoginForm({
                     <ChevronDown />
                   </Button>
                 </CollapsibleTrigger>
-                <CollapsibleContent className="pt-4">{passwordForm}</CollapsibleContent>
+                <CollapsibleContent className="grid gap-4 pt-4">
+                  <FieldDescription className="text-center">
+                    {t('adminSignInHint')}
+                  </FieldDescription>
+                  {passwordForm}
+                </CollapsibleContent>
               </Collapsible>
             ) : (
               passwordForm

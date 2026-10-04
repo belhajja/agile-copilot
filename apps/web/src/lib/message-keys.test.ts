@@ -41,8 +41,8 @@ describe('allowlisted message keys', () => {
       expect(SSO_ERROR_CODES).toContain(code);
     }
     for (const code of [
-      'PASSWORD_LOGIN_DISABLED',
       'SIGN_UP_NOT_ALLOWED',
+      'SSO_UNLINK_NOT_ALLOWED',
       'ID_TOKEN_SIGN_IN_DISABLED',
       'SCOPES_NOT_ALLOWED',
       'INVALID_CALLBACK_URL',

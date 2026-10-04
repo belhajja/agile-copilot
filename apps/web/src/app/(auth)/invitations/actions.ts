@@ -26,24 +26,15 @@ export async function acceptInvitationAction(
   const parsed = invitationId.safeParse(id);
   if (!parsed.success) return { status: 'error', code: 'invalid_input' };
   await requireSignedIn(`/invitations/${parsed.data}`);
-  const h = await headers();
-  const { auth } = services();
-  let orgId: string | undefined;
   try {
-    const accepted = await auth.api.acceptInvitation({
-      headers: h,
+    // Accepting also makes it the session's active workspace (better-auth updates the session
+    // row, and sessions are read from the database: no cookie cache to refresh).
+    await services().auth.api.acceptInvitation({
+      headers: await headers(),
       body: { invitationId: parsed.data },
     });
-    orgId = accepted?.member.organizationId;
   } catch (e) {
     return { status: 'error', code: codeOf(e) };
-  }
-  if (orgId) {
-    // Accepting already made it the active workspace in the database; this also refreshes the
-    // session cookie. The membership exists either way, so a failure here is not the user's error.
-    await auth.api
-      .setActiveOrganization({ headers: h, body: { organizationId: orgId } })
-      .catch(() => undefined);
   }
   redirect('/');
 }

@@ -2,8 +2,7 @@ import { parseRoles, primaryRole } from '@agile/auth/client';
 import { headers } from 'next/headers';
 import { getTranslations } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { allowedCode } from '@/lib/error-code';
-import { INVITATION_PAGE_ERRORS } from '@/lib/sso-error-codes';
+import { invitationErrorOf } from '@/lib/sso-error-codes';
 import { requireSignedIn, services } from '@/server/context';
 import { InvitationButtons } from '../invitation-buttons';
 
@@ -25,13 +24,7 @@ export default async function InvitationPage({
       ? await services()
           .auth.api.getInvitation({ headers: await headers(), query: { id: invitationId } })
           .then((invitation) => ({ invitation, code: null }))
-          .catch((e: unknown) => ({
-            invitation: null,
-            code: allowedCode(
-              (e as { body?: { code?: unknown } } | null)?.body?.code,
-              INVITATION_PAGE_ERRORS,
-            ),
-          }))
+          .catch((e: unknown) => ({ invitation: null, code: invitationErrorOf(e) }))
       : { invitation: null, code: null };
   const { invitation, code } = found;
   const role = invitation ? (primaryRole(parseRoles(invitation.role)) ?? 'viewer') : null;
