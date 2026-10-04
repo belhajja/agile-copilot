@@ -1,9 +1,28 @@
 import type { JiraToolInput, JiraToolName } from './catalog';
 
-/** Executes allowlisted Jira tools for one connection. Inputs are already validated. */
+/** Per-call options: `signal` cancels the call (e.g. the chat request was aborted). */
+export interface JiraToolCallOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * Executes allowlisted Jira tools for one connection. Inputs are already validated. Each call has
+ * one overall deadline (the backend's `timeoutMs`) covering every request it makes; an abort or
+ * the deadline rejects with `JiraToolError('unavailable')`.
+ */
 export interface JiraToolBackend {
   readonly kind: 'mcp-atlassian' | 'rest';
-  call<N extends JiraToolName>(name: N, input: JiraToolInput<N>): Promise<unknown>;
+  call<N extends JiraToolName>(
+    name: N,
+    input: JiraToolInput<N>,
+    opts?: JiraToolCallOptions,
+  ): Promise<unknown>;
+}
+
+/** The single signal of one backend call: its overall deadline, and the caller's signal if any. */
+export function callSignal(totalMs: number, signal?: AbortSignal): AbortSignal {
+  const deadline = AbortSignal.timeout(totalMs);
+  return signal ? AbortSignal.any([deadline, signal]) : deadline;
 }
 
 export type JiraToolErrorCode =

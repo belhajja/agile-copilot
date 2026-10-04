@@ -1,7 +1,15 @@
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { demoDataset, type MockJira, startMockJira } from '@agile/jira/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { JiraToolError } from './backend';
-import { isJiraToolName, JIRA_TOOL_NAMES } from './catalog';
+import { codeForStatus, type JiraToolBackend, JiraToolError } from './backend';
+import { isJiraToolName, JIRA_TOOL_NAMES, type JiraToolName, parseJiraToolInput } from './catalog';
 import { createJiraToolBackend } from './index';
 import {
   codeFromToolText,
@@ -312,5 +320,168 @@ describe('createJiraToolBackend', () => {
         { outbound, mcpAtlassianUrl: 'http://mcp:8000/mcp' },
       )?.kind,
     ).toBe('mcp-atlassian');
+  });
+});
+
+/** An HTTP server that accepts requests and never answers (or answers through `handler`). */
+async function listen(handler: (req: IncomingMessage, res: ServerResponse) => void) {
+  const open = new Set<ServerResponse>();
+  let received = 0;
+  const server: Server = createServer((req, res) => {
+    received++;
+    open.add(res);
+    res.on('close', () => open.delete(res));
+    handler(req, res);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    open,
+    received: () => received,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  };
+}
+
+const callWith = <N extends JiraToolName>(
+  b: JiraToolBackend,
+  name: N,
+  input: unknown,
+  signal?: AbortSignal,
+) => {
+  const parsed = parseJiraToolInput(name, input);
+  if (!parsed.success) throw new Error(`bad input for ${name}`);
+  return b.call(name, parsed.data, { signal });
+};
+
+describe('cancellation, deadlines and refusals', () => {
+  let dc: MockJira;
+  let double: MockMcpAtlassian;
+  let hang: Awaited<ReturnType<typeof listen>>;
+  beforeAll(async () => {
+    dc = await startMockJira({
+      flavor: 'datacenter',
+      validAuthorization: 'Bearer good-pat',
+      dataset: demoDataset(ANCHOR),
+    });
+    double = await startMockMcpAtlassian({ allowedHosts: ['127.0.0.1'] });
+    hang = await listen((req) => req.resume());
+  });
+  afterAll(async () => {
+    await Promise.all([dc?.close(), double?.close(), hang?.close()]);
+  });
+  const pat = (baseUrl: string) => ({
+    kind: 'datacenter_pat' as const,
+    baseUrl,
+    token: 'good-pat',
+  });
+
+  it('rejects an aborted MCP call promptly and still closes the client', async () => {
+    const backend = createMcpAtlassianBackend(pat(dc.url), { url: `${hang.url}/mcp` });
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50);
+    const started = Date.now();
+    await expect(
+      callWith(backend, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'alex' }, ac.signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(hang.received()).toBeGreaterThan(0);
+    await vi.waitFor(() => expect(hang.open.size).toBe(0));
+
+    const before = hang.received();
+    await expect(
+      callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }, AbortSignal.abort()),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(hang.received()).toBe(before);
+  });
+
+  it('rejects an aborted REST call promptly', async () => {
+    const backend = createRestJiraBackend(pat(hang.url), { outbound });
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50);
+    const started = Date.now();
+    await expect(
+      callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }, ac.signal),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await vi.waitFor(() => expect(hang.open.size).toBe(0));
+  });
+
+  it('gives an MCP assignment (connect + lookup + assign) one overall deadline', async () => {
+    // Every request to the double is delayed by 150 ms: each one fits a 400 ms deadline on its
+    // own, but the four of an assignment do not.
+    const slow = await listen((req, res) => {
+      setTimeout(() => {
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        req.pipe(upstream);
+      }, 150);
+    });
+    try {
+      dc.writes.length = 0;
+      const tight = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${slow.url}/mcp`,
+        timeoutMs: 400,
+      });
+      await expect(
+        callWith(tight, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'alex' }),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+      expect(dc.writes).toEqual([]);
+      const roomy = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${slow.url}/mcp`,
+        timeoutMs: 5_000,
+      });
+      await expect(
+        callWith(roomy, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'alex' }),
+      ).resolves.toMatchObject({ assignee: { id: 'alex' } });
+    } finally {
+      await slow.close();
+    }
+  });
+
+  it('refuses names outside the catalog without calling anything', async () => {
+    const before = double.calls.length;
+    for (const backend of [
+      createMcpAtlassianBackend(pat(dc.url), { url: double.url }),
+      createRestJiraBackend(pat(dc.url), { outbound }),
+    ]) {
+      await expect(
+        backend.call('jira_search_assignable_users' as JiraToolName, { query: 'alex' } as never),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+    }
+    expect(double.calls.length).toBe(before);
+  });
+
+  it('reads the double’s lookup failures as the codes they name', async () => {
+    const backend = createMcpAtlassianBackend(pat(dc.url), { url: double.url });
+    await expect(
+      callWith(backend, 'jira_assign_issue', { issueKey: 'NOPE-1', assignee: 'alex' }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const jiraDown = createMcpAtlassianBackend(pat('http://127.0.0.1:9'), { url: double.url });
+    await expect(
+      callWith(jiraDown, 'jira_assign_issue', { issueKey: 'DEMO-2', assignee: 'alex' }),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    // The double (like mcp-atlassian) reports HTTP failures as requests' "<status> … Error".
+    for (const status of [400, 401, 403, 404, 429, 500, 503]) {
+      const kind = status < 500 ? 'Client' : 'Server';
+      expect(codeFromToolText(`${status} ${kind} Error`)).toBe(codeForStatus(status));
+    }
   });
 });

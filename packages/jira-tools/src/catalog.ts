@@ -124,6 +124,12 @@ export const JIRA_TOOLS = {
     description:
       'Assign an issue to a person (email, username or account id). Needs the user’s approval.',
     input: z.object({ issueKey, assignee: text(128).describe('Email, username or account id') }),
+    /**
+     * mcp-atlassian 0.23.1's argument names only (pinned by the catalog and contract tests). No
+     * backend may send this raw string to mcp-atlassian: it would match it loosely (first search
+     * hit, then any user with BROWSE permission) or parse a JSON object out of it. Backends resolve
+     * the one exact person first and assign by id (ruling P3-R17); see `createMcpAtlassianBackend`.
+     */
     toMcp: (i) => ({ issue_key: i.issueKey, assignee: i.assignee }),
     fromMcp: (a) => ({ issueKey: str(a.issue_key) ?? '', assignee: str(a.assignee) ?? '' }),
   }),

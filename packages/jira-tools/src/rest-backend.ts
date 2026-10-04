@@ -1,12 +1,13 @@
 import { type JiraCredentials, ResponseTooLargeError, readCapped } from '@agile/jira';
 import { createOutboundFetch, isBlockedAddressError, type OutboundPolicy } from '@agile/net';
 import {
+  callSignal,
   codeForStatus,
   type JiraToolBackend,
   JiraToolError,
   type JiraUserCandidate,
 } from './backend';
-import type { JiraToolInput, JiraToolName } from './catalog';
+import { isJiraToolName, type JiraToolInput, type JiraToolName } from './catalog';
 
 type RestCredentials = Extract<JiraCredentials, { kind: 'cloud_basic' | 'datacenter_pat' }>;
 
@@ -67,7 +68,12 @@ export function createRestJiraBackend(
   const base = creds.baseUrl.replace(/\/+$/, '');
   const cloud = creds.kind === 'cloud_basic';
 
-  async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+  async function request(
+    signal: AbortSignal,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<unknown> {
     let res: Response;
     try {
       res = await fetch(new URL(base + path), {
@@ -78,7 +84,7 @@ export function createRestJiraBackend(
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+        signal,
       });
     } catch (e) {
       throw new JiraToolError(isBlockedAddressError(e) ? 'blocked_url' : 'unavailable');
@@ -112,8 +118,9 @@ export function createRestJiraBackend(
    * (case-insensitive). Never a fuzzy hit: the user approved this exact text. Anything else fails
    * with `ambiguous_user` (and up to 5 candidates, no emails) or `not_found`.
    */
-  async function findUser(identifier: string): Promise<JiraUserCandidate> {
+  async function findUser(signal: AbortSignal, identifier: string): Promise<JiraUserCandidate> {
     const found = (await request(
+      signal,
       'GET',
       `/rest/api/2/user/search${q(cloud ? { query: identifier } : { username: identifier })}`,
     )) as unknown;
@@ -138,10 +145,16 @@ export function createRestJiraBackend(
       : new JiraToolError('not_found');
   }
 
-  const handlers: { [N in JiraToolName]: (input: JiraToolInput<N>) => Promise<unknown> } = {
-    async jira_search({ jql, limit }) {
+  const handlers: {
+    [N in JiraToolName]: (input: JiraToolInput<N>, signal: AbortSignal) => Promise<unknown>;
+  } = {
+    async jira_search({ jql, limit }, signal) {
       const path = cloud ? '/rest/api/3/search/jql' : '/rest/api/2/search';
-      const page = (await request('GET', path + q({ jql, maxResults: limit, fields: FIELDS }))) as {
+      const page = (await request(
+        signal,
+        'GET',
+        path + q({ jql, maxResults: limit, fields: FIELDS }),
+      )) as {
         issues?: RawIssue[];
         total?: unknown;
         isLast?: unknown;
@@ -159,8 +172,9 @@ export function createRestJiraBackend(
       const total = n(page?.total);
       return { total, hasMore: total !== null && total > issues.length, issues };
     },
-    async jira_get_issue({ issueKey, commentLimit }) {
+    async jira_get_issue({ issueKey, commentLimit }, signal) {
       const i = (await request(
+        signal,
         'GET',
         issuePath(issueKey) + q({ fields: `${FIELDS},description,comment` }),
       )) as RawIssue;
@@ -176,8 +190,8 @@ export function createRestJiraBackend(
         })),
       };
     },
-    async jira_get_transitions({ issueKey }) {
-      const r = (await request('GET', `${issuePath(issueKey)}/transitions`)) as {
+    async jira_get_transitions({ issueKey }, signal) {
+      const r = (await request(signal, 'GET', `${issuePath(issueKey)}/transitions`)) as {
         transitions?: { id?: unknown; name?: unknown; to?: { name?: unknown } }[];
       };
       return {
@@ -188,8 +202,9 @@ export function createRestJiraBackend(
         })),
       };
     },
-    async jira_get_agile_boards({ projectKey }) {
+    async jira_get_agile_boards({ projectKey }, signal) {
       const r = (await request(
+        signal,
         'GET',
         `/rest/agile/1.0/board${q({ projectKeyOrId: projectKey, maxResults: 50 })}`,
       )) as { values?: { id?: unknown; name?: unknown; type?: unknown }[] };
@@ -197,8 +212,9 @@ export function createRestJiraBackend(
         boards: (r?.values ?? []).map((b) => ({ id: n(b.id), name: s(b.name), type: s(b.type) })),
       };
     },
-    async jira_get_sprints_from_board({ boardId, state }) {
+    async jira_get_sprints_from_board({ boardId, state }, signal) {
       const r = (await request(
+        signal,
         'GET',
         `/rest/agile/1.0/board/${boardId}/sprint${q({ state, maxResults: 50 })}`,
       )) as { values?: Record<string, unknown>[] };
@@ -213,8 +229,9 @@ export function createRestJiraBackend(
         })),
       };
     },
-    async jira_get_sprint_issues({ sprintId, limit }) {
+    async jira_get_sprint_issues({ sprintId, limit }, signal) {
       const r = (await request(
+        signal,
         'GET',
         `/rest/agile/1.0/sprint/${sprintId}/issue${q({ maxResults: limit, fields: FIELDS })}`,
       )) as { issues?: RawIssue[]; total?: unknown };
@@ -222,30 +239,31 @@ export function createRestJiraBackend(
       const total = n(r?.total);
       return { total, hasMore: total !== null && total > issues.length, issues };
     },
-    async jira_add_comment({ issueKey, body }) {
-      const c = (await request('POST', `${issuePath(issueKey)}/comment`, { body })) as {
+    async jira_add_comment({ issueKey, body }, signal) {
+      const c = (await request(signal, 'POST', `${issuePath(issueKey)}/comment`, { body })) as {
         id?: unknown;
       };
       return { ok: true, issueKey, commentId: c?.id ?? null };
     },
-    async jira_transition_issue({ issueKey, transitionId, comment }) {
-      await request('POST', `${issuePath(issueKey)}/transitions`, {
+    async jira_transition_issue({ issueKey, transitionId, comment }, signal) {
+      await request(signal, 'POST', `${issuePath(issueKey)}/transitions`, {
         transition: { id: transitionId },
         ...(comment ? { update: { comment: [{ add: { body: comment } }] } } : {}),
       });
       return { ok: true, issueKey, transitionId };
     },
-    async jira_assign_issue({ issueKey, assignee }) {
-      const person = await findUser(assignee);
+    async jira_assign_issue({ issueKey, assignee }, signal) {
+      const person = await findUser(signal, assignee);
       await request(
+        signal,
         'PUT',
         `${issuePath(issueKey)}/assignee`,
         cloud ? { accountId: person.id } : { name: person.id },
       );
       return { ok: true, issueKey, assignee: person };
     },
-    async jira_create_issue({ projectKey, summary, issueType, description }) {
-      const created = (await request('POST', '/rest/api/2/issue', {
+    async jira_create_issue({ projectKey, summary, issueType, description }, signal) {
+      const created = (await request(signal, 'POST', '/rest/api/2/issue', {
         fields: {
           project: { key: projectKey },
           summary,
@@ -255,8 +273,8 @@ export function createRestJiraBackend(
       })) as { key?: unknown };
       return { ok: true, key: s(created?.key) };
     },
-    async jira_update_issue({ issueKey, summary, description, labels }) {
-      await request('PUT', issuePath(issueKey), {
+    async jira_update_issue({ issueKey, summary, description, labels }, signal) {
+      await request(signal, 'PUT', issuePath(issueKey), {
         fields: {
           ...(summary ? { summary } : {}),
           ...(description ? { description } : {}),
@@ -269,6 +287,15 @@ export function createRestJiraBackend(
 
   return {
     kind: 'rest',
-    call: (name, input) => (handlers[name] as (i: typeof input) => Promise<unknown>)(input),
+    async call(name, input, callOpts) {
+      if (!isJiraToolName(name)) throw new JiraToolError('invalid_request');
+      // One deadline for the whole call (a write may take several requests), plus the caller's.
+      const signal = callSignal(opts.timeoutMs ?? 30_000, callOpts?.signal);
+      if (signal.aborted) throw new JiraToolError('unavailable');
+      return (handlers[name] as (i: typeof input, s: AbortSignal) => Promise<unknown>)(
+        input,
+        signal,
+      );
+    },
   };
 }

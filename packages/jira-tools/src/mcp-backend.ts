@@ -2,12 +2,13 @@ import type { JiraCredentials } from '@agile/jira';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
+  callSignal,
   type JiraToolBackend,
   JiraToolError,
   type JiraToolErrorCode,
   type JiraUserCandidate,
 } from './backend';
-import { JIRA_TOOL_NAMES, JIRA_TOOLS, type JiraToolInput } from './catalog';
+import { isJiraToolName, JIRA_TOOL_NAMES, JIRA_TOOLS, type JiraToolInput } from './catalog';
 
 export type McpCredentials = Extract<JiraCredentials, { kind: 'datacenter_pat' | 'cloud_oauth' }>;
 
@@ -38,6 +39,8 @@ export function mcpAtlassianHeaders(creds: McpCredentials): Record<string, strin
 
 /** mcp-atlassian reports Jira failures as text; keep only a stable code. */
 export function codeFromToolText(text: string): JiraToolErrorCode {
+  if (/\bunavailable\b|connection refused|max retries exceeded|timed out/i.test(text))
+    return 'unavailable';
   // Includes mcp-atlassian 0.23.1's own user-resolution failures (users.py).
   if (
     /\b404\b|not found|does not exist|could not find|could not resolve|could not determine how to look up/i.test(
@@ -114,8 +117,18 @@ export function createMcpAtlassianBackend(
   const timeout = opts.timeoutMs ?? 30_000;
   const cloud = creds.kind === 'cloud_oauth';
 
-  async function callText(client: Client, name: string, args: Obj): Promise<unknown> {
-    const result = await client.callTool({ name, arguments: args }, undefined, { timeout });
+  async function callText(
+    client: Client,
+    signal: AbortSignal,
+    name: string,
+    args: Obj,
+  ): Promise<unknown> {
+    // `signal` carries the call's one deadline; the SDK's per-request timeout is set to the same
+    // total so that it never cuts a request short on its own.
+    const result = await client.callTool({ name, arguments: args }, undefined, {
+      signal,
+      timeout,
+    });
     const text = (result.content as { type: string; text?: string }[])
       .filter((c) => c.type === 'text' && typeof c.text === 'string')
       .map((c) => c.text)
@@ -132,11 +145,12 @@ export function createMcpAtlassianBackend(
    */
   async function findAssignee(
     client: Client,
+    signal: AbortSignal,
     issueKey: string,
     identifier: string,
   ): Promise<JiraUserCandidate> {
     const found = obj(
-      await callText(client, 'jira_search_assignable_users', {
+      await callText(client, signal, 'jira_search_assignable_users', {
         query: identifier,
         issue_key: issueKey,
         limit: 50,
@@ -166,18 +180,23 @@ export function createMcpAtlassianBackend(
 
   return {
     kind: 'mcp-atlassian',
-    async call(name, input) {
+    async call(name, input, callOpts) {
+      // Only catalog tools: the backend-only lookup is never callable through here.
+      if (!isJiraToolName(name)) throw new JiraToolError('invalid_request');
+      // One deadline for the whole call: connect, and for an assignment lookup + assign.
+      const signal = callSignal(timeout, callOpts?.signal);
+      if (signal.aborted) throw new JiraToolError('unavailable');
       const client = new Client({ name: 'agile-copilot', version: '1.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(opts.url), {
         requestInit: { headers: mcpAtlassianHeaders(creds) },
       });
       try {
-        await client.connect(transport, { timeout });
+        await client.connect(transport, { signal, timeout });
         if (name === 'jira_assign_issue') {
           const { issueKey, assignee } = input as JiraToolInput<'jira_assign_issue'>;
-          const person = await findAssignee(client, issueKey, assignee);
+          const person = await findAssignee(client, signal, issueKey, assignee);
           // A JSON object makes mcp-atlassian assign this exact id, without its own lookup.
-          await callText(client, name, {
+          await callText(client, signal, name, {
             issue_key: issueKey,
             assignee: JSON.stringify(cloud ? { accountId: person.id } : { name: person.id }),
           });
@@ -185,6 +204,7 @@ export function createMcpAtlassianBackend(
         }
         const out = await callText(
           client,
+          signal,
           name,
           (JIRA_TOOLS[name].toMcp as (i: typeof input) => Obj)(input),
         );

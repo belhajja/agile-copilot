@@ -163,9 +163,12 @@ export async function startMockMcpAtlassian(
             );
             if (!res.ok) {
               await res.body?.cancel();
+              // mcp-atlassian answers lookup failures with success: false and the requests error
+              // text, whose status the backend reads back as `codeForStatus(status)`.
+              const kind = res.status < 500 ? 'Client' : 'Server';
               return text({
                 success: false,
-                error: `${res.status} Client Error`,
+                error: `${res.status} ${kind} Error`,
                 query: args.query,
               });
             }
@@ -179,7 +182,12 @@ export async function startMockMcpAtlassian(
             }));
             return text({ success: true, count: users.length, users });
           } catch {
-            return failure('jira_search_assignable_users', 'unavailable');
+            // Jira unreachable: the text names the code the backend maps it to.
+            return text({
+              success: false,
+              error: 'Connection refused: unavailable',
+              query: args.query,
+            });
           }
         },
       );
