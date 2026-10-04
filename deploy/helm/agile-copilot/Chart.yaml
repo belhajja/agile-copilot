@@ -1,0 +1,7 @@
+apiVersion: v2
+name: agile-copilot
+description: Agile Copilot (web, worker, mcp-atlassian) on Kubernetes, with an external PostgreSQL.
+type: application
+version: 0.1.0
+appVersion: "0.5.0"
+kubeVersion: ">=1.27.0-0"

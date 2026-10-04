@@ -1,0 +1,36 @@
+# Database migrations, before every install and upgrade: the only pod with the owner credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "agile.fullname" . }}-migrate
+  labels: {{- include "agile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels: {{- include "agile.selector" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      # The namespace's default ServiceAccount: a pre-install hook runs before the chart's own
+      # ServiceAccount exists. No API token either way.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.migrate.repository }}:{{ .Values.image.migrate.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- include "agile.secretEnv" (dict "root" . "key" "DATABASE_OWNER_URL") | nindent 12 }}
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { memory: 512Mi }

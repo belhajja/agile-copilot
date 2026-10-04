@@ -1,0 +1,106 @@
+# Agile Copilot Helm values. Secrets never go here: create one Kubernetes Secret yourself (kubectl,
+# External Secrets, Sealed Secrets, …) and name it in `secrets.existingSecret`.
+
+# Images built from apps/web/Dockerfile (targets: runner, worker, migrate). Pin by digest in
+# production (`tag: 0.5.0@sha256:…`).
+image:
+  web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0" }
+  worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0" }
+  migrate: { repository: ghcr.io/example/agile-copilot-migrate, tag: "0.5.0" }
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Non-secret settings (see .env.example for each one).
+config:
+  deploymentMode: selfhost # selfhost | saas (saas enables Stripe billing when configured)
+  betterAuthUrl: https://agile.example.com
+  allowedPrivateHosts: ""
+  syncIntervalMinutes: 15 # 5, 10, 15, 30 or 60
+  # Skill runs (schedules, alerts, "Run now") per workspace and rolling 24 hours; 0 disables runs.
+  skillRunsDailyLimit: 50
+  # Single sign-on (empty issuer = off). The client secret is in the Secret (OIDC_CLIENT_SECRET).
+  oidc:
+    provider: keycloak # keycloak | oidc
+    issuer: ""
+    clientId: ""
+    displayName: SSO
+  passwordLogin: all # all | admin_only (needs SSO and breakGlassEmails)
+  breakGlassEmails: ""
+  atlassianOAuthClientId: ""
+  # mcp-atlassian: Data Center hosts that resolve to private addresses (also list them in
+  # networkPolicy.jiraPrivateCidrs). Once set, it is an allowlist for every Data Center host.
+  mcpAllowedUrlDomains: ""
+  # External MCP clients: requests per personal token per minute.
+  mcpRateLimitPerMinute: 60
+  langfuseBaseUrl: https://cloud.langfuse.com
+  # Stripe price of the Team plan (saas; set together with the Stripe keys in the Secret).
+  stripePriceTeam: ""
+
+secrets:
+  # Required. Keys: DATABASE_URL (app role), DATABASE_OWNER_URL (migrations only),
+  # BETTER_AUTH_SECRET, ENCRYPTION_KEYS. Optional: OIDC_CLIENT_SECRET,
+  # ATLASSIAN_OAUTH_CLIENT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+  # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY.
+  # Web and worker get the same keys (the worker's env checks are the web app's, so it also gets
+  # the OIDC and Stripe secrets it does not use); only the migration Job gets DATABASE_OWNER_URL.
+  existingSecret: ""
+
+web:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 1Gi }
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+# The shared mcp-atlassian (assistant's live Jira tools) and its read-only twin (skill runs).
+# Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
+mcpAtlassian:
+  enabled: true
+  image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
+  enabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+  readonlyEnabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+  # The image runs as its user `app`, uid/gid 1000 (`docker run … id`). The kubelet cannot check a
+  # user name against runAsNonRoot, so the number is set here (over podSecurityContext).
+  podSecurityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: agile.example.com
+  tlsSecretName: ""
+  annotations: {}
+
+# NetworkPolicies mirror the compose networks: only web reaches mcp-atlassian; web and worker
+# reach the read-only twin; nothing connects to the worker; the mcp-atlassian pods reach no
+# private address (not Postgres, not the cluster), except the CIDRs of self-hosted Jira listed in
+# `jiraPrivateCidrs`. Web and worker egress is open: Postgres, DNS, the identity provider, Jira,
+# LLM providers, Stripe, Langfuse, and user-supplied SMTP and webhook hosts (any port); the app
+# checks those destinations itself (DNS-pinned, private addresses only via ALLOWED_PRIVATE_HOSTS).
+networkPolicy:
+  enabled: true
+  # Who may open the web app (namespace selector of your ingress controller). Empty = anyone.
+  webIngressFrom: []
+  privateCidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]
+  jiraPrivateCidrs: []
+
+# The app images (apps/web/Dockerfile) run as uid/gid 10001; numeric, so runAsNonRoot can check it.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile: { type: RuntimeDefault }
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: { drop: [ALL] }

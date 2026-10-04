@@ -35,6 +35,17 @@ check:
     # The worker image is built from this production deploy (see apps/web/Dockerfile, target worker).
     - pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
 
+# The Helm chart: lint, render and validate against the Kubernetes schemas, then the rendered-chart
+# tests. check.sh downloads helm v4.3.0 and kubeconform v0.8.0 and verifies their sha256.
+helm:
+  stage: check
+  variables:
+    HELM_TOOLS_DIR: /tmp/helm-tools
+    HELM_REQUIRED: "1"
+  script:
+    - sh deploy/helm/check.sh
+    - PATH="$HELM_TOOLS_DIR:$PATH" pnpm vitest run packages/jira-tools/src/helm.test.ts
+
 e2e:
   stage: e2e
   services:

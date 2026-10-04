@@ -1,0 +1,71 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+# Web: reachable from the ingress controller (or anyone when webIngressFrom is empty). Egress is not
+# restricted: it reaches Postgres, the identity provider, Jira, LLM providers, Stripe, Langfuse,
+# SMTP and webhook hosts (user-supplied hosts and ports, guarded by the app's DNS-pinned check)
+# and mcp-atlassian.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agile.fullname" . }}-web
+  labels: {{- include "agile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "agile.selector" (dict "root" . "component" "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ port: 3000 }]
+      {{- with $np.webIngressFrom }}
+      from: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Worker: nothing connects to it (probes come from the kubelet). Egress as for web; the read-write
+# mcp-atlassian refuses it (its own policy below).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agile.fullname" . }}-worker
+  labels: {{- include "agile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "agile.selector" (dict "root" . "component" "worker") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress: []
+{{- if .Values.mcpAtlassian.enabled }}
+{{- range $instance := list "mcp-atlassian" "mcp-atlassian-readonly" }}
+---
+# {{ $instance }}: only {{ if eq $instance "mcp-atlassian" }}the web app{{ else }}the web app and the worker{{ end }} may call it (compose
+# network `{{ if eq $instance "mcp-atlassian" }}mcp{{ else }}mcp-readonly{{ end }}`). Out: DNS and public addresses only (Jira Cloud, public
+# Data Center), plus jiraPrivateCidrs; never Postgres or other cluster pods (its own URL check is
+# not DNS-pinned like the app's).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agile.fullname" $ }}-{{ $instance }}
+  labels: {{- include "agile.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "agile.selector" (dict "root" $ "component" $instance) | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports: [{ port: 8000 }]
+      from:
+        - podSelector:
+            matchLabels: {{- include "agile.selector" (dict "root" $ "component" "web") | nindent 14 }}
+        {{- if eq $instance "mcp-atlassian-readonly" }}
+        - podSelector:
+            matchLabels: {{- include "agile.selector" (dict "root" $ "component" "worker") | nindent 14 }}
+        {{- end }}
+  egress:
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: {{- toYaml $np.privateCidrs | nindent 14 }}
+    {{- range $np.jiraPrivateCidrs }}
+    - to:
+        - ipBlock: { cidr: {{ . | quote }} }
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
