@@ -1,7 +1,7 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { parseJiraDate } from '../issue-normalize';
-import type { MockIssue, MockJiraDataset } from './demo-dataset';
+import { jiraTime, type MockIssue, type MockJiraDataset } from './demo-dataset';
 
 export {
   DEMO_SPRINT_FIELD,
@@ -36,9 +36,19 @@ export interface MockJiraOptions {
   now?: () => Date;
 }
 
+/** A write the agent's Jira tools sent (comment, transition, assignment, creation, edit). */
+export interface MockJiraWrite {
+  method: string;
+  path: string;
+  body: unknown;
+  authorization?: string;
+}
+
 export interface MockJira {
   url: string;
   requests: { path: string; search: string; authorization?: string }[];
+  /** Successful writes, in order. */
+  writes: MockJiraWrite[];
   close(): Promise<void>;
 }
 
@@ -86,8 +96,21 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-/** Issues matching `filter = N [AND updated >= "-Mm"]`, oldest first; null for unsupported JQL. */
+/** The issues whose Sprint field contains sprint `sprintId` (one lookup for JQL and the agile API). */
+function sprintMemberIssues(dataset: MockJiraDataset, sprintId: number): MockIssue[] {
+  const field = dataset.fields.find((f) => f.schemaCustom?.endsWith(':gh-sprint'))?.id;
+  return dataset.issues.filter((i) =>
+    ((field ? i.fields[field] : null) as { id: number }[] | null)?.some((s) => s.id === sprintId),
+  );
+}
+
+/**
+ * Issues matching `filter = N [AND updated >= "-Mm"]` or `sprint = N` (how mcp-atlassian lists a
+ * sprint's issues), oldest first; null for unsupported JQL.
+ */
 function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] | null {
+  const sprint = /^\s*sprint\s*=\s*(\d+)\s*$/i.exec(jql);
+  if (sprint) return sprintMemberIssues(dataset, Number(sprint[1]));
   const filter = /filter\s*=\s*(\d+)/i.exec(jql);
   if (!filter) return null;
   const filterId = Number(filter[1]);
@@ -99,13 +122,31 @@ function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] |
     .sort((a, b) => time(a.fields.created) - time(b.fields.created) || Number(a.id) - Number(b.id));
 }
 
+const readBody = (req: IncomingMessage) =>
+  new Promise<unknown>((resolve) => {
+    let raw = '';
+    req.on('data', (c) => {
+      raw += c;
+    });
+    req.on('end', () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+  });
+
 export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
   const api = opts.flavor === 'cloud' ? '3' : '2';
   const prefix = opts.pathPrefix ?? '';
   const maxPage = opts.maxPageSize ?? 50;
   const now = opts.now ?? (() => new Date());
   const requests: MockJira['requests'] = [];
+  const writes: MockJiraWrite[] = [];
+  const comments = new Map<string, { id: string; body: unknown; created: string }[]>();
   let throttled = 0;
+  let nextId = 90_000;
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://mock');
@@ -272,14 +313,89 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
       if (!issue) return json(res, 404, { errorMessages: ['Issue does not exist'] });
       return json(res, 200, page(issue.histories));
     }
-    const single = new RegExp(`^${prefix}/rest/api/2/issue/([^/]+)$`).exec(path);
-    if (single && opts.flavor === 'datacenter') {
-      const issue = ds.issues.find((i) => i.key === single[1] || i.id === single[1]);
-      if (!issue) return json(res, 404, { errorMessages: ['Issue does not exist'] });
-      return json(res, 200, {
-        id: issue.id,
-        key: issue.key,
-        fields: { status: withCategory(issue.fields.status) },
+    if (issueRoutes(req, res, path, { categoryOf, issueJson })) return;
+    json(res, 404, { errorMessages: ['Not found'] });
+  });
+  // ---- Issue detail and the writes the agent's Jira tools use (REST v2 and v3 alike) ----
+  function issueRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string,
+    h: {
+      categoryOf: (statusId: unknown) => unknown;
+      issueJson: (i: MockIssue) => { fields: Record<string, unknown> };
+    },
+  ): boolean {
+    const { categoryOf, issueJson } = h;
+    const ds = opts.dataset;
+    if (!ds) return false;
+    const route = new RegExp(
+      `^${prefix}/rest/api/[23]/issue(?:/([^/]+)(?:/(comment|transitions|assignee))?)?$`,
+    ).exec(path);
+    const sprintIssues = new RegExp(`^${prefix}/rest/agile/1\\.0/sprint/(\\d+)/issue$`).exec(path);
+    if (sprintIssues && req.method === 'GET') {
+      const found = sprintMemberIssues(ds, Number(sprintIssues[1]));
+      json(res, 200, {
+        startAt: 0,
+        maxResults: 50,
+        total: found.length,
+        issues: found.map(issueJson),
+      });
+      return true;
+    }
+    if (new RegExp(`^${prefix}/rest/api/[23]/user/search$`).test(path) && req.method === 'GET') {
+      // Users are the dataset's assignees; DC matches `username`, Cloud matches `query`.
+      const params = new URL(req.url ?? '/', 'http://mock').searchParams;
+      const wanted = (params.get('query') ?? params.get('username') ?? '').toLowerCase();
+      const users = new Map<string, Record<string, unknown>>();
+      for (const i of ds.issues) {
+        const a = i.fields.assignee as Record<string, unknown> | null;
+        if (a && typeof a.accountId === 'string') users.set(a.accountId, a);
+      }
+      json(
+        res,
+        200,
+        [...users.values()]
+          .filter((u) =>
+            [u.accountId, u.name, u.displayName].some(
+              (v) => typeof v === 'string' && v.toLowerCase().includes(wanted),
+            ),
+          )
+          .map((u) =>
+            opts.flavor === 'cloud'
+              ? { accountId: u.accountId, displayName: u.displayName, active: true }
+              : { key: u.key, name: u.name, displayName: u.displayName, active: true },
+          ),
+      );
+      return true;
+    }
+    if (!route) return false;
+    const [, key, sub] = route;
+    const issue = key ? ds.issues.find((i) => i.key === key || i.id === key) : undefined;
+    if (key && !issue) {
+      json(res, 404, {
+        errorMessages: ['Issue does not exist or you do not have permission to see it.'],
+      });
+      return true;
+    }
+    const record = (body: unknown) =>
+      writes.push({
+        method: req.method ?? '',
+        path,
+        body,
+        authorization: req.headers.authorization,
+      });
+
+    if (req.method === 'GET' && issue && !sub) {
+      const own = comments.get(issue.key) ?? [];
+      const detail = issueJson(issue);
+      json(res, 200, {
+        ...detail,
+        fields: {
+          ...detail.fields,
+          description: issue.fields.description ?? null,
+          comment: { comments: own, total: own.length, maxResults: own.length, startAt: 0 },
+        },
         changelog: {
           startAt: 0,
           maxResults: issue.histories.length,
@@ -287,14 +403,108 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
           histories: issue.histories,
         },
       });
+      return true;
     }
-    json(res, 404, { errorMessages: ['Not found'] });
-  });
+    if (req.method === 'GET' && issue && sub === 'transitions') {
+      json(res, 200, {
+        // Numeric ids like Jira's (mcp-atlassian parses them as integers): 11, 21, 31…
+        transitions: ds.statuses.map((s, i) => ({
+          id: String(11 + 10 * i),
+          name: s.name,
+          to: { id: s.id, name: s.name, statusCategory: categoryOf(s.id) },
+        })),
+      });
+      return true;
+    }
+    if (req.method === 'GET' && issue && sub === 'comment') {
+      const own = comments.get(issue.key) ?? [];
+      json(res, 200, { comments: own, total: own.length, maxResults: own.length, startAt: 0 });
+      return true;
+    }
+    if (req.method !== 'POST' && req.method !== 'PUT') return false;
+    void readBody(req).then((body) => {
+      const b = (body ?? {}) as {
+        body?: unknown;
+        transition?: { id?: string };
+        fields?: {
+          project?: { key?: unknown };
+          summary?: unknown;
+          description?: unknown;
+          issuetype?: unknown;
+        } & Record<string, unknown>;
+      };
+      if (req.method === 'POST' && issue && sub === 'comment') {
+        if (b.body === undefined)
+          return json(res, 400, { errors: { comment: 'Comment body can not be empty!' } });
+        const comment = { id: String(nextId++), body: b.body, created: jiraTime(now()) };
+        comments.set(issue.key, [...(comments.get(issue.key) ?? []), comment]);
+        record(body);
+        return json(res, 201, { ...comment, author: { displayName: 'Pat' } });
+      }
+      if (req.method === 'POST' && issue && sub === 'transitions') {
+        const to = ds.statuses.find((_, i) => String(11 + 10 * i) === String(b.transition?.id));
+        if (!to) return json(res, 400, { errorMessages: ['Transition is not valid.'] });
+        issue.fields.status = { id: to.id, name: to.name };
+        record(body);
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'PUT' && issue && sub === 'assignee') {
+        record(body);
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'PUT' && issue && !sub) {
+        const fields = (b.fields ?? {}) as Record<string, unknown>;
+        Object.assign(issue.fields, fields);
+        record(body);
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'POST' && !key) {
+        const project = b.fields?.project?.key;
+        const summary = b.fields?.summary;
+        if (typeof project !== 'string' || typeof summary !== 'string') {
+          return json(res, 400, {
+            errors: { summary: 'You must specify a summary of the issue.' },
+          });
+        }
+        const numbers = ds.issues
+          .filter((i) => i.key.startsWith(`${project}-`))
+          .map((i) => Number(i.key.slice(project.length + 1)));
+        const created: MockIssue = {
+          id: String(nextId++),
+          key: `${project}-${Math.max(0, ...numbers) + 1}`,
+          filterIds: [], // not on any board: a sync never sees it
+          fields: {
+            summary,
+            description: b.fields?.description ?? null,
+            issuetype: { name: (b.fields?.issuetype as { name?: string })?.name ?? 'Task' },
+            status: { id: ds.statuses[0]?.id, name: ds.statuses[0]?.name },
+            assignee: null,
+            created: jiraTime(now()),
+            updated: jiraTime(now()),
+          },
+          histories: [],
+        };
+        ds.issues.push(created);
+        record(body);
+        return json(res, 201, {
+          id: created.id,
+          key: created.key,
+          self: `${prefix}/rest/api/2/issue/${created.id}`,
+        });
+      }
+      json(res, 404, { errorMessages: ['Not found'] });
+    });
+    return true;
+  }
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}${prefix}`,
     requests,
+    writes,
     close: () =>
       new Promise((resolve) => {
         server.close(() => resolve());
