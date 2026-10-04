@@ -9,6 +9,8 @@ import type { Logger } from './log';
 
 export interface RunningWorker {
   healthPort: number;
+  /** Aborted when the worker stops: running syncs end as `interrupted` between pages. */
+  signal: AbortSignal;
   stop(): Promise<void>;
 }
 
@@ -17,6 +19,7 @@ const errorName = (error: unknown) => (error instanceof Error ? error.name : 'un
 /** Wires the sync workers (pg-boss) and the health endpoint. */
 export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningWorker> {
   const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
+  const shutdown = new AbortController();
   let boss: Awaited<ReturnType<typeof startSyncQueue>> | undefined;
   let health: Awaited<ReturnType<typeof startHealthServer>> | undefined;
   try {
@@ -33,6 +36,7 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
       keyring: parseKeyring(env.ENCRYPTION_KEYS),
       allowedPrivateHosts: env.ALLOWED_PRIVATE_HOSTS,
       oauth,
+      signal: shutdown.signal,
       // Code and error name only: messages may carry Jira tokens or URLs.
       onError: (error, code) => log('warn', 'sync_error', { code, error: errorName(error) }),
     };
@@ -75,7 +79,10 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
   const runningHealth = health;
   return {
     healthPort: runningHealth.port,
+    signal: shutdown.signal,
     stop: async () => {
+      // Running syncs stop at their next page and release their lease (a retry takes over).
+      shutdown.abort();
       try {
         await runningHealth.close();
         // Lets running syncs finish (up to 30 s), then closes pg-boss's pool.

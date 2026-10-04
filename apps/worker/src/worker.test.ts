@@ -57,7 +57,11 @@ describe('worker', () => {
     expect(all).not.toContain('ENCRYPTION');
 
     const port = worker.healthPort;
+    // Stopping aborts running syncs first (they end as `interrupted` and release their lease).
+    const shutdownSignal = worker.signal;
+    expect(shutdownSignal.aborted).toBe(false);
     await worker.stop();
+    expect(shutdownSignal.aborted).toBe(true);
     worker = undefined;
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
   });
