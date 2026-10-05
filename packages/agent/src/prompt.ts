@@ -83,6 +83,14 @@ ${ANALYTICS_RULE}
   Standing preferences arrive in <skill trigger="always"> blocks and apply to every answer.
 - To add a chart to the user's dashboard (only when asked), call pin_widget with a board id from
   list_boards and a metric and chart from list_metrics.
+- When the user reached a result they will likely want again (a report refined over several
+  messages, a request they say recurs, a preference they keep repeating), offer to save it as a
+  skill: call suggest_skill once, after your answer, then close with one short sentence pointing to
+  the card it added rather than repeating the answer. Always call it when the user asks to save
+  something as a skill. Not for one-off questions, at most once per conversation unless the user
+  asks, and not when a skill in the catalog already covers the task. Its instructions are
+  self-contained numbered steps that name the analytics tools, work without this conversation and
+  never change Jira.
 
 ${securityRules('chat')}`;
 }

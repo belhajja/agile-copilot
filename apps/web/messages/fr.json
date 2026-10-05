@@ -571,7 +571,8 @@
       "jira_create_issue": "Créer un ticket",
       "jira_update_issue": "Modifier un ticket",
       "load_skill": "Charger une compétence",
-      "pin_widget": "Épingler un graphique"
+      "pin_widget": "Épingler un graphique",
+      "suggest_skill": "Suggestion de compétence"
     },
     "markupHint": "La mise en forme est convertie au format Jira à l’envoi.",
     "assignedTo": "Assigné à {name}.",
@@ -614,6 +615,7 @@
       "invalid_params": "Les paramètres de la métrique n’étaient pas valides.",
       "candidates": "Personnes trouvées : {names}.",
       "unknown_skill": "Cette compétence ne fait plus partie de vos compétences.",
+      "skill_suggestion_invalid": "L’assistant n’a pas pu rédiger cette compétence. Décrivez-la plutôt dans l’éditeur de compétences.",
       "invalid_widget": "Ce graphique n’existe pas dans le catalogue du tableau de bord.",
       "dashboard_full": "Ce tableau de bord est plein (40 graphiques). Retirez-en un d’abord.",
       "dashboard_unavailable": "Votre tableau de bord n’a pas pu être mis à jour. Réessayez dans un instant."
@@ -657,7 +659,11 @@
       "copied": "Copié",
       "openLink": "Ouvrir le lien"
     },
-    "openDashboard": "Ouvrir le tableau de bord"
+    "openDashboard": "Ouvrir le tableau de bord",
+    "suggestion": {
+      "title": "Enregistrer ceci comme compétence ?",
+      "open": "Ouvrir dans l’éditeur de compétences"
+    }
   },
   "usage": {
     "title": "Consommation de l’assistant",
@@ -855,6 +861,8 @@
       "previewHint": "Une exécution en lecture seule sur vos données actuelles. Rien n'a été envoyé.",
       "newTitle": "Nouvelle compétence",
       "newIntro": "Décrivez-la et laissez l'IA la préparer, ou écrivez-la vous-même. Prévisualisez-la sur vos données, puis enregistrez.",
+      "fromSuggestion": "Rédigée par l’assistant à partir d’une conversation. Relisez-la avant de l’enregistrer : rien n’est enregistré avant de cliquer sur Enregistrer.",
+      "suggestionNotFound": "Cette suggestion n’est plus disponible. Vous pouvez décrire la compétence ci-dessous.",
       "templateDescription": "Ce que fait cette compétence, en une ligne",
       "templateInstructions": "1. Appeler list_boards.\n2. Décrire l'analyse à mener et la présentation du résultat.",
       "errors": {

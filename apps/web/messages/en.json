@@ -571,7 +571,8 @@
       "jira_create_issue": "Create an issue",
       "jira_update_issue": "Update an issue",
       "load_skill": "Load a skill",
-      "pin_widget": "Pin a chart"
+      "pin_widget": "Pin a chart",
+      "suggest_skill": "Skill suggestion"
     },
     "markupHint": "Formatting is converted to Jira markup when sent.",
     "assignedTo": "Assigned to {name}.",
@@ -614,6 +615,7 @@
       "invalid_params": "The metric settings were not valid.",
       "candidates": "People found: {names}.",
       "unknown_skill": "This skill is no longer in your skills.",
+      "skill_suggestion_invalid": "The assistant could not draft this skill. Describe it in the skill builder instead.",
       "invalid_widget": "This chart is not in the dashboard catalog.",
       "dashboard_full": "This dashboard is full (40 charts). Remove one first.",
       "dashboard_unavailable": "Your dashboard could not be updated. Try again in a moment."
@@ -657,7 +659,11 @@
       "copied": "Copied",
       "openLink": "Open link"
     },
-    "openDashboard": "Open the dashboard"
+    "openDashboard": "Open the dashboard",
+    "suggestion": {
+      "title": "Save this as a skill?",
+      "open": "Open in skill builder"
+    }
   },
   "usage": {
     "title": "Assistant usage",
@@ -855,6 +861,8 @@
       "previewHint": "One read-only run on your current data. Nothing was sent.",
       "newTitle": "New skill",
       "newIntro": "Describe it and let the AI draft it, or write it yourself. Preview it on your data, then save.",
+      "fromSuggestion": "Drafted by the assistant from a conversation. Read it before saving: nothing is saved until you click Save.",
+      "suggestionNotFound": "This suggestion is no longer available. You can describe the skill below instead.",
       "templateDescription": "What this skill does, in one line",
       "templateInstructions": "1. Call list_boards.\n2. Describe the analysis to run and how to present the result.",
       "errors": {

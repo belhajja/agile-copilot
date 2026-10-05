@@ -1,6 +1,12 @@
 import { asUntrustedData } from '@agile/agent/untrusted';
 import { describe, expect, it } from 'vitest';
-import { assignedTo, pinnedBoardId, readableOutput, readToolError } from './tool-output';
+import {
+  assignedTo,
+  pinnedBoardId,
+  readableOutput,
+  readToolError,
+  skillSuggestionOf,
+} from './tool-output';
 
 describe('readableOutput', () => {
   it('pretty-prints the JSON inside the untrusted-data envelope', () => {
@@ -110,5 +116,34 @@ describe('pinnedBoardId', () => {
       pinnedBoardId(asUntrustedData('pin_widget', { pinned: false, boardId: board })),
     ).toBeUndefined();
     expect(pinnedBoardId('plain text')).toBeUndefined();
+  });
+});
+
+describe('skillSuggestionOf', () => {
+  const value = {
+    name: 'weekly-velocity',
+    description: 'Velocity every Monday',
+    trigger: 'schedule',
+    output: 'email',
+    document: '---\nname: weekly-velocity\n---\n\nSteps\n',
+  };
+
+  it('reads a stored suggestion', () => {
+    expect(skillSuggestionOf(asUntrustedData('skill_suggestion', value))).toEqual(value);
+  });
+
+  it('ignores another tool’s result', () => {
+    expect(skillSuggestionOf(asUntrustedData('pin_widget', value))).toBeUndefined();
+  });
+
+  it('ignores a malformed suggestion', () => {
+    expect(
+      skillSuggestionOf(asUntrustedData('skill_suggestion', { ...value, trigger: 'often' })),
+    ).toBeUndefined();
+    expect(skillSuggestionOf(asUntrustedData('skill_suggestion', { name: 'x' }))).toBeUndefined();
+    expect(
+      skillSuggestionOf('<data source="skill_suggestion">\n{not json\n</data>'),
+    ).toBeUndefined();
+    expect(skillSuggestionOf(undefined)).toBeUndefined();
   });
 });

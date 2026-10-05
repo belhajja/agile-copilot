@@ -44,8 +44,8 @@ const AGENT = [
   'unserializable',
 ] as const;
 
-/** `load_skill`: a name the catalog no longer holds. */
-const SKILL = ['unknown_skill'] as const;
+/** `load_skill`: a name the catalog no longer holds. `suggest_skill`: a proposal with no usable document. */
+const SKILL = ['unknown_skill', 'skill_suggestion_invalid'] as const;
 
 /**
  * `pin_widget` failures: `@agile/dashboards` pinWidget refusals (`unknown_board` is shared with
@@ -91,7 +91,7 @@ const PLAIN: Partial<Record<ToolErrorCode, string>> = {
 };
 
 /** Which kind of tool failed: each names its failure in its own words (P4-R13). */
-export type ToolKind = 'jira' | 'analytics' | 'skill' | 'dashboard';
+export type ToolKind = 'jira' | 'analytics' | 'skill' | 'dashboard' | 'suggestion';
 
 const FAILED: Record<ToolKind, string> = {
   jira: 'The Jira request failed',
@@ -100,6 +100,8 @@ const FAILED: Record<ToolKind, string> = {
   skill: 'The skill could not be loaded',
   /** `pin_widget`. */
   dashboard: 'The chart could not be pinned',
+  /** `suggest_skill`. */
+  suggestion: 'The skill could not be drafted',
 };
 
 /** The fixed sentence for a tool failure (what the model reads and the stored history keeps). */

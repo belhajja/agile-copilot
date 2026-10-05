@@ -41,12 +41,16 @@ describe('tool error sentences', () => {
     expect(toolErrorText('dashboard_unavailable', 'dashboard')).toBe(
       'The chart could not be pinned (dashboard_unavailable).',
     );
+    expect(toolErrorText('skill_suggestion_invalid', 'suggestion')).toBe(
+      'The skill could not be drafted (skill_suggestion_invalid).',
+    );
     expect(TOOL_ERROR_CODES).toEqual(
       expect.arrayContaining([
         'unknown_skill',
         'invalid_widget',
         'dashboard_full',
         'dashboard_unavailable',
+        'skill_suggestion_invalid',
       ]),
     );
   });
