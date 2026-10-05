@@ -1,13 +1,39 @@
+# The pipeline is built from to-be-continuous templates (https://to-be-continuous.gitlab.io/doc/):
+# node (lint, typecheck, unit tests, web build, audit, Semgrep, SBOM), docker (hadolint, buildah,
+# trivy, SBOM, publish), helm (lint, package, publish) and gitleaks. The jobs no template covers are
+# below them: the Kubernetes schema validation of the chart, the agent evals and the e2e tests.
 include:
-  # Container images (to-be-continuous): hadolint, build with buildah, trivy scan and SBOM, then
-  # publish. Snapshots are pushed on every pipeline; release images are published from main (manual)
-  # and from tags.
+  - component: $CI_SERVER_FQDN/to-be-continuous/node/gitlab-ci-node@5.4.0
+    inputs:
+      image: docker.io/library/node:24-bookworm
+      manager: pnpm
+      manager-version: 10.14.0
+      install-extra-opts: --frozen-lockfile
+      # Unit and integration tests (Vitest), with a JUnit report for the merge request.
+      test-args: test --reporter=default --reporter=junit --outputFile.junit=reports/node-test.xunit.xml
+      # The web app; the worker and migrate builds are the docker jobs.
+      build-args: --filter @agile/web build
+      build-dir: apps/web/.next/standalone
+      lint-enabled: true
+      typecheck-enabled: true
+      # What ships: devDependencies (shadcn CLI, drizzle-kit) are build tools. Ignored advisories are
+      # listed, with the reason, in pnpm-workspace.yaml (auditConfig).
+      audit-args: --prod --audit-level=low
+  # Container images: hadolint, build with buildah, trivy scan and SBOM, then publish. Snapshots are
+  # pushed on every pipeline; release images are published from main (manual) and from tags.
   - component: $CI_SERVER_FQDN/to-be-continuous/docker/gitlab-ci-docker@8.5.1
     inputs:
       file: apps/web/Dockerfile
       context-path: .
       # The images need Postgres and secrets to start, and define no HEALTHCHECK.
       healthcheck-disabled: true
+  # The chart: `helm lint --strict`, package, and publish to this project's OCI registry from main.
+  - component: $CI_SERVER_FQDN/to-be-continuous/helm/gitlab-ci-helm@9.7.0
+    inputs:
+      chart-dir: deploy/helm/agile-copilot
+      # The chart refuses to render without the name of the Secret a deployment creates.
+      lint-args: lint --strict --set secrets.existingSecret=agile-secrets
+  - component: $CI_SERVER_FQDN/to-be-continuous/gitleaks/gitlab-ci-gitleaks@2.11.0
 
 workflow:
   rules:
@@ -16,7 +42,30 @@ workflow:
     - if: $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_TAG
 
-stages: [build, check, package-build, package-test, e2e, publish]
+stages: [build, test, package-build, package-test, infra, deploy, acceptance, publish, infra-prod, production]
+
+variables:
+  # Each `tsc` takes up to ~2 GB; turbo's default of 10 at once exhausts the small runner (8 GB)
+  # and `pnpm typecheck` hangs.
+  TURBO_CONCURRENCY: "2"
+
+# Biome instead of the template's ESLint: same job, with the GitLab code quality report it declares.
+node-lint:
+  script:
+    - mkdir -p reports
+    - pnpm exec biome ci --reporter=default --reporter=gitlab --reporter-file=reports/node-lint.gitlab.json .
+
+# Database tests start Postgres through Testcontainers, which needs a Docker daemon.
+node-build:
+  # A hung step fails the job here instead of running until the job token expires (60 min).
+  timeout: 30 minutes
+  services:
+    - name: docker:28-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
 
 # One image per Dockerfile target, named like the Helm chart's image.web/worker/migrate.
 # The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
@@ -53,37 +102,12 @@ stages: [build, check, package-build, package-test, e2e, publish]
       files: [pnpm-lock.yaml]
     paths: [.pnpm-store]
 
-check:
+# The rendered chart against the Kubernetes schemas (kubeconform) for the default values and the
+# variants a deployment may use, then the rendered-chart tests. check.sh downloads helm v4.3.0 and
+# kubeconform v0.8.0 and verifies their sha256.
+helm-kubeconform:
   extends: .pnpm
-  stage: check
-  # A hung step fails the job here instead of running until the job token expires (60 min).
-  timeout: 30 minutes
-  # No artifacts from earlier jobs: Biome would check them (e.g. hadolint reports/*.json).
-  dependencies: []
-  # Database tests start Postgres through Testcontainers, which needs a Docker daemon.
-  services:
-    - name: docker:28-dind
-      alias: docker
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
-    TESTCONTAINERS_HOST_OVERRIDE: docker
-    # Each `tsc` takes up to ~2 GB; turbo's default of 10 at once exhausts the small runner (8 GB)
-    # and `pnpm typecheck` hangs.
-    TURBO_CONCURRENCY: "2"
-  script:
-    - pnpm lint
-    - pnpm typecheck
-    - pnpm test
-    - pnpm --filter @agile/web build
-    # The worker image is built from this production deploy (see apps/web/Dockerfile, target worker).
-    - pnpm --filter @agile/worker deploy --prod --legacy /tmp/worker-deploy
-
-# The Helm chart: lint, render and validate against the Kubernetes schemas, then the rendered-chart
-# tests. check.sh downloads helm v4.3.0 and kubeconform v0.8.0 and verifies their sha256.
-helm:
-  extends: .pnpm
-  stage: check
+  stage: test
   variables:
     HELM_TOOLS_DIR: /tmp/helm-tools
     HELM_REQUIRED: "1"
@@ -97,7 +121,7 @@ helm:
 # quality measure. No secret is configured or read here: no provider key, no Jira credential.
 evals:
   extends: .pnpm
-  stage: check
+  stage: test
   services:
     - name: docker:28-dind
       alias: docker
@@ -117,7 +141,7 @@ evals:
 # EVAL_OPENAI_MODEL; passes at 90% of tests (stochastic models).
 evals-live:
   extends: .pnpm
-  stage: check
+  stage: test
   environment:
     name: evals-live
   rules:
@@ -137,7 +161,7 @@ evals-live:
 
 e2e:
   extends: .pnpm
-  stage: e2e
+  stage: acceptance
   services:
     - name: postgres:17-alpine
       alias: postgres
