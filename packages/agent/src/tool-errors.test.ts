@@ -63,6 +63,11 @@ describe('tool error sentences', () => {
     expect(toolErrorCodeOf(new ApprovalRequiredError().message)).toBe('approval_required');
   });
 
+  it('names a tool the connection cannot run', () => {
+    expect(TOOL_ERROR_CODES).toContain('not_supported');
+    expect(toolErrorText('not_supported')).toBe('The Jira request failed (not_supported).');
+  });
+
   it('knows no code for any other text', () => {
     for (const text of [undefined, '', 'Something broke', 'The Jira request failed (made_up).']) {
       expect(toolErrorCodeOf(text)).toBeUndefined();

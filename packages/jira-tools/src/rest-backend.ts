@@ -267,6 +267,39 @@ export function createRestJiraBackend(
       const total = n(r?.total);
       return { total, hasMore: total !== null && total > issues.length, issues };
     },
+    async jira_get_worklog() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_worklog_summary() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_board_issues() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_issue_dates() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_project_epic_hierarchy() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_cross_project_dependencies() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_link_types() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_project_versions() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_project_components() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_search_fields() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_issue_watchers() {
+      throw new JiraToolError('not_supported');
+    },
     async jira_add_comment({ issueKey, body }, signal) {
       const c = (await request(signal, 'POST', `${issuePath(issueKey)}/comment`, {
         body: wiki(body),

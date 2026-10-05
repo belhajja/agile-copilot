@@ -603,6 +603,7 @@
       "unavailable": "Les outils Jira ne sont pas disponibles pour cette connexion.",
       "jira_error": "Jira n’a pas pu traiter la requête.",
       "unknown_outcome": "La modification a peut-être atteint Jira, ou peut-être pas. Vérifiez dans Jira avant de redemander.",
+      "not_supported": "Cet outil nécessite une connexion Jira Data Center ou « Connect with Atlassian ».",
       "oauth_expired": "La connexion Atlassian a expiré. Reconnectez-vous à Atlassian dans les réglages Jira.",
       "oauth_unavailable": "La connexion Atlassian n’est pas configurée sur ce serveur. Contactez votre administrateur.",
       "unreachable": "Jira est injoignable. Réessayez dans un instant.",

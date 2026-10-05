@@ -36,7 +36,9 @@ export type JiraToolErrorCode =
   | 'blocked_url'
   | 'jira_error'
   /** A write was cut off (deadline or abort) after its request left: it may or may not have run. */
-  | 'unknown_outcome';
+  | 'unknown_outcome'
+  /** The tool needs an mcp-atlassian connection (Data Center PAT or Cloud OAuth). */
+  | 'not_supported';
 
 /** A person the model may pick instead (id = accountId on Cloud, username on Data Center). */
 export interface JiraUserCandidate {

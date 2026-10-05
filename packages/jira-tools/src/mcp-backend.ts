@@ -12,7 +12,13 @@ import {
   type JiraToolErrorCode,
   type JiraUserCandidate,
 } from './backend';
-import { isJiraToolName, JIRA_TOOL_NAMES, JIRA_TOOLS, type JiraToolInput } from './catalog';
+import {
+  isJiraToolName,
+  JIRA_LOCAL_TOOLS,
+  JIRA_TOOL_NAMES,
+  JIRA_TOOLS,
+  type JiraToolInput,
+} from './catalog';
 
 export type McpCredentials = Extract<JiraCredentials, { kind: 'datacenter_pat' | 'cloud_oauth' }>;
 
@@ -23,9 +29,9 @@ export type McpCredentials = Extract<JiraCredentials, { kind: 'datacenter_pat' |
 export const MCP_ATLASSIAN_BACKEND_ONLY_TOOLS: readonly string[] = Object.freeze([
   'jira_search_assignable_users',
 ]);
-/** The deployment's `ENABLED_TOOLS` for the read-write mcp-atlassian instance. */
+/** The deployment's `ENABLED_TOOLS` for the read-write mcp-atlassian instance (our local tools excluded). */
 export const MCP_ATLASSIAN_ENABLED_TOOLS: readonly string[] = Object.freeze([
-  ...JIRA_TOOL_NAMES,
+  ...JIRA_TOOL_NAMES.filter((n) => !JIRA_LOCAL_TOOLS.has(n)),
   ...MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
 ]);
 /**
@@ -33,7 +39,7 @@ export const MCP_ATLASSIAN_ENABLED_TOOLS: readonly string[] = Object.freeze([
  * catalog's read tools only, with `READ_ONLY_MODE=true` on the instance as a second guard.
  */
 export const MCP_ATLASSIAN_READONLY_ENABLED_TOOLS: readonly string[] = Object.freeze(
-  JIRA_TOOL_NAMES.filter((n) => !JIRA_TOOLS[n].write),
+  JIRA_TOOL_NAMES.filter((n) => !JIRA_TOOLS[n].write && !JIRA_LOCAL_TOOLS.has(n)),
 );
 
 /**
@@ -242,6 +248,7 @@ export function createMcpAtlassianBackend(
           });
           return { ok: true, issueKey, assignee: person };
         }
+        if (JIRA_LOCAL_TOOLS.has(name)) throw new JiraToolError('not_supported');
         writeSent = write;
         const out = await callText(
           client,

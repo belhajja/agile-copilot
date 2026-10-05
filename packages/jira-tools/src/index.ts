@@ -14,13 +14,17 @@ export {
 } from './backend';
 export {
   ISSUE_KEY_PATTERN,
+  isJiraMcpOnlyTool,
   isJiraToolName,
   isJiraWriteTool,
+  JIRA_LOCAL_TOOLS,
+  JIRA_MCP_ONLY_TOOLS,
   JIRA_TOOL_NAMES,
   JIRA_TOOLS,
   JIRA_WRITE_TOOLS,
   type JiraToolInput,
   type JiraToolName,
+  MCP_ISSUE_FIELDS,
   parseJiraToolInput,
 } from './catalog';
 export {

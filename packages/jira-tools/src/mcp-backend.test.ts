@@ -260,29 +260,50 @@ describe('mcp-atlassian backend: pure parts', () => {
     ).toEqual({ Authorization: 'Bearer t', 'X-Atlassian-Cloud-Id': 'c-1' });
   });
 
-  it('enables the catalog plus one lookup the model never sees', () => {
+  it('enables the catalog plus one lookup the model never sees, our local summary excluded', () => {
     expect(MCP_ATLASSIAN_BACKEND_ONLY_TOOLS).toEqual(['jira_search_assignable_users']);
     expect([...MCP_ATLASSIAN_ENABLED_TOOLS].sort()).toEqual(
-      [...JIRA_TOOL_NAMES, 'jira_search_assignable_users'].sort(),
+      [
+        ...JIRA_TOOL_NAMES.filter((n) => n !== 'jira_worklog_summary'),
+        'jira_search_assignable_users',
+      ].sort(),
     );
     for (const name of MCP_ATLASSIAN_BACKEND_ONLY_TOOLS) expect(isJiraToolName(name)).toBe(false);
     expect(Object.isFrozen(MCP_ATLASSIAN_ENABLED_TOOLS)).toBe(true);
   });
 
-  it('enables only the six read tools on the read-only twin', () => {
+  it('enables only the read tools on the read-only twin, our local summary excluded', () => {
     expect([...MCP_ATLASSIAN_READONLY_ENABLED_TOOLS].sort()).toEqual(
       [
         'jira_get_agile_boards',
+        'jira_get_board_issues',
+        'jira_get_cross_project_dependencies',
         'jira_get_issue',
+        'jira_get_issue_dates',
+        'jira_get_issue_watchers',
+        'jira_get_link_types',
+        'jira_get_project_components',
+        'jira_get_project_epic_hierarchy',
+        'jira_get_project_versions',
         'jira_get_sprint_issues',
         'jira_get_sprints_from_board',
         'jira_get_transitions',
+        'jira_get_worklog',
         'jira_search',
+        'jira_search_fields',
       ].sort(),
     );
     for (const name of MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)
       expect(isJiraWriteTool(name)).toBe(false);
     expect(Object.isFrozen(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)).toBe(true);
+  });
+
+  it('allowlists the new native tools but never our local summary', () => {
+    expect(MCP_ATLASSIAN_ENABLED_TOOLS).toContain('jira_get_worklog');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).toContain('jira_get_worklog');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).toContain('jira_search_fields');
+    expect(MCP_ATLASSIAN_ENABLED_TOOLS).not.toContain('jira_worklog_summary');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).not.toContain('jira_worklog_summary');
   });
 
   it('reads mcp-atlassian search results like the REST backend (Cloud has no total)', () => {

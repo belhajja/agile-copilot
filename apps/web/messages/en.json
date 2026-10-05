@@ -603,6 +603,7 @@
       "unavailable": "Jira tools are not available for this connection.",
       "jira_error": "Jira could not complete the request.",
       "unknown_outcome": "The change may or may not have reached Jira. Check Jira before asking again.",
+      "not_supported": "This tool needs a Jira Data Center or Connect-with-Atlassian connection.",
       "oauth_expired": "The Atlassian sign-in has expired. Reconnect with Atlassian in Jira settings.",
       "oauth_unavailable": "Atlassian sign-in is not configured on this server. Ask your administrator.",
       "unreachable": "Jira could not be reached. Try again in a moment.",
