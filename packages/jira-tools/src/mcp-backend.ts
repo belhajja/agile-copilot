@@ -104,6 +104,28 @@ const obj = (v: unknown): Obj => (v && typeof v === 'object' ? (v as Obj) : {});
 const s = (v: unknown) => (typeof v === 'string' ? v : null);
 
 /**
+ * One mcp-atlassian issue (`JiraIssue.to_simplified_dict`) → the REST backend's brief fields: key,
+ * summary, status, assignee (display name only), type, updated (ISO), timeTracking. Shared by
+ * `searchFromMcp` (search, board and sprint issues) and `issueFromMcp` (a single issue): both
+ * mcp-atlassian tools answer with the same per-issue shape.
+ */
+function briefFromMcp(raw: unknown, config: TimeTrackingConfig | null) {
+  const i = obj(raw);
+  const a = obj(i.assignee);
+  // Unassigned issues come back as { display_name: 'Unassigned' } without any id.
+  const assigned = 'account_id' in a || 'name' in a || 'key' in a;
+  return {
+    key: s(i.key),
+    summary: s(i.summary),
+    status: s(obj(i.status).name),
+    assignee: assigned ? s(a.display_name) : null,
+    type: s(obj(i.issue_type).name),
+    updated: isoTime(i.updated),
+    timeTracking: timeTrackingFromMcp(i.timetracking, config),
+  };
+}
+
+/**
  * mcp-atlassian's `jira_search` result → the REST backend's `{ total, hasMore, issues }`. On Cloud
  * mcp-atlassian reports `total: -1` (the v3 API has no count) and a `next_page_token` instead.
  * Also used for `jira_get_board_issues` and `jira_get_sprint_issues`: 0.23.1 answers all three with
@@ -117,21 +139,9 @@ export function searchFromMcp(
   const r = obj(raw);
   const total = typeof r.total === 'number' && r.total >= 0 ? r.total : null;
   const start = typeof r.start_at === 'number' && r.start_at > 0 ? r.start_at : 0;
-  const issues = (Array.isArray(r.issues) ? r.issues : []).slice(0, limit).map((v) => {
-    const i = obj(v);
-    const a = obj(i.assignee);
-    // Unassigned issues come back as { display_name: 'Unassigned' } without any id.
-    const assigned = 'account_id' in a || 'name' in a || 'key' in a;
-    return {
-      key: s(i.key),
-      summary: s(i.summary),
-      status: s(obj(i.status).name),
-      assignee: assigned ? s(a.display_name) : null,
-      type: s(obj(i.issue_type).name),
-      updated: isoTime(i.updated),
-      timeTracking: timeTrackingFromMcp(i.timetracking, config),
-    };
-  });
+  const issues = (Array.isArray(r.issues) ? r.issues : [])
+    .slice(0, limit)
+    .map((v) => briefFromMcp(v, config));
   return {
     total,
     hasMore: total !== null ? total > start + issues.length : !!r.next_page_token,
@@ -139,24 +149,41 @@ export function searchFromMcp(
   };
 }
 
-/** An mcp-atlassian issue with `timeTracking` in hours; the raw `timetracking` text block dropped. */
+/**
+ * mcp-atlassian's `jira_get_issue` result → the REST backend's `jira_get_issue` shape exactly: the
+ * brief fields (see `briefFromMcp`) plus `labels`, `description` and `comments` (author reduced to
+ * a display name). mcp-atlassian's raw issue also carries `reporter` and, on each comment, a full
+ * `JiraUser.to_simplified_dict()` author (`account_id`/`name`/`email`): neither is read here, so
+ * neither reaches the model.
+ */
 export function issueFromMcp(raw: unknown, config: TimeTrackingConfig | null) {
-  const { timetracking, ...rest } = obj(raw);
-  return { ...rest, timeTracking: timeTrackingFromMcp(timetracking, config) };
+  const i = obj(raw);
+  const comments = Array.isArray(i.comments) ? i.comments : [];
+  return {
+    ...briefFromMcp(i, config),
+    labels: Array.isArray(i.labels) ? i.labels : [],
+    description: s(i.description),
+    comments: comments.map((v) => {
+      const c = obj(v);
+      return { author: s(obj(c.author).display_name), body: s(c.body), created: s(c.created) };
+    }),
+  };
 }
 
 /**
  * mcp-atlassian 0.23.1's `jira_get_worklog` result → the REST backend's `Worklog`
  * (`WorklogMixin.get_worklogs`: `author` is already the plain display-name string Jira returned,
- * not an object, and `comment` is already cleaned text).
+ * falling back to the literal "Unknown" when Jira had none; `started` is `str(parse_date(...))` —
+ * space-separated with a colon offset, or the literal "None" when nothing parsed).
  */
 export function worklogFromMcp(issueKey: string, raw: unknown): Worklog {
   const list = obj(raw).worklogs;
   const entries = (Array.isArray(list) ? list : []).flatMap((v) => {
     const w = obj(v);
+    const author = s(w.author);
     const e = worklogEntry({
-      author: s(w.author),
-      started: w.started,
+      author: author === 'Unknown' ? null : author,
+      started: isoTime(w.started),
       seconds: w.time_spent_seconds,
       comment: w.comment,
     });
@@ -257,16 +284,30 @@ export function transitionsFromMcp(raw: unknown) {
   };
 }
 
+/** A definitive answer (2xx parsed, or 404/405 meaning no such endpoint) is good for an hour. */
 const SETTING_TTL_MS = 60 * 60 * 1000;
-const settings = new Map<string, { config: TimeTrackingConfig | null; at: number }>();
+/**
+ * Any other failure (a bad PAT, a network blip, a deadline) is retried much sooner: it may be
+ * transient or specific to one user's credentials, unlike a definitive answer.
+ */
+const SETTING_FAILURE_TTL_MS = 5 * 60 * 1000;
+const settings = new Map<string, { config: TimeTrackingConfig | null; at: number; ttl: number }>();
+
+/** Test-only: clears the working-time cache so one test's cached answer cannot leak into another's. */
+export function resetWorkingTimeCacheForTests(): void {
+  settings.clear();
+}
 
 /**
  * The instance's working-time setting (hours per day, days per week), read with the connection's
- * own credentials and cached per Jira for an hour. mcp-atlassian does not expose it, and its
- * time-tracking output is display text only. Any failure gives null: hours are then left unknown
- * rather than guessed.
+ * own credentials and cached per Jira. mcp-atlassian does not expose it, and its time-tracking
+ * output is display text only. Any failure gives null: hours are then left unknown rather than
+ * guessed. A definitive answer is cached for an hour; anything else (including a usable 2xx that
+ * says time tracking is disabled) only for 5 minutes, keyed only by the Jira base — so one user's
+ * bad PAT or a passing network blip doesn't blank hours for everyone on that Jira for long. An
+ * aborted attempt is never cached at all: it proves nothing about the Jira itself.
  */
-async function workingTime(
+export async function workingTime(
   creds: McpCredentials,
   opts: { outbound?: OutboundPolicy; atlassianApiBase?: string },
   signal: AbortSignal,
@@ -277,8 +318,9 @@ async function workingTime(
       ? creds.baseUrl.replace(/\/+$/, '')
       : `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${creds.cloudId}`;
   const cached = settings.get(base);
-  if (cached && Date.now() - cached.at < SETTING_TTL_MS) return cached.config;
+  if (cached && Date.now() - cached.at < cached.ttl) return cached.config;
   let config: TimeTrackingConfig | null = null;
+  let ttl = SETTING_FAILURE_TTL_MS;
   try {
     const res = await createOutboundFetch(opts.outbound)(
       new URL(`${base}/rest/api/2/configuration`),
@@ -290,12 +332,19 @@ async function workingTime(
         signal,
       },
     );
-    if (res.ok) config = timeTrackingConfigFrom(JSON.parse(await readCapped(res, 64 * 1024)));
-    else await res.body?.cancel();
+    if (res.ok) {
+      config = timeTrackingConfigFrom(JSON.parse(await readCapped(res, 64 * 1024)));
+      ttl = SETTING_TTL_MS;
+    } else {
+      await res.body?.cancel();
+      // No such endpoint on this Jira: a stable, definitive answer, not a transient failure.
+      if (res.status === 404 || res.status === 405) ttl = SETTING_TTL_MS;
+    }
   } catch {
     config = null;
   }
-  settings.set(base, { config, at: Date.now() });
+  if (signal.aborted) return null;
+  settings.set(base, { config, at: Date.now(), ttl });
   return config;
 }
 
@@ -445,10 +494,11 @@ export function createMcpAtlassianBackend(
         }
         if (name === 'jira_get_issue') return issueFromMcp(out, config);
         if (name === 'jira_get_sprint_issues') {
-          const r = obj(out);
-          return Array.isArray(r.issues)
-            ? { ...r, issues: r.issues.map((i) => issueFromMcp(i, config)) }
-            : out;
+          return searchFromMcp(
+            out,
+            (input as JiraToolInput<'jira_get_sprint_issues'>).limit,
+            config,
+          );
         }
         if (name === 'jira_get_worklog') {
           return worklogFromMcp((input as JiraToolInput<'jira_get_worklog'>).issueKey, out);

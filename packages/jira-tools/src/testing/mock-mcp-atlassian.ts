@@ -95,10 +95,46 @@ function mcpSearchResult(out: unknown, limit: unknown) {
   };
 }
 
-/** One REST `jira_get_issue` result → mcp-atlassian's shape: `timetracking` added, `timeTracking` dropped. */
+/**
+ * One REST `jira_get_issue` result → mcp-atlassian's real raw shape: the same per-issue fields as
+ * search/board/sprint issues, plus `labels`/`description`/`comments`, and a synthetic `reporter`
+ * (the real image always includes one, since `MCP_ISSUE_FIELDS` asks for it) — the mapper under
+ * test must never let it, or a comment's author id/email, reach its output.
+ */
 function mcpIssueResult(out: unknown) {
-  const { timeTracking, ...rest } = out as Obj;
-  return { ...rest, timetracking: mcpTimetracking(timeTracking) };
+  const i = out as Obj & {
+    labels?: unknown;
+    description?: unknown;
+    comments?: { author: unknown; body: unknown; created: unknown }[];
+  };
+  return {
+    ...mcpIssueFields(i),
+    reporter: {
+      account_id: 'r-1',
+      display_name: 'Casey Reporter',
+      name: 'casey',
+      email: 'casey@example.com',
+      avatar_url: null,
+    },
+    labels: i.labels ?? [],
+    description: i.description,
+    comments: (Array.isArray(i.comments) ? i.comments : []).map((c, idx) => ({
+      id: String(idx),
+      body: c.body,
+      ...(c.author != null
+        ? {
+            author: {
+              account_id: `a-${idx}`,
+              display_name: c.author,
+              name: `author-${idx}`,
+              email: `author-${idx}@example.com`,
+              avatar_url: null,
+            },
+          }
+        : {}),
+      ...(c.created != null ? { created: c.created } : {}),
+    })),
+  };
 }
 
 /**

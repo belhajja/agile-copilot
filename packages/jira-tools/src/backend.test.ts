@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exactPerson, JiraToolError } from './backend';
+import { exactPerson, isoTime, JiraToolError } from './backend';
 import { ISSUE_KEY_PATTERN, JIRA_TOOLS } from './catalog';
 
 const person = (id: string, displayName: string, extra: Record<string, unknown> = {}) => ({
@@ -50,6 +50,16 @@ describe('exactPerson (both backends resolve assignees with it)', () => {
     expect(() => exactPerson([], 'Ann', { cloud: false })).toThrow(
       expect.objectContaining({ code: 'not_found' }),
     );
+  });
+});
+
+describe('isoTime', () => {
+  it('normalises mcp-atlassian 0.23.1 worklog timestamps (space, colon offset) to UTC', () => {
+    expect(isoTime('2026-10-01 09:00:00+02:00')).toBe('2026-10-01T07:00:00Z');
+  });
+
+  it('reads mcp-atlassian’s str(None) for a worklog date it could not parse as null', () => {
+    expect(isoTime('None')).toBeNull();
   });
 });
 

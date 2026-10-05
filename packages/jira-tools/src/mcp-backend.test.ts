@@ -7,7 +7,7 @@ import {
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { demoDataset, type MockJira, startMockJira } from '@agile/jira/testing';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { codeForStatus, type JiraToolBackend, JiraToolError } from './backend';
 import {
   isJiraToolName,
@@ -27,10 +27,12 @@ import {
   MCP_ATLASSIAN_ENABLED_TOOLS,
   MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   mcpAtlassianHeaders,
+  resetWorkingTimeCacheForTests,
   searchFromMcp,
   transitionsFromMcp,
   versionsFromMcp,
   watchersFromMcp,
+  workingTime,
   worklogFromMcp,
 } from './mcp-backend';
 import { createRestJiraBackend } from './rest-backend';
@@ -148,6 +150,47 @@ describe('mcp-atlassian backend through the double', () => {
     expect(viaMcp).toEqual(viaRest);
     expect(viaMcp).toMatchObject({ total: expect.any(Number), hasMore: true });
     expect((viaMcp as { issues: unknown[] }).issues).toHaveLength(3);
+  });
+
+  it('returns the same sprint-issues shape as the REST backend', async () => {
+    // mcp-atlassian 0.23.1 answers jira_get_sprint_issues with the same
+    // JiraSearchResult.to_simplified_dict() shape as jira_search; the backend must map it the same way.
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_get_sprint_issues', { sprintId: '1', limit: 3 });
+    const viaRest = await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_sprint_issues',
+      { sprintId: '1', limit: 3 },
+    );
+    expect(viaMcp).toEqual(viaRest);
+    expect((viaMcp as { issues: unknown[] }).issues.length).toBeGreaterThan(0);
+  });
+
+  it('returns the same get_issue shape as the REST backend, no reporter or comment-author ids', async () => {
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_get_issue', { issueKey: 'DEMO-1' });
+    const viaRest = await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_issue',
+      { issueKey: 'DEMO-1' },
+    );
+    expect(viaMcp).toEqual(viaRest);
+    // The double's raw mcp-atlassian answer carries a reporter (and, on a commented issue, a
+    // comment author) with an account id and email; REST never has a `reporter` field at all, so
+    // this equality already proves it didn't leak through. Spelled out for clarity:
+    expect(viaMcp).not.toHaveProperty('reporter');
   });
 
   it('assigns only the one active person matching exactly, resolved before the write', async () => {
@@ -312,6 +355,77 @@ describe('mcp-atlassian result mapping', () => {
     expect(issue).not.toHaveProperty('timetracking');
   });
 
+  // Controller ruling: map to the REST jira_get_issue shape exactly, and nothing else — mcp-atlassian
+  // 0.23.1's raw issue carries assignee/reporter as full JiraUser.to_simplified_dict() objects
+  // ({ account_id, display_name, name, email, avatar_url }), and each comment's author the same way.
+  it('never lets email, account id, username or a reporter leak out of an issue', () => {
+    const issue = issueFromMcp(
+      {
+        key: 'AIA-1',
+        summary: 's',
+        status: { name: 'Done' },
+        issue_type: { name: 'Bug' },
+        assignee: {
+          account_id: 'u1',
+          display_name: 'Ana',
+          name: 'ana',
+          email: 'ana@x.io',
+          avatar_url: null,
+        },
+        reporter: {
+          account_id: 'u2',
+          display_name: 'Ben',
+          name: 'ben',
+          email: 'ben@x.io',
+          avatar_url: null,
+        },
+        labels: ['risk'],
+        comments: [
+          {
+            id: '1',
+            body: 'hi',
+            author: {
+              account_id: 'u3',
+              display_name: 'Cy',
+              name: 'cy',
+              email: 'cy@x.io',
+              avatar_url: null,
+            },
+            created: '2026-10-01 09:00:00 UTC',
+          },
+        ],
+      },
+      null,
+    ) as Record<string, unknown>;
+    expect(issue).toEqual({
+      key: 'AIA-1',
+      summary: 's',
+      status: 'Done',
+      type: 'Bug',
+      assignee: 'Ana',
+      updated: null,
+      timeTracking: EMPTY_TIME_TRACKING,
+      labels: ['risk'],
+      description: null,
+      comments: [{ author: 'Cy', body: 'hi', created: '2026-10-01 09:00:00 UTC' }],
+    });
+    expect(issue).not.toHaveProperty('reporter');
+    const seen = JSON.stringify(issue);
+    for (const pii of [
+      'u1',
+      'u2',
+      'u3',
+      'ana@x.io',
+      'ben@x.io',
+      'cy@x.io',
+      '"ana"',
+      '"ben"',
+      '"cy"',
+    ]) {
+      expect(seen).not.toContain(pii);
+    }
+  });
+
   it('adds time tracking to search results', () => {
     const r = searchFromMcp(
       { total: 1, issues: [{ key: 'AIA-1', summary: 's', timetracking: { time_spent: '1d' } }] },
@@ -322,7 +436,9 @@ describe('mcp-atlassian result mapping', () => {
   });
 
   // mcp-atlassian 0.23.1 (WorklogMixin.get_worklogs): `author` is already the plain display-name
-  // string Jira returned, not an object, and `comment` is already cleaned text.
+  // string Jira returned (falling back to the literal "Unknown"), not an object; `comment` is
+  // already cleaned text; `started` is `str(parse_date(...))` — space-separated, colon offset, or
+  // the literal "None" when Jira sent nothing parseable.
   it('maps worklogs to exact hours, the author display name and a capped comment', () => {
     const log = worklogFromMcp('AIA-1', {
       worklogs: [
@@ -337,21 +453,23 @@ describe('mcp-atlassian result mapping', () => {
           updated: '2026-10-01 09:00:00+02:00',
         },
         { time_spent: '', time_spent_seconds: 0, author: 'Ben', comment: '', started: '' },
+        { time_spent_seconds: 1800, author: 'Unknown', started: 'None' },
       ],
     });
     expect(log).toEqual({
       issueKey: 'AIA-1',
-      totalHours: 2,
+      totalHours: 2.5,
       partial: false,
       entries: [
         {
           author: 'Ana',
-          started: '2026-10-01 09:00:00+02:00',
+          started: '2026-10-01T07:00:00Z',
           seconds: 7200,
           hours: 2,
           comment: 'x'.repeat(500),
         },
         { author: 'Ben', started: null, seconds: 0, hours: 0, comment: null },
+        { author: null, started: null, seconds: 1800, hours: 0.5, comment: null },
       ],
     });
   });
@@ -575,6 +693,135 @@ describe('mcp-atlassian backend: pure parts', () => {
     expect(codeFromToolText('429 Too Many Requests')).toBe('rate_limited');
     expect(codeFromToolText('400 Bad Request')).toBe('invalid_request');
     expect(codeFromToolText('something else')).toBe('jira_error');
+  });
+});
+
+describe('workingTime (the Jira working-time setting cache)', () => {
+  beforeEach(() => {
+    resetWorkingTimeCacheForTests();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  const creds = (baseUrl: string) => ({ kind: 'datacenter_pat' as const, baseUrl, token: 't' });
+  const deadline = () => AbortSignal.timeout(5_000);
+
+  it('caches a successful read for an hour; a second call makes no new request', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          timeTrackingEnabled: true,
+          timeTrackingConfiguration: { workingHoursPerDay: 8, workingDaysPerWeek: 5 },
+        }),
+      );
+    });
+    try {
+      const config = { hoursPerDay: 8, daysPerWeek: 5 };
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toEqual(config);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toEqual(config);
+      expect(calls).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches a 404 (no such endpoint on this Jira) for an hour, like a successful read', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(404).end();
+    });
+    try {
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches a 403 for only 5 minutes, then retries', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(403).end();
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Still inside the 5-minute window: cached, no new request.
+      now.mockReturnValue(1_000_000 + 4 * 60_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Past 5 minutes: retried.
+      now.mockReturnValue(1_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches invalid JSON for only 5 minutes, then retries', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(200, { 'content-type': 'application/json' }).end('not json');
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      now.mockReturnValue(2_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches an oversized configuration body (> 64 KB) for only 5 minutes', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ pad: 'x'.repeat(70_000) }));
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(3_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      now.mockReturnValue(3_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('never caches an aborted read', async () => {
+    let calls = 0;
+    const srv = await listen((req) => {
+      calls++;
+      req.resume(); // never answers
+    });
+    try {
+      const first = new AbortController();
+      setTimeout(() => first.abort(), 30);
+      await expect(workingTime(creds(srv.url), { outbound }, first.signal)).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Nothing was cached: a second call attempts the network again.
+      const second = new AbortController();
+      setTimeout(() => second.abort(), 30);
+      await expect(workingTime(creds(srv.url), { outbound }, second.signal)).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
   });
 });
 
