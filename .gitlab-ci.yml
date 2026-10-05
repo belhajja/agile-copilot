@@ -51,6 +51,10 @@ stages: [build, check, package-build, package-test, e2e, publish]
 check:
   extends: .pnpm
   stage: check
+  # A hung step fails the job here instead of running until the job token expires (60 min).
+  timeout: 30 minutes
+  # No artifacts from earlier jobs: Biome would check them (e.g. hadolint reports/*.json).
+  dependencies: []
   # Database tests start Postgres through Testcontainers, which needs a Docker daemon.
   services:
     - name: docker:28-dind
@@ -59,6 +63,9 @@ check:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
+    # Each `tsc` takes up to ~2 GB; turbo's default of 10 at once exhausts the small runner (8 GB)
+    # and `pnpm typecheck` hangs.
+    TURBO_CONCURRENCY: "2"
   script:
     - pnpm lint
     - pnpm typecheck
