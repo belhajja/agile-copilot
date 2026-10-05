@@ -279,6 +279,16 @@
     "selectionDescription": "Selected boards are synced every few minutes and get dashboards.",
     "saveSelection": "Save selection",
     "selectionSaved": "Board selection saved.",
+    "filter": {
+      "search": "Search boards",
+      "searchPlaceholder": "Name or project key",
+      "type": "Board type",
+      "allTypes": "All types",
+      "selectedOnly": "Selected only",
+      "count": "Showing {shown, number} of {total, number} · {selected, number} selected",
+      "noMatch": "No boards match these filters.",
+      "clear": "Clear filters"
+    },
     "estimates": {
       "points": "Story points",
       "count": "Issue count",
