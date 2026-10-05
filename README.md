@@ -82,6 +82,48 @@ Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ol
 
 The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE`, and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)* and *Sign-in limits*).
 
+### Deploying on a server
+
+`docker-compose.server.yml` is an override for `docker-compose.selfhost.yml`. It runs the images the GitLab pipeline publishes, so nothing is built on the server. It also puts [Caddy](https://caddyserver.com/) in front, which gets and renews a Let's Encrypt certificate by itself. Only Caddy is published (ports 80 and 443); the app, Postgres and mcp-atlassian are not.
+
+**You need:**
+
+- A Linux server with Docker Engine and the Compose plugin (v2.24 or later). 2 vCPU and 4 GB of RAM are enough to start.
+- A DNS name (A/AAAA record) pointing at the server, with ports 80 and 443 open to the internet (Let's Encrypt checks port 80).
+- Read access to the images: in GitLab, **Settings → Repository → Deploy tokens**, create a token with the `read_registry` scope.
+
+**Steps:**
+
+```bash
+# 1. Get the compose files, the Postgres init script and the Caddyfile (a clone is simplest)
+git clone -b develop https://gitlab.com/agile-copilot/agile-copilot.git && cd agile-copilot
+
+# 2. Log in to the registry with the deploy token
+docker login registry.gitlab.com -u <deploy-token-username> -p <deploy-token>
+
+# 3. Configure
+cp .env.example .env
+# Fill in .env:
+#   APP_DOMAIN=agile.example.com    ACME_EMAIL=ops@example.com
+#   BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+#   ENCRYPTION_KEYS=v1:$(openssl rand -base64 32)
+#   POSTGRES_PASSWORD=$(openssl rand -hex 24)    APP_DB_PASSWORD=$(openssl rand -hex 24)
+# (paste the generated values: .env does not run $(...)). BETTER_AUTH_URL and TRUSTED_PROXY_HOPS
+# are set by the override (https://APP_DOMAIN, and 1 for Caddy).
+
+# 4. Start
+docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml pull
+docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml up -d
+```
+
+Then open `https://<APP_DOMAIN>` and sign up: the first account creates the first workspace. To make typing shorter, `export COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.server.yml` lets you run plain `docker compose ...` commands.
+
+- **Which version runs.** By default the latest `develop` build (`…/web/snapshot:develop`, and the same for `worker` and `migrate`). To pin a release, set `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` to the release images (`registry.gitlab.com/agile-copilot/agile-copilot/web:<tag>`, …). Tags publish them, and so does the manual publish job on `main`.
+- **Updating.** Run `pull`, then `up -d` again. `migrate` applies new migrations before `web` and `worker` start.
+- **Back up** the Postgres volume (`docker compose exec postgres pg_dump -U agile agile > backup.sql`, on a schedule) **and `.env`**. Without `ENCRYPTION_KEYS`, the stored Jira and AI provider credentials cannot be decrypted.
+- **Keep the `caddy_data` volume.** It holds the certificate, and Let's Encrypt limits how often one can be issued again.
+- **Optional settings** (SSO, Atlassian OAuth, Langfuse, `ALLOWED_PRIVATE_HOSTS` for a private Jira) work as described in the sections below.
+
 ### Worker settings and the `pgboss` schema
 
 | Variable | Default | Meaning |
