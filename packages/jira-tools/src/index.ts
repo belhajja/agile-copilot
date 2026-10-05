@@ -61,5 +61,6 @@ export function createJiraToolBackend(
   return createMcpAtlassianBackend(creds, {
     url: opts.mcpAtlassianUrl,
     timeoutMs: opts.timeoutMs,
+    outbound: opts.outbound,
   });
 }

@@ -5,7 +5,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { JiraToolError } from '../backend';
-import { isJiraToolName, JIRA_TOOL_NAMES, JIRA_TOOLS, parseJiraToolInput } from '../catalog';
+import {
+  isJiraToolName,
+  JIRA_LOCAL_TOOLS,
+  JIRA_MCP_ONLY_TOOLS,
+  JIRA_TOOL_NAMES,
+  JIRA_TOOLS,
+  parseJiraToolInput,
+} from '../catalog';
 import { createRestJiraBackend } from '../rest-backend';
 
 export interface MockMcpAtlassianOptions {
@@ -45,27 +52,131 @@ const mcpTime = (v: unknown) => {
     : v;
 };
 
-/** The REST backend's search result in mcp-atlassian 0.23.1's `jira_search` shape (Data Center). */
+/** REST `timeTracking` (text + hours) → mcp-atlassian's `timetracking` (text only, nulls left out). */
+function mcpTimetracking(tt: unknown): Obj {
+  const t = (tt ?? {}) as Obj;
+  const out: Obj = {};
+  if (typeof t.originalEstimate === 'string') out.original_estimate = t.originalEstimate;
+  if (typeof t.remainingEstimate === 'string') out.remaining_estimate = t.remainingEstimate;
+  if (typeof t.timeSpent === 'string') out.time_spent = t.timeSpent;
+  return out;
+}
+
+/** One REST brief issue → mcp-atlassian 0.23.1's issue shape (search, board and sprint issues). */
+function mcpIssueFields(i: Obj) {
+  return {
+    key: i.key,
+    summary: i.summary,
+    status: { name: i.status },
+    // mcp-atlassian shows an unassigned issue as { display_name: 'Unassigned' } without ids.
+    assignee:
+      i.assignee === null
+        ? { display_name: 'Unassigned' }
+        : { display_name: i.assignee, name: i.assignee, account_id: null },
+    issue_type: { name: i.type },
+    // mcp-atlassian formats times as "YYYY-MM-DD HH:MM:SS <zone>" in its own zone (UTC here).
+    updated: mcpTime(i.updated),
+    timetracking: mcpTimetracking(i.timeTracking),
+  };
+}
+
+/**
+ * The REST backend's `{ total, hasMore, issues }` in mcp-atlassian 0.23.1's `jira_search` shape
+ * (Data Center). `jira_get_board_issues` and `jira_get_sprint_issues` answer with the same
+ * `JiraSearchResult.to_simplified_dict()` shape, so this also serves them.
+ */
 function mcpSearchResult(out: unknown, limit: unknown) {
   const r = out as { total: number | null; issues: Obj[] };
   return {
     total: r.total ?? -1,
     start_at: 0,
     max_results: typeof limit === 'number' ? limit : 10,
-    issues: r.issues.map((i) => ({
-      key: i.key,
-      summary: i.summary,
-      status: { name: i.status },
-      // mcp-atlassian shows an unassigned issue as { display_name: 'Unassigned' } without ids.
-      assignee:
-        i.assignee === null
-          ? { display_name: 'Unassigned' }
-          : { display_name: i.assignee, name: i.assignee, account_id: null },
-      issue_type: { name: i.type },
-      // mcp-atlassian formats times as "YYYY-MM-DD HH:MM:SS <zone>" in its own zone (UTC here).
-      updated: mcpTime(i.updated),
+    issues: r.issues.map(mcpIssueFields),
+  };
+}
+
+/** One REST `jira_get_issue` result → mcp-atlassian's shape: `timetracking` added, `timeTracking` dropped. */
+function mcpIssueResult(out: unknown) {
+  const { timeTracking, ...rest } = out as Obj;
+  return { ...rest, timetracking: mcpTimetracking(timeTracking) };
+}
+
+/**
+ * The REST backend's `Worklog` → mcp-atlassian 0.23.1's `jira_get_worklog` shape
+ * (`WorklogMixin.get_worklogs`: `author` is already the plain display-name string, not an object).
+ */
+function mcpWorklogResult(out: unknown) {
+  const { entries } = out as {
+    entries: {
+      author: string | null;
+      started: string | null;
+      seconds: number;
+      hours: number;
+      comment: string | null;
+    }[];
+  };
+  return {
+    worklogs: entries.map((e) => ({
+      time_spent: `${e.hours}h`,
+      time_spent_seconds: e.seconds,
+      author: e.author,
+      comment: e.comment ?? '',
+      started: e.started,
     })),
   };
+}
+
+/**
+ * The REST backend's `{ issueKey, count, watchers }` (display names only) → mcp-atlassian's
+ * `get_issue_watchers` shape (`JiraUser.to_simplified_dict`). The account id and email are already
+ * lost at the REST layer, so the double fills them in as null.
+ */
+function mcpWatchersResult(out: unknown, issueKey: unknown) {
+  const r = out as { count: number; watchers: string[] };
+  return {
+    issue_key: issueKey,
+    watcher_count: r.count,
+    is_watching: false,
+    watchers: r.watchers.map((name) => ({
+      account_id: null,
+      display_name: name,
+      name,
+      email: null,
+      avatar_url: null,
+    })),
+  };
+}
+
+/** The REST backend's `{ linkTypes }` → mcp-atlassian's bare array (`JiraIssueLinkType.to_simplified_dict`). */
+function mcpLinkTypesResult(out: unknown) {
+  return (out as { linkTypes: Obj[] }).linkTypes;
+}
+
+/**
+ * The REST backend's `{ versions }` → mcp-atlassian's bare array (`JiraVersion.to_simplified_dict`:
+ * null fields left out entirely).
+ */
+function mcpVersionsResult(out: unknown) {
+  return (out as { versions: Obj[] }).versions.map((v) => {
+    const version: Obj = { id: v.id, name: v.name, released: v.released, archived: v.archived };
+    if (v.description != null) version.description = v.description;
+    if (v.releaseDate != null) version.releaseDate = v.releaseDate;
+    return version;
+  });
+}
+
+/**
+ * The REST backend's `{ components }` → mcp-atlassian's bare array of Jira's own component fields
+ * (`get_project_components` passes Jira's response through unprocessed; the lead is rebuilt as a
+ * minimal user object, since the REST layer already reduced it to a display name).
+ */
+function mcpComponentsResult(out: unknown) {
+  return (out as { components: Obj[] }).components.map((c) => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    lead: c.lead ? { displayName: c.lead } : null,
+  }));
 }
 
 /**
@@ -73,9 +184,10 @@ function mcpSearchResult(out: unknown, limit: unknown) {
  * Same tool names and argument names as mcp-atlassian 0.23.1 for the enabled tools (the catalog
  * plus the backend-only `jira_search_assignable_users`), same per-request header contract for Data
  * Center PATs (credential-less requests get 401), mcp-atlassian's result shapes where the backend
- * reads them (search, transitions, assignable users, assignment), and the calls really reach Jira (the mock
- * Jira) through the REST backend. The contract test checks the real image against the same
- * expectations.
+ * reads them (search, board and sprint issues, a single issue, transitions, worklogs, watchers,
+ * link types, versions, components, assignable users, assignment), and the calls really reach
+ * Jira (the mock Jira) through the REST backend. The contract test checks the real image against
+ * the same expectations.
  */
 export async function startMockMcpAtlassian(
   opts: MockMcpAtlassianOptions,
@@ -106,6 +218,10 @@ export async function startMockMcpAtlassian(
     );
     const server = new McpServer({ name: 'mock-mcp-atlassian', version: '0.23.1' });
     for (const name of JIRA_TOOL_NAMES) {
+      // The four mcp-only tools aren't given a double yet, and our own worklog summary is never
+      // sent to mcp-atlassian (the backend composes it from jira_search + jira_get_worklog): both
+      // are left unregistered, so calling them answers "Unknown tool", like a real unlisted tool.
+      if (JIRA_MCP_ONLY_TOOLS.has(name) || JIRA_LOCAL_TOOLS.has(name)) continue;
       if (opts.readOnly && JIRA_TOOLS[name].write) continue;
       server.registerTool(
         name,
@@ -129,7 +245,21 @@ export async function startMockMcpAtlassian(
           }
           try {
             const out = await backend.call(name, parsed.data as never);
-            if (name === 'jira_search') return text(mcpSearchResult(out, args.limit));
+            if (
+              name === 'jira_search' ||
+              name === 'jira_get_board_issues' ||
+              name === 'jira_get_sprint_issues'
+            ) {
+              return text(mcpSearchResult(out, args.limit));
+            }
+            if (name === 'jira_get_issue') return text(mcpIssueResult(out));
+            if (name === 'jira_get_worklog') return text(mcpWorklogResult(out));
+            if (name === 'jira_get_issue_watchers') {
+              return text(mcpWatchersResult(out, args.issue_key));
+            }
+            if (name === 'jira_get_link_types') return text(mcpLinkTypesResult(out));
+            if (name === 'jira_get_project_versions') return text(mcpVersionsResult(out));
+            if (name === 'jira_get_project_components') return text(mcpComponentsResult(out));
             if (name === 'jira_get_transitions') {
               // mcp-atlassian 0.23.1: a bare list, integer ids, no target status against Jira.
               const { transitions } = out as { transitions: { id: string; name: string }[] };

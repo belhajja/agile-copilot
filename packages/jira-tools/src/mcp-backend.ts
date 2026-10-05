@@ -1,5 +1,5 @@
-import type { JiraCredentials } from '@agile/jira';
-import { fetchNoRedirect } from '@agile/net';
+import { type JiraCredentials, readCapped } from '@agile/jira';
+import { createOutboundFetch, fetchNoRedirect, type OutboundPolicy } from '@agile/net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
@@ -19,6 +19,12 @@ import {
   JIRA_TOOLS,
   type JiraToolInput,
 } from './catalog';
+import {
+  type TimeTrackingConfig,
+  timeTrackingConfigFrom,
+  timeTrackingFromMcp,
+} from './time-tracking';
+import { summarizeWorklogs, type Worklog, worklogEntry, worklogOf } from './worklog-summary';
 
 export type McpCredentials = Extract<JiraCredentials, { kind: 'datacenter_pat' | 'cloud_oauth' }>;
 
@@ -100,8 +106,14 @@ const s = (v: unknown) => (typeof v === 'string' ? v : null);
 /**
  * mcp-atlassian's `jira_search` result → the REST backend's `{ total, hasMore, issues }`. On Cloud
  * mcp-atlassian reports `total: -1` (the v3 API has no count) and a `next_page_token` instead.
+ * Also used for `jira_get_board_issues` and `jira_get_sprint_issues`: 0.23.1 answers all three with
+ * the same `JiraSearchResult.to_simplified_dict()` shape.
  */
-export function searchFromMcp(raw: unknown, limit: number) {
+export function searchFromMcp(
+  raw: unknown,
+  limit: number,
+  config: TimeTrackingConfig | null = null,
+) {
   const r = obj(raw);
   const total = typeof r.total === 'number' && r.total >= 0 ? r.total : null;
   const start = typeof r.start_at === 'number' && r.start_at > 0 ? r.start_at : 0;
@@ -117,12 +129,110 @@ export function searchFromMcp(raw: unknown, limit: number) {
       assignee: assigned ? s(a.display_name) : null,
       type: s(obj(i.issue_type).name),
       updated: isoTime(i.updated),
+      timeTracking: timeTrackingFromMcp(i.timetracking, config),
     };
   });
   return {
     total,
     hasMore: total !== null ? total > start + issues.length : !!r.next_page_token,
     issues,
+  };
+}
+
+/** An mcp-atlassian issue with `timeTracking` in hours; the raw `timetracking` text block dropped. */
+export function issueFromMcp(raw: unknown, config: TimeTrackingConfig | null) {
+  const { timetracking, ...rest } = obj(raw);
+  return { ...rest, timeTracking: timeTrackingFromMcp(timetracking, config) };
+}
+
+/**
+ * mcp-atlassian 0.23.1's `jira_get_worklog` result → the REST backend's `Worklog`
+ * (`WorklogMixin.get_worklogs`: `author` is already the plain display-name string Jira returned,
+ * not an object, and `comment` is already cleaned text).
+ */
+export function worklogFromMcp(issueKey: string, raw: unknown): Worklog {
+  const list = obj(raw).worklogs;
+  const entries = (Array.isArray(list) ? list : []).flatMap((v) => {
+    const w = obj(v);
+    const e = worklogEntry({
+      author: s(w.author),
+      started: w.started,
+      seconds: w.time_spent_seconds,
+      comment: w.comment,
+    });
+    return e ? [e] : [];
+  });
+  return worklogOf(issueKey, entries, false);
+}
+
+/**
+ * mcp-atlassian 0.23.1's `jira_get_issue_watchers` result (`JiraUser.to_simplified_dict`) → the
+ * REST backend's `{ issueKey, count, watchers }`. Display names only: no email, account id or
+ * username.
+ */
+export function watchersFromMcp(issueKey: string, raw: unknown) {
+  const r = obj(raw);
+  const watchers = (Array.isArray(r.watchers) ? r.watchers : []).flatMap((v) => {
+    const name = s(obj(v).display_name);
+    return name ? [name] : [];
+  });
+  return {
+    issueKey,
+    count: typeof r.watcher_count === 'number' ? r.watcher_count : watchers.length,
+    watchers,
+  };
+}
+
+/**
+ * mcp-atlassian 0.23.1's `jira_get_link_types` result (a bare array, `JiraIssueLinkType.
+ * to_simplified_dict`) → the REST backend's `{ linkTypes }`.
+ */
+export function linkTypesFromMcp(raw: unknown) {
+  return {
+    linkTypes: (Array.isArray(raw) ? raw : []).map((v) => {
+      const t = obj(v);
+      return { id: s(t.id), name: s(t.name), inward: s(t.inward), outward: s(t.outward) };
+    }),
+  };
+}
+
+/**
+ * mcp-atlassian 0.23.1's `jira_get_project_versions` result (a bare array, `JiraVersion.
+ * to_simplified_dict`) → the REST backend's `{ versions }`.
+ */
+export function versionsFromMcp(raw: unknown) {
+  return {
+    versions: (Array.isArray(raw) ? raw : []).map((v) => {
+      const t = obj(v);
+      return {
+        id: s(t.id),
+        name: s(t.name),
+        released: typeof t.released === 'boolean' ? t.released : null,
+        archived: typeof t.archived === 'boolean' ? t.archived : null,
+        releaseDate: s(t.releaseDate),
+        description: s(t.description),
+      };
+    }),
+  };
+}
+
+/**
+ * mcp-atlassian 0.23.1's `jira_get_project_components` result (a bare array of Jira's own
+ * component fields, unprocessed) → the REST backend's `{ components }` (the lead reduced to a
+ * display name).
+ */
+export function componentsFromMcp(raw: unknown) {
+  return {
+    components: (Array.isArray(raw) ? raw : []).map((v) => {
+      const t = obj(v);
+      const lead = obj(t.lead);
+      return {
+        id: s(t.id),
+        name: s(t.name),
+        description: s(t.description),
+        lead: s(lead.displayName),
+      };
+    }),
   };
 }
 
@@ -147,6 +257,48 @@ export function transitionsFromMcp(raw: unknown) {
   };
 }
 
+const SETTING_TTL_MS = 60 * 60 * 1000;
+const settings = new Map<string, { config: TimeTrackingConfig | null; at: number }>();
+
+/**
+ * The instance's working-time setting (hours per day, days per week), read with the connection's
+ * own credentials and cached per Jira for an hour. mcp-atlassian does not expose it, and its
+ * time-tracking output is display text only. Any failure gives null: hours are then left unknown
+ * rather than guessed.
+ */
+async function workingTime(
+  creds: McpCredentials,
+  opts: { outbound?: OutboundPolicy; atlassianApiBase?: string },
+  signal: AbortSignal,
+): Promise<TimeTrackingConfig | null> {
+  if (!opts.outbound) return null;
+  const base =
+    creds.kind === 'datacenter_pat'
+      ? creds.baseUrl.replace(/\/+$/, '')
+      : `${opts.atlassianApiBase ?? 'https://api.atlassian.com'}/ex/jira/${creds.cloudId}`;
+  const cached = settings.get(base);
+  if (cached && Date.now() - cached.at < SETTING_TTL_MS) return cached.config;
+  let config: TimeTrackingConfig | null = null;
+  try {
+    const res = await createOutboundFetch(opts.outbound)(
+      new URL(`${base}/rest/api/2/configuration`),
+      {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${creds.kind === 'datacenter_pat' ? creds.token : creds.accessToken}`,
+        },
+        signal,
+      },
+    );
+    if (res.ok) config = timeTrackingConfigFrom(JSON.parse(await readCapped(res, 64 * 1024)));
+    else await res.body?.cancel();
+  } catch {
+    config = null;
+  }
+  settings.set(base, { config, at: Date.now() });
+  return config;
+}
+
 /**
  * Calls allowlisted tools on mcp-atlassian, one MCP client per backend call (it builds a new Jira
  * client per request anyway), with a deadline. Input is mapped with the catalog's `toMcp`; errors
@@ -154,7 +306,7 @@ export function transitionsFromMcp(raw: unknown) {
  */
 export function createMcpAtlassianBackend(
   creds: McpCredentials,
-  opts: { url: string; timeoutMs?: number },
+  opts: { url: string; timeoutMs?: number; outbound?: OutboundPolicy; atlassianApiBase?: string },
 ): JiraToolBackend {
   const timeout = opts.timeoutMs ?? 30_000;
   const cloud = creds.kind === 'cloud_oauth';
@@ -248,6 +400,27 @@ export function createMcpAtlassianBackend(
           });
           return { ok: true, issueKey, assignee: person };
         }
+        if (name === 'jira_worklog_summary') {
+          return await summarizeWorklogs(input as JiraToolInput<'jira_worklog_summary'>, {
+            search: async (jql, limit) =>
+              searchFromMcp(
+                await callText(
+                  client,
+                  signal,
+                  'jira_search',
+                  JIRA_TOOLS.jira_search.toMcp({ jql, limit }),
+                ),
+                limit,
+              ),
+            worklog: async (key) =>
+              worklogFromMcp(
+                key,
+                await callText(client, signal, 'jira_get_worklog', { issue_key: key }),
+              ),
+            signal,
+          });
+        }
+        // Our own tools stop here: everything past this point is sent to mcp-atlassian as-is.
         if (JIRA_LOCAL_TOOLS.has(name)) throw new JiraToolError('not_supported');
         writeSent = write;
         const out = await callText(
@@ -256,9 +429,36 @@ export function createMcpAtlassianBackend(
           name,
           (JIRA_TOOLS[name].toMcp as (i: typeof input) => Obj)(input),
         );
+        const config =
+          /^(jira_search|jira_get_issue|jira_get_sprint_issues|jira_get_board_issues)$/.test(name)
+            ? await workingTime(creds, opts, signal)
+            : null;
         if (name === 'jira_search') {
-          return searchFromMcp(out, (input as JiraToolInput<'jira_search'>).limit);
+          return searchFromMcp(out, (input as JiraToolInput<'jira_search'>).limit, config);
         }
+        if (name === 'jira_get_board_issues') {
+          return searchFromMcp(
+            out,
+            (input as JiraToolInput<'jira_get_board_issues'>).limit,
+            config,
+          );
+        }
+        if (name === 'jira_get_issue') return issueFromMcp(out, config);
+        if (name === 'jira_get_sprint_issues') {
+          const r = obj(out);
+          return Array.isArray(r.issues)
+            ? { ...r, issues: r.issues.map((i) => issueFromMcp(i, config)) }
+            : out;
+        }
+        if (name === 'jira_get_worklog') {
+          return worklogFromMcp((input as JiraToolInput<'jira_get_worklog'>).issueKey, out);
+        }
+        if (name === 'jira_get_issue_watchers') {
+          return watchersFromMcp((input as JiraToolInput<'jira_get_issue_watchers'>).issueKey, out);
+        }
+        if (name === 'jira_get_link_types') return linkTypesFromMcp(out);
+        if (name === 'jira_get_project_versions') return versionsFromMcp(out);
+        if (name === 'jira_get_project_components') return componentsFromMcp(out);
         if (name === 'jira_get_transitions') return transitionsFromMcp(out);
         return out;
       } catch (e) {

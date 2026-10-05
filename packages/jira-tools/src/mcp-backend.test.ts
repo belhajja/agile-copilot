@@ -19,17 +19,24 @@ import {
 import { createJiraToolBackend } from './index';
 import {
   codeFromToolText,
+  componentsFromMcp,
   createMcpAtlassianBackend,
+  issueFromMcp,
+  linkTypesFromMcp,
   MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
   MCP_ATLASSIAN_ENABLED_TOOLS,
   MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   mcpAtlassianHeaders,
   searchFromMcp,
   transitionsFromMcp,
+  versionsFromMcp,
+  watchersFromMcp,
+  worklogFromMcp,
 } from './mcp-backend';
 import { createRestJiraBackend } from './rest-backend';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from './testing/mock-mcp-atlassian';
 import { ANCHOR, EXPECTED_WRITES, exercise, outbound, run } from './testing/scenario';
+import { EMPTY_TIME_TRACKING } from './time-tracking';
 
 describe('mcp-atlassian backend through the double', () => {
   let dc: MockJira;
@@ -123,7 +130,13 @@ describe('mcp-atlassian backend through the double', () => {
   });
 
   it('returns the same search shape as the REST backend', async () => {
-    const viaMcp = await run(backend(), 'jira_search', { jql: 'filter = 101', limit: 3 });
+    // Needs `outbound` to read the working-time setting: without it the mcp side cannot turn
+    // DEMO-1/DEMO-2's day-and-hour estimates into hours, and the two shapes would disagree.
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_search', { jql: 'filter = 101', limit: 3 });
     const viaRest = await run(
       createRestJiraBackend(
         { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
@@ -240,6 +253,193 @@ describe('mcp-atlassian backend through the double', () => {
       for (const s of spies) s.mockRestore();
     }
   });
+
+  it('reads time tracking in hours, worklogs and a worklog summary through the double', async () => {
+    const b = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const issue = (await run(b, 'jira_get_issue', { issueKey: 'DEMO-1' })) as {
+      timeTracking: { originalEstimateHours: number | null };
+    };
+    expect(issue.timeTracking.originalEstimateHours).toBe(11.2);
+    const log = (await run(b, 'jira_get_worklog', { issueKey: 'DEMO-1' })) as {
+      totalHours: number;
+    };
+    expect(log.totalHours).toBe(3);
+    const s = (await run(b, 'jira_worklog_summary', { jql: 'filter = 101' })) as {
+      totalHours: number;
+    };
+    expect(s.totalHours).toBe(7);
+  });
+
+  it('keeps the text when the setting cannot be read', async () => {
+    const b = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url },
+    );
+    const issue = (await run(b, 'jira_get_issue', { issueKey: 'DEMO-2' })) as {
+      timeTracking: Record<string, unknown>;
+    };
+    expect(issue.timeTracking).toMatchObject({
+      originalEstimate: '4d',
+      originalEstimateHours: null,
+      timeSpentHours: 4,
+    });
+  });
+});
+
+describe('mcp-atlassian result mapping', () => {
+  const EIGHT = { hoursPerDay: 8, daysPerWeek: 5 };
+
+  it('adds time tracking in hours to an issue and drops the raw text block', () => {
+    const issue = issueFromMcp(
+      {
+        key: 'AIA-1',
+        summary: 's',
+        timetracking: { original_estimate: '4d', remaining_estimate: '3d 4h', time_spent: '4h' },
+      },
+      EIGHT,
+    ) as Record<string, unknown>;
+    expect(issue.timeTracking).toEqual({
+      originalEstimate: '4d',
+      remainingEstimate: '3d 4h',
+      timeSpent: '4h',
+      originalEstimateHours: 32,
+      remainingEstimateHours: 28,
+      timeSpentHours: 4,
+    });
+    expect(issue).not.toHaveProperty('timetracking');
+  });
+
+  it('adds time tracking to search results', () => {
+    const r = searchFromMcp(
+      { total: 1, issues: [{ key: 'AIA-1', summary: 's', timetracking: { time_spent: '1d' } }] },
+      10,
+      EIGHT,
+    );
+    expect(r.issues[0]?.timeTracking.timeSpentHours).toBe(8);
+  });
+
+  // mcp-atlassian 0.23.1 (WorklogMixin.get_worklogs): `author` is already the plain display-name
+  // string Jira returned, not an object, and `comment` is already cleaned text.
+  it('maps worklogs to exact hours, the author display name and a capped comment', () => {
+    const log = worklogFromMcp('AIA-1', {
+      worklogs: [
+        {
+          id: '1',
+          time_spent: '2h',
+          time_spent_seconds: 7200,
+          author: 'Ana',
+          comment: 'x'.repeat(700),
+          started: '2026-10-01 09:00:00+02:00',
+          created: '2026-10-01 09:00:00+02:00',
+          updated: '2026-10-01 09:00:00+02:00',
+        },
+        { time_spent: '', time_spent_seconds: 0, author: 'Ben', comment: '', started: '' },
+      ],
+    });
+    expect(log).toEqual({
+      issueKey: 'AIA-1',
+      totalHours: 2,
+      partial: false,
+      entries: [
+        {
+          author: 'Ana',
+          started: '2026-10-01 09:00:00+02:00',
+          seconds: 7200,
+          hours: 2,
+          comment: 'x'.repeat(500),
+        },
+        { author: 'Ben', started: null, seconds: 0, hours: 0, comment: null },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (WatchersMixin.get_issue_watchers → JiraUser.to_simplified_dict).
+  it('keeps watcher display names only', () => {
+    expect(
+      watchersFromMcp('AIA-1', {
+        issue_key: 'AIA-1',
+        watcher_count: 2,
+        is_watching: false,
+        watchers: [
+          { account_id: 'u1', display_name: 'Ana', name: 'ana', email: 'ana@x', avatar_url: null },
+          { account_id: null, display_name: 'Ben', name: 'Ben', email: null, avatar_url: null },
+        ],
+      }),
+    ).toEqual({ issueKey: 'AIA-1', count: 2, watchers: ['Ana', 'Ben'] });
+  });
+
+  // mcp-atlassian 0.23.1 (LinksMixin.get_issue_link_types → JiraIssueLinkType.to_simplified_dict):
+  // a bare array, `self` included only when Jira sent one.
+  it('lists link types from a bare array', () => {
+    expect(
+      linkTypesFromMcp([
+        { id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' },
+        {
+          id: '2',
+          name: 'Relates',
+          inward: 'relates to',
+          outward: 'relates to',
+          self: 'https://jira/rest/api/2/issueLinkType/2',
+        },
+      ]),
+    ).toEqual({
+      linkTypes: [
+        { id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' },
+        { id: '2', name: 'Relates', inward: 'relates to', outward: 'relates to' },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (ProjectsMixin.get_project_versions → JiraVersion.to_simplified_dict):
+  // a bare array, null fields left out entirely rather than sent as null.
+  it('lists versions from a bare array', () => {
+    expect(
+      versionsFromMcp([
+        { id: '10000', name: '1.0', released: true, archived: false, releaseDate: '2026-09-01' },
+        { id: '10001', name: '1.1', released: false, archived: false },
+      ]),
+    ).toEqual({
+      versions: [
+        {
+          id: '10000',
+          name: '1.0',
+          released: true,
+          archived: false,
+          releaseDate: '2026-09-01',
+          description: null,
+        },
+        {
+          id: '10001',
+          name: '1.1',
+          released: false,
+          archived: false,
+          releaseDate: null,
+          description: null,
+        },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (ProjectsMixin.get_project_components): Jira's own component JSON,
+  // unprocessed, so `lead` is still the full user object.
+  it('lists components from a bare array of raw Jira fields, the lead reduced to a display name', () => {
+    expect(
+      componentsFromMcp([
+        {
+          id: '20000',
+          name: 'API',
+          description: null,
+          lead: { accountId: 'u1', displayName: 'Kim Dubois', emailAddress: 'kim@x' },
+          assigneeType: 'PROJECT_LEAD',
+        },
+      ]),
+    ).toEqual({
+      components: [{ id: '20000', name: 'API', description: null, lead: 'Kim Dubois' }],
+    });
+  });
 });
 
 describe('mcp-atlassian backend: pure parts', () => {
@@ -324,6 +524,7 @@ describe('mcp-atlassian backend: pure parts', () => {
       assignee: null,
       type: 'Bug',
       updated: '2026-10-03T10:00:00Z',
+      timeTracking: EMPTY_TIME_TRACKING,
     };
     // Times are ISO 8601 UTC on both backends; a zone we cannot read is passed on as is.
     for (const [raw, iso] of [
