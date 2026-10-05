@@ -31,7 +31,8 @@ attachments and issue images, bulk creates, sprint/version administration, remot
 Service Desk tools, `jira_get_user_profile` (personal data), project/field metadata tools,
 `jira_get_project_issues` (duplicates `jira_search`), development info. Write tools are out of
 scope (`jira_add_worklog`, issue links, epic links, sprint moves, watchers could come later through
-the approval flow).
+the approval flow). `jira_batch_get_changelogs` is left off too: mcp-atlassian 0.23.1 documents it as
+Jira Cloud only, so it would fail on Data Center; status history comes from `jira_get_issue_dates`.
 
 ---
 
@@ -39,11 +40,10 @@ the approval flow).
 
 | Tool | Input (narrow, bounded) | mcp-atlassian connections | Cloud API token (REST) |
 |---|---|---|---|
-| time tracking on `jira_search`, `jira_get_issue`, `jira_get_sprint_issues` | unchanged | request `timeoriginalestimate,timeestimate,timespent` besides today's fields | add the same to `FIELDS` |
+| time tracking on `jira_search`, `jira_get_issue`, `jira_get_sprint_issues`, `jira_get_board_issues` | unchanged | request `timetracking` besides mcp-atlassian's default fields; hours parsed from its display text with the instance's working-time setting | add `timetracking` to `FIELDS` (exact seconds) |
 | `jira_get_worklog` | `issueKey` | native | `GET /rest/api/2/issue/{key}/worklog` (paged) |
 | `jira_worklog_summary` (ours) | `jql` (≤ 2000), `from?`, `to?` (YYYY-MM-DD) | `jira_search` + `jira_get_worklog` | same calls on REST |
 | `jira_get_board_issues` | `boardId`, `jql?`, `limit` ≤ 50 | native | `GET /rest/agile/1.0/board/{id}/issue` |
-| `jira_batch_get_changelogs` | `issueKeys` (1-20 keys) | native | per issue, `expand=changelog` |
 | `jira_get_link_types` | none | native | `GET /rest/api/2/issueLinkType` |
 | `jira_get_project_versions` | `projectKey` | native | `GET /rest/api/2/project/{key}/versions` |
 | `jira_get_project_components` | `projectKey` | native | `GET /rest/api/2/project/{key}/components` |
@@ -54,9 +54,12 @@ the approval flow).
 | `jira_search_fields` | `keyword`, `limit` ≤ 20 | native | `not_supported` |
 
 ### Output shapes (both backends return the same shape for a tool)
-- **Time tracking** on issues: `originalEstimateHours`, `remainingEstimateHours`,
-  `timeSpentHours` — numbers rounded to 0.1, `null` when Jira has no value. Seconds ÷ 3600 (Jira
-  stores seconds; the "1d = 8h" display convention plays no part).
+- **Time tracking** on issues: Jira's text (`originalEstimate`, `remainingEstimate`, `timeSpent`)
+  and `originalEstimateHours`, `remainingEstimateHours`, `timeSpentHours` — rounded to 0.1, `null`
+  when unknown. REST: exact seconds ÷ 3600. mcp-atlassian 0.23.1 returns only the display text
+  (`1d 3h 12m`, probe on the user's Data Center, 2026-10-05): it is parsed with the instance's
+  working-time setting (`GET /rest/api/2/configuration`, read with the connection's credentials,
+  cached an hour); without that setting, `d`/`w` units give `null` hours, never a guess.
 - **Worklog:** `{ issueKey, totalHours, entries: [{ author, started, hours, comment }] }`;
   `author` is a display name, `started` ISO 8601, `comment` plain text cut to 500 characters.
 - **Worklog summary:** `{ jql, from, to, issuesScanned, partial, totalHours,
@@ -111,8 +114,8 @@ include estimate and time-spent values in hours; `jira_get_worklog` lists one is
 - **Catalog:** input bounds per new tool; `toMcp`/`fromMcp` round trip; allowlists include the new
   native tools and exclude `jira_worklog_summary`; the read-only list has no write tool.
 - **mcp backend:** time-tracking fields requested; hours conversion; worklog mapping.
-- **REST backend:** endpoints and paging per supported tool; changelog via `expand`; the 4
-  composite tools → `not_supported`.
+- **REST backend:** endpoints and paging per supported tool; the 4 composite tools →
+  `not_supported`.
 - **Worklog summary:** per-person and per-issue totals, the date filter (inclusive), `partial`
   above 50 issues and on deadline, never more than 3 worklog requests in flight.
 - **Agent:** mcp-only tools absent for a single REST site; `site` enum limited with several sites;
