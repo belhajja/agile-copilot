@@ -3,7 +3,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { GenericContainer, type StartedTestContainer, TestContainers, Wait } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { JIRA_TOOL_NAMES, JIRA_TOOLS, type JiraToolName, parseJiraToolInput } from './catalog';
+import {
+  JIRA_LOCAL_TOOLS,
+  JIRA_TOOL_NAMES,
+  JIRA_TOOLS,
+  type JiraToolName,
+  parseJiraToolInput,
+} from './catalog';
 import { MCP_ATLASSIAN_IMAGE } from './image';
 import {
   codeFromToolText,
@@ -29,7 +35,6 @@ import { markdownToJiraWiki } from './wiki';
 // forwarder under a hostname (mcp-atlassian refuses IP-literal Jira URLs even when allowlisted).
 // The forwarder works the same against a remote daemon (GitLab's docker:dind service).
 const HOST_ALIAS = 'host.testcontainers.internal';
-const READ_TOOLS = JIRA_TOOL_NAMES.filter((n) => !JIRA_TOOLS[n].write);
 
 const start = (env: Record<string, string>) =>
   new GenericContainer(MCP_ATLASSIAN_IMAGE)
@@ -87,6 +92,13 @@ const mockJira = () =>
     now: () => ANCHOR,
   });
 const portOf = (m: MockJira) => Number(new URL(m.url).port);
+// workingTime() fetches the Jira it is given directly (not through the container): the image
+// backend's baseUrl is the Testcontainers host alias, which only containers can resolve. Pin it to
+// the mock's real loopback address so the backend's own request succeeds too, the way a real
+// backend process reaches its Jira directly (no indirection; the alias exists only for this test).
+const aliasResolvesToLoopback = async (host: string) =>
+  host === HOST_ALIAS ? ['127.0.0.1'] : Promise.reject(new Error(`unexpected host ${host}`));
+const workingTimeOutbound = { allowedPrivateHosts: [HOST_ALIAS], resolve: aliasResolvesToLoopback };
 
 describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
   /** Reached by the containers (brief's checks, error texts). */
@@ -193,6 +205,8 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       });
     };
     for (const name of JIRA_TOOL_NAMES) {
+      // Local tools (jira_worklog_summary) are ours: no mcp-atlassian tool to check them against.
+      if (JIRA_LOCAL_TOOLS.has(name)) continue;
       const parsed = parseJiraToolInput(name, SAMPLES[name]);
       if (!parsed.success) throw new Error(`sample for ${name} is invalid`);
       check(name, (JIRA_TOOLS[name].toMcp as (i: unknown) => Record<string, unknown>)(parsed.data));
@@ -204,7 +218,9 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
 
   it('the read-only instance (background runs) has no write tools', async () => {
     const tools = await listTools(mcpUrl(readOnly), mcpAtlassianHeaders(dcCreds(jira)));
-    expect(tools.map((t) => t.name).sort()).toEqual([...READ_TOOLS].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [...MCP_ATLASSIAN_READONLY_ENABLED_TOOLS].sort(),
+    );
   });
 
   it('accepts per-request Cloud OAuth credentials (bearer token + cloud id)', async () => {
@@ -237,7 +253,10 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
 
   it('runs the shared scenario like the REST backend, with the exact writes and the PAT', async () => {
     const image = await exercise(
-      createMcpAtlassianBackend(dcCreds(viaImage), { url: mcpUrl(shared) }),
+      createMcpAtlassianBackend(dcCreds(viaImage), {
+        url: mcpUrl(shared),
+        outbound: workingTimeOutbound,
+      }),
       viaImage,
     );
     const rest = await exercise(

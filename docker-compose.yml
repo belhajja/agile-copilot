@@ -29,7 +29,7 @@ services:
       TOOLSETS: all
       # MCP_ATLASSIAN_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested): the catalog
       # plus jira_search_assignable_users, which the backend uses to resolve assignees.
-      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
       ATLASSIAN_OAUTH_ENABLE: "true"
       # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
       # allowlist for every Data Center host, public ones included: list them all.
@@ -46,7 +46,7 @@ services:
       PORT: "8000"
       TOOLSETS: all
       # MCP_ATLASSIAN_READONLY_ENABLED_TOOLS in packages/jira-tools/src/mcp-backend.ts (tested).
-      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers
       READ_ONLY_MODE: "true"
       ATLASSIAN_OAUTH_ENABLE: "true"
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
