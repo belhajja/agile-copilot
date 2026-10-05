@@ -1,9 +1,9 @@
 import { listConversations } from '@agile/agent';
 import { listJiraConnections, listLlmConnections } from '@agile/connections';
 import type { UIMessage } from 'ai';
-import { Bot, MessageSquarePlus } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import Link from 'next/link';
-import { getFormatter, getTranslations } from 'next-intl/server';
+import { getFormatter, getNow, getTimeZone, getTranslations } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -15,8 +15,10 @@ import {
 } from '@/components/ui/empty';
 import { connectionDeps, type SessionActor, services } from '@/server/context';
 import { AgentChat } from './agent-chat';
+import { AgentShell } from './agent-shell';
+import { groupConversations } from './group-conversations';
 
-/** The assistant page: past conversations, then the chat (or how to connect a model first). */
+/** The assistant page: past conversations beside the chat (or how to connect a model first). */
 export async function AgentPage({
   actor,
   conversationId,
@@ -28,10 +30,12 @@ export async function AgentPage({
 }) {
   const t = await getTranslations('agent');
   const format = await getFormatter();
-  const [llms, conversations, jiraSites] = await Promise.all([
+  const [llms, conversations, jiraSites, now, timeZone] = await Promise.all([
     listLlmConnections(connectionDeps(), actor.orgId),
-    listConversations(services().db, actor, 10),
+    listConversations(services().db, actor),
     listJiraConnections(connectionDeps(), actor.orgId),
+    getNow(),
+    getTimeZone(),
   ]);
   if (!llms.some((c) => c.isDefault)) {
     return (
@@ -51,38 +55,27 @@ export async function AgentPage({
       </Empty>
     );
   }
-  const recent = conversations.filter((c) => c.id !== conversationId && c.title).slice(0, 5);
+  // Untitled conversations have no answer yet: nothing worth reopening.
+  const groups = groupConversations(
+    conversations.filter((c) => c.title),
+    now,
+    timeZone,
+  ).map((g) => ({
+    key: g.key,
+    items: g.items.map((c) => ({
+      id: c.id,
+      title: c.title ?? '',
+      when: format.dateTime(c.updatedAt, { dateStyle: 'medium', timeStyle: 'short' }),
+    })),
+  }));
   return (
-    <div className="grid min-w-0 gap-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h1 className="mr-auto text-xl font-semibold tracking-tight">{t('title')}</h1>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/agent">
-            <MessageSquarePlus aria-hidden />
-            {t('newChat')}
-          </Link>
-        </Button>
-        {recent.length > 0 && (
-          <nav
-            aria-label={t('history')}
-            className="flex w-full min-w-0 gap-2 overflow-x-auto md:order-first md:w-auto md:flex-1"
-          >
-            {recent.map((c) => (
-              <Button key={c.id} asChild variant="ghost" size="sm" className="max-w-48 shrink-0">
-                <Link href={`/agent/${c.id}`} title={format.dateTime(c.updatedAt)}>
-                  <span className="truncate">{c.title}</span>
-                </Link>
-              </Button>
-            ))}
-          </nav>
-        )}
-      </div>
+    <AgentShell groups={groups} currentId={conversationId}>
       <AgentChat
         key={conversationId}
         conversationId={conversationId}
         initialMessages={initialMessages}
         siteNames={Object.fromEntries(jiraSites.map((s) => [s.id, s.name]))}
       />
-    </div>
+    </AgentShell>
   );
 }

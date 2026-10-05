@@ -15,7 +15,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 import { Message, MessageContent } from '@/components/ai-elements/message';
@@ -28,6 +27,8 @@ import {
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { AgentMarkdown } from './agent-markdown';
 import { ApprovalCard } from './approval-card';
 import { approvalView } from './approval-view';
@@ -37,6 +38,12 @@ import { ToolCall } from './tool-call';
 
 // Not a failure of the request itself: the decision was already settled elsewhere.
 const NEUTRAL_ERRORS: ReadonlySet<ChatErrorKey> = new Set(['alreadyDecided', 'approvalNotFound']);
+
+/** Starter questions on an empty chat (`agent.suggestions.*`). */
+const SUGGESTIONS = ['velocity', 'risks', 'blockers', 'forecast'] as const;
+
+/** The width of the message column and the composer. */
+const COLUMN = 'mx-auto w-full max-w-3xl';
 
 export function AgentChat({
   conversationId,
@@ -76,17 +83,91 @@ export function AgentChat({
     }
   }, [messages.length, conversationId]);
 
+  const send = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    void sendMessage({ text: trimmed });
+    setText('');
+  };
+
+  const composer = (
+    <PromptInput
+      className={cn(
+        COLUMN,
+        '[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:shadow-sm',
+      )}
+      onSubmit={({ text: value }) => send(value)}
+    >
+      <PromptInputBody>
+        <PromptInputTextarea
+          aria-label={t('inputLabel')}
+          aria-describedby={atLimit ? 'agent-input-limit' : undefined}
+          placeholder={t('placeholder')}
+          maxLength={MAX_MESSAGE_LENGTH}
+          value={text}
+          onChange={(e) => setText(e.currentTarget.value)}
+        />
+      </PromptInputBody>
+      <PromptInputFooter className="justify-end gap-2">
+        {atLimit && (
+          <p id="agent-input-limit" className="mr-auto text-muted-foreground text-xs" data-too-long>
+            {t('tooLong')}
+          </p>
+        )}
+        <PromptInputSubmit
+          status={status}
+          disabled={busy || !text.trim()}
+          aria-label={t('send')}
+          title={t('send')}
+        />
+      </PromptInputFooter>
+    </PromptInput>
+  );
+
+  const errorAlert = errorKey && (
+    <Alert
+      className={COLUMN}
+      variant={NEUTRAL_ERRORS.has(errorKey) ? 'default' : 'destructive'}
+      data-chat-error={errorKey}
+    >
+      <AlertDescription>{t(`errors.${errorKey}`)}</AlertDescription>
+    </Alert>
+  );
+
+  // A new chat: the greeting, the composer and starter questions, centred.
+  if (messages.length === 0) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-2 pb-8">
+        <div className="grid justify-items-center gap-2 text-center">
+          <Bot className="size-8 text-muted-foreground" aria-hidden />
+          <h2 className="text-2xl font-semibold tracking-tight">{t('emptyTitle')}</h2>
+          <p className="max-w-xl text-muted-foreground text-sm">{t('emptyHint')}</p>
+        </div>
+        {errorAlert}
+        {composer}
+        <div className={cn(COLUMN, 'flex flex-wrap justify-center gap-2')}>
+          {SUGGESTIONS.map((s) => (
+            <Button
+              key={s}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto rounded-full py-1.5 whitespace-normal"
+              disabled={busy}
+              onClick={() => send(t(`suggestions.${s}`))}
+            >
+              {t(`suggestions.${s}`)}
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-[calc(100dvh-9rem)] min-h-96 min-w-0 flex-col gap-3">
-      <Conversation className="min-w-0 rounded-lg border">
-        <ConversationContent className="gap-6 p-3 sm:p-4">
-          {messages.length === 0 && (
-            <ConversationEmptyState
-              icon={<Bot className="size-8" aria-hidden />}
-              title={t('emptyTitle')}
-              description={t('emptyHint')}
-            />
-          )}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <Conversation className="min-w-0">
+        <ConversationContent className={cn(COLUMN, 'gap-6 px-2 py-4 sm:px-4')}>
           {messages.map((m, index) => (
             <Message from={m.role} key={m.id} data-role={m.role}>
               <MessageContent className="break-words">
@@ -126,50 +207,8 @@ export function AgentChat({
         </ConversationContent>
         <ConversationScrollButton aria-label={t('scrollDown')} title={t('scrollDown')} />
       </Conversation>
-      {errorKey && (
-        <Alert
-          variant={NEUTRAL_ERRORS.has(errorKey) ? 'default' : 'destructive'}
-          data-chat-error={errorKey}
-        >
-          <AlertDescription>{t(`errors.${errorKey}`)}</AlertDescription>
-        </Alert>
-      )}
-      <PromptInput
-        onSubmit={({ text: value }) => {
-          const trimmed = value.trim();
-          if (!trimmed || busy) return;
-          void sendMessage({ text: trimmed });
-          setText('');
-        }}
-      >
-        <PromptInputBody>
-          <PromptInputTextarea
-            aria-label={t('inputLabel')}
-            aria-describedby={atLimit ? 'agent-input-limit' : undefined}
-            placeholder={t('placeholder')}
-            maxLength={MAX_MESSAGE_LENGTH}
-            value={text}
-            onChange={(e) => setText(e.currentTarget.value)}
-          />
-        </PromptInputBody>
-        <PromptInputFooter className="justify-end gap-2">
-          {atLimit && (
-            <p
-              id="agent-input-limit"
-              className="mr-auto text-muted-foreground text-xs"
-              data-too-long
-            >
-              {t('tooLong')}
-            </p>
-          )}
-          <PromptInputSubmit
-            status={status}
-            disabled={busy || !text.trim()}
-            aria-label={t('send')}
-            title={t('send')}
-          />
-        </PromptInputFooter>
-      </PromptInput>
+      {errorAlert}
+      <div className="px-2 pb-1">{composer}</div>
     </div>
   );
 }
