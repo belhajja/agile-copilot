@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { parseSkillDocument } from '@agile/skills';
 import { describe, expect, it } from 'vitest';
 import type { AgentActor, AgentDeps } from './deps';
+import { skillRunPrompt, systemPrompt } from './prompt';
 import { EMPTY_SKILL_SET, skillTools } from './skills';
 import { parseUntrustedData } from './untrusted';
 
@@ -81,5 +82,20 @@ describe('suggest_skill', () => {
     await expect(suggest({ ...base, instructions: '   ' })).rejects.toThrow(
       'The skill could not be drafted (skill_suggestion_invalid).',
     );
+  });
+});
+
+describe('when the assistant suggests a skill', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+
+  it('is told in the chat prompt, with its limits', () => {
+    const prompt = systemPrompt({ now, jiraSites: [], jira: 'unavailable' });
+    expect(prompt).toContain('call suggest_skill once');
+    expect(prompt).toContain('at most once per conversation');
+    expect(prompt).toContain('already covers the task');
+  });
+
+  it('is never mentioned to a background skill run', () => {
+    expect(skillRunPrompt({ now, liveJira: false, sites: [] })).not.toContain('suggest_skill');
   });
 });
