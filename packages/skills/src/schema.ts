@@ -1,9 +1,9 @@
 import { type MetricKey, type WidgetSpec, widgetSpecSchema } from '@agile/dashboards';
 import { z } from 'zod';
+import { SKILL_OUTPUTS, SKILL_TRIGGERS } from './codes';
 import { checkCron, isTimeZone } from './schedule';
 
-export const SKILL_TRIGGERS = ['on_demand', 'always', 'schedule', 'alert'] as const;
-export const SKILL_OUTPUTS = ['chat', 'dashboard_card', 'email', 'slack', 'teams'] as const;
+export { SKILL_OUTPUTS, SKILL_TRIGGERS } from './codes';
 export type SkillTrigger = (typeof SKILL_TRIGGERS)[number];
 export type SkillOutput = (typeof SKILL_OUTPUTS)[number];
 

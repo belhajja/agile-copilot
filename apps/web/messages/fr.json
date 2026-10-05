@@ -571,7 +571,8 @@
       "jira_create_issue": "Créer un ticket",
       "jira_update_issue": "Modifier un ticket",
       "load_skill": "Charger une compétence",
-      "pin_widget": "Épingler un graphique"
+      "pin_widget": "Épingler un graphique",
+      "suggest_skill": "Suggestion de compétence"
     },
     "markupHint": "La mise en forme est convertie au format Jira à l’envoi.",
     "assignedTo": "Assigné à {name}.",
@@ -658,7 +659,11 @@
       "copied": "Copié",
       "openLink": "Ouvrir le lien"
     },
-    "openDashboard": "Ouvrir le tableau de bord"
+    "openDashboard": "Ouvrir le tableau de bord",
+    "suggestion": {
+      "title": "Enregistrer ceci comme compétence ?",
+      "open": "Ouvrir dans l’éditeur de compétences"
+    }
   },
   "usage": {
     "title": "Consommation de l’assistant",

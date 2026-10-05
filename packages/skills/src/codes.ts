@@ -33,3 +33,7 @@ export const SKILL_ISSUE_CODES = [
   'invalid',
 ] as const;
 export type SkillIssueCode = (typeof SKILL_ISSUE_CODES)[number];
+
+/** A skill's trigger and output (`SkillFrontmatter`): the web UI labels them from these lists. */
+export const SKILL_TRIGGERS = ['on_demand', 'always', 'schedule', 'alert'] as const;
+export const SKILL_OUTPUTS = ['chat', 'dashboard_card', 'email', 'slack', 'teams'] as const;

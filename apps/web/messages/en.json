@@ -571,7 +571,8 @@
       "jira_create_issue": "Create an issue",
       "jira_update_issue": "Update an issue",
       "load_skill": "Load a skill",
-      "pin_widget": "Pin a chart"
+      "pin_widget": "Pin a chart",
+      "suggest_skill": "Skill suggestion"
     },
     "markupHint": "Formatting is converted to Jira markup when sent.",
     "assignedTo": "Assigned to {name}.",
@@ -658,7 +659,11 @@
       "copied": "Copied",
       "openLink": "Open link"
     },
-    "openDashboard": "Open the dashboard"
+    "openDashboard": "Open the dashboard",
+    "suggestion": {
+      "title": "Save this as a skill?",
+      "open": "Open in skill builder"
+    }
   },
   "usage": {
     "title": "Assistant usage",

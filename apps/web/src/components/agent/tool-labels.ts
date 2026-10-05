@@ -25,6 +25,7 @@ export const TOOL_LABELS = [
   'jira_update_issue',
   'load_skill',
   'pin_widget',
+  'suggest_skill',
 ] as const;
 
 /** The translated label of a tool, or its name as is when it has none. */

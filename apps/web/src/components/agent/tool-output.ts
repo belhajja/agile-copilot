@@ -1,5 +1,6 @@
 import { type ToolErrorCode, toolErrorCodeOf } from '@agile/agent/tool-errors';
 import { parseUntrustedData } from '@agile/agent/untrusted';
+import { SKILL_OUTPUTS, SKILL_TRIGGERS } from '@agile/skills/codes';
 import { z } from 'zod';
 
 /**
@@ -53,4 +54,24 @@ export function pinnedBoardId(output: unknown): string | undefined {
   return value?.pinned === true && z.uuid().safeParse(value.boardId).success
     ? (value.boardId as string)
     : undefined;
+}
+
+const suggestionSchema = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().max(300),
+  trigger: z.enum(SKILL_TRIGGERS),
+  output: z.enum(SKILL_OUTPUTS),
+  document: z.string().min(1),
+});
+
+/** A `suggest_skill` result: the proposed skill's settings and its SKILL.md. */
+export type SkillSuggestion = z.output<typeof suggestionSchema>;
+
+/** The stored `suggest_skill` result, or undefined for anything else (another tool, malformed). */
+export function skillSuggestionOf(output: unknown): SkillSuggestion | undefined {
+  if (typeof output !== 'string') return undefined;
+  const parsed = parseUntrustedData(output);
+  if (parsed?.source !== 'skill_suggestion') return undefined;
+  const result = suggestionSchema.safeParse(parsed.value);
+  return result.success ? result.data : undefined;
 }

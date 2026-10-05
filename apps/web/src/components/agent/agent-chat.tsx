@@ -197,7 +197,12 @@ export function AgentChat({
                       onDecision={(id, approved) => addToolApprovalResponse({ id, approved })}
                     />
                   ) : (
-                    <ToolCall key={key} part={part} toolName={name} />
+                    <ToolCall
+                      key={key}
+                      part={part}
+                      toolName={name}
+                      conversationId={conversationId}
+                    />
                   );
                 })}
               </MessageContent>

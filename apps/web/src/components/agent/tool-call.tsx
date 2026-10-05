@@ -1,15 +1,22 @@
 'use client';
 
 import type { ToolUIPart } from 'ai';
-import { ChevronDown, Wrench } from 'lucide-react';
+import { ChevronDown, Sparkles, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { CodeBlock } from '@/components/ai-elements/code-block';
 import { Tool, ToolContent } from '@/components/ai-elements/tool';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toolLabel } from './tool-labels';
-import { pinnedBoardId, readableOutput, readToolError } from './tool-output';
+import {
+  pinnedBoardId,
+  readableOutput,
+  readToolError,
+  type SkillSuggestion,
+  skillSuggestionOf,
+} from './tool-output';
 
 /** A failed tool call, translated from its code (plus the people Jira matched, if ambiguous). */
 export function ToolError({ errorText }: { errorText: string | undefined }) {
@@ -29,13 +36,26 @@ export function ToolError({ errorText }: { errorText: string | undefined }) {
 }
 
 /** A read tool call (analytics or Jira): collapsed by default, input and result on demand. */
-export function ToolCall({ part, toolName }: { part: ToolUIPart; toolName: string }) {
+export function ToolCall({
+  part,
+  toolName,
+  conversationId,
+}: {
+  part: ToolUIPart;
+  toolName: string;
+  /** For the skill builder link of a suggestion. */
+  conversationId: string;
+}) {
   const t = useTranslations('agent');
   const running = part.state === 'input-streaming' || part.state === 'input-available';
-  const pinnedTo =
-    toolName === 'pin_widget' && part.state === 'output-available'
-      ? pinnedBoardId(part.output)
-      : undefined;
+  const done = part.state === 'output-available';
+  const pinnedTo = toolName === 'pin_widget' && done ? pinnedBoardId(part.output) : undefined;
+  const suggestion =
+    toolName === 'suggest_skill' && done ? skillSuggestionOf(part.output) : undefined;
+  if (suggestion) {
+    const href = `/skills/new?from=${encodeURIComponent(conversationId)}&suggestion=${encodeURIComponent(part.toolCallId)}`;
+    return <SkillSuggestionCard suggestion={suggestion} href={href} />;
+  }
   return (
     <>
       <ToolDetails part={part} toolName={toolName} running={running} />
@@ -45,6 +65,34 @@ export function ToolCall({ part, toolName }: { part: ToolUIPart; toolName: strin
         </Link>
       )}
     </>
+  );
+}
+
+/** A proposed skill: what it is, and the way to review it in the builder (nothing is saved here). */
+function SkillSuggestionCard({ suggestion, href }: { suggestion: SkillSuggestion; href: string }) {
+  const t = useTranslations('agent.suggestion');
+  const ts = useTranslations('skills');
+  const posts = suggestion.trigger === 'schedule' || suggestion.trigger === 'alert';
+  return (
+    <div className="grid min-w-0 gap-3 rounded-lg border p-3" data-skill-suggestion>
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <Sparkles className="size-4 text-muted-foreground" aria-hidden />
+        {t('title')}
+      </p>
+      <div className="grid min-w-0 gap-1">
+        <p className="truncate font-mono text-sm">{suggestion.name}</p>
+        {suggestion.description && (
+          <p className="text-sm text-muted-foreground">{suggestion.description}</p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">{ts(`triggers.${suggestion.trigger}`)}</Badge>
+        {posts && <Badge variant="outline">{ts(`outputs.${suggestion.output}`)}</Badge>}
+      </div>
+      <Button asChild size="sm" className="justify-self-start">
+        <Link href={href}>{t('open')}</Link>
+      </Button>
+    </div>
   );
 }
 
