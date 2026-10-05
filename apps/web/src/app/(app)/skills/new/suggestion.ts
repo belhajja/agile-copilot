@@ -11,6 +11,8 @@ export function findSkillSuggestion(
   messages: readonly UIMessage[],
   toolCallId: string,
 ): string | null {
+  // Tool call ids are unique within a conversation (the AI SDK generates one when the provider
+  // doesn't), so the first match is the suggestion.
   for (const m of messages) {
     if (m.role !== 'assistant') continue;
     for (const part of m.parts) {
