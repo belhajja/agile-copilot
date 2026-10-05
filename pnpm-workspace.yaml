@@ -3,3 +3,9 @@ packages:
   - packages/*
   - e2e
   - evals
+auditConfig:
+  ignoreGhsas:
+    # esbuild <=0.25: its dev server answers cross-origin requests. Only reached through
+    # drizzle-kit's config loader (better-auth > drizzle-kit > @esbuild-kit); nothing here runs
+    # esbuild's server.
+    - GHSA-67mh-4wv8-2f99

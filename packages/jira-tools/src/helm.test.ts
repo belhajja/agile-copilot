@@ -129,7 +129,7 @@ const helmAvailable = (() => {
     return false;
   }
 })();
-// The CI `helm` job sets HELM_REQUIRED=1: there these tests must run, never skip.
+// The CI `helm-kubeconform` job sets HELM_REQUIRED=1: there these tests must run, never skip.
 if (process.env.HELM_REQUIRED === '1' && !helmAvailable) {
   throw new Error(`HELM_REQUIRED=1 but ${helmBin} is not runnable`);
 }
