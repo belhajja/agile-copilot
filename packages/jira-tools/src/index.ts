@@ -36,6 +36,14 @@ export {
   mcpAtlassianHeaders,
 } from './mcp-backend';
 export { createRestJiraBackend } from './rest-backend';
+export {
+  summarizeWorklogs,
+  type Worklog,
+  type WorklogEntry,
+  type WorklogSummary,
+  worklogEntry,
+  worklogOf,
+} from './worklog-summary';
 
 /**
  * Picks how a connection's Jira tools run. Data Center PATs and Cloud OAuth go through the shared
