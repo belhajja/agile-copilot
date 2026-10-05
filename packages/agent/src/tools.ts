@@ -8,7 +8,7 @@ import {
   JiraToolError,
   type JiraToolName,
 } from '@agile/jira-tools';
-import { isJiraWriteTool } from '@agile/jira-tools/catalog';
+import { isJiraMcpOnlyTool, isJiraWriteTool } from '@agile/jira-tools/catalog';
 import { loadSkillSet, type SkillSet } from '@agile/skills';
 import { resolveCredentials, SyncError } from '@agile/sync';
 import { createMCPClient } from '@ai-sdk/mcp';
@@ -204,7 +204,6 @@ export function buildJiraToolSet(
   const offered = sites.filter((s) => s.usable);
   const [first] = offered;
   if (!first || !canUseLiveJira(actor)) return {};
-  const siteIds = offered.map((s) => s.id) as [string, ...string[]];
   const allowed = (write: boolean) =>
     write ? canProposeJiraChanges(actor) : canUseLiveJira(actor);
   const tools: ToolSet = {};
@@ -212,11 +211,20 @@ export function buildJiraToolSet(
     const write = isJiraWriteTool(name);
     if (write && mode.readOnly) continue;
     if (!allowed(write)) continue;
+    // Composite tools only mcp-atlassian runs: offered with the sites that use it, if any.
+    const eligible = isJiraMcpOnlyTool(name)
+      ? offered.filter((s) => s.authType !== 'basic')
+      : offered;
+    const [firstEligible] = eligible;
+    if (!firstEligible) continue;
+    const eligibleIds = eligible.map((s) => s.id) as [string, ...string[]];
     const def = JIRA_TOOLS[name];
     const inputSchema =
       offered.length > 1
-        ? def.input.extend({ site: z.enum(siteIds).describe('Jira site id (see system prompt)') })
-        : def.input.transform((i) => ({ ...i, site: first.id }));
+        ? def.input.extend({
+            site: z.enum(eligibleIds).describe('Jira site id (see system prompt)'),
+          })
+        : def.input.transform((i) => ({ ...i, site: firstEligible.id }));
     tools[name] = tool({
       description: def.description,
       inputSchema: inputSchema as unknown as z.ZodType<Record<string, unknown>>,
@@ -241,6 +249,9 @@ export function buildJiraToolSet(
         const target = sites.find((s) => s.id === site);
         if (!target) throw await refuse('not_found');
         if (!target.usable) throw await refuse('unavailable');
+        if (isJiraMcpOnlyTool(name) && target.authType === 'basic') {
+          throw new AgentToolError('not_supported');
+        }
         let gate: Awaited<ReturnType<typeof claimApprovedExecution>> | null = null;
         if (write) {
           // Unreachable without a conversation: read-only mode builds no write tool.
