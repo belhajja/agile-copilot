@@ -25,7 +25,7 @@ const toolOf = (messages: MockChatMessage[], id: string | undefined) => {
  * The deterministic "model" of the mock eval job: it uses the tools the way a good model should
  * (boards first, then the engine's numbers), answers in the question's language, and reports the
  * numbers it received. It checks the plumbing (tools offered, envelopes, numbers flowing back,
- * approvals), not model quality: the live job measures that.
+ * approvals, the skill suggestion), not model quality: the live job measures that.
  */
 export const evalScript: MockScript = (req) => {
   const { messages, tools } = req;
