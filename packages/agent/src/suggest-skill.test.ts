@@ -37,9 +37,9 @@ describe('suggest_skill', () => {
     expect(Object.keys(tools)).toContain('suggest_skill');
   });
 
-  it('is never offered to a background skill run (runs do not build skillTools)', () => {
+  it('is never offered to a background skill run (runs do not build skillTools/buildAgentTools)', () => {
     const runSource = readFileSync(new URL('./skill-run.ts', import.meta.url), 'utf8');
-    expect(runSource).not.toMatch(/\bskillTools\b/);
+    expect(runSource).not.toMatch(/\b(skillTools|buildAgentTools)\b/);
   });
 
   it('returns the built document and its settings in the skill_suggestion envelope', async () => {
