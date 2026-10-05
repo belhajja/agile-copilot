@@ -1,8 +1,9 @@
 import { METRIC_KEYS, pinWidget } from '@agile/dashboards';
-import type { SkillSet } from '@agile/skills';
+import { parseSkillDocument, type SkillSet } from '@agile/skills';
 import { type ModelMessage, type Tool, type ToolSet, tool } from 'ai';
 import { z } from 'zod';
 import type { AgentActor, AgentDeps } from './deps';
+import { draftSchema, draftToDocument } from './skill-draft';
 import { AgentToolError } from './tool-errors';
 import { asUntrustedData } from './untrusted';
 
@@ -82,9 +83,11 @@ export function preferencesMessage(set: SkillSet, use: 'chat' | 'run'): ModelMes
 const CHARTS = ['kpi', 'bar', 'line', 'area', 'table'] as const;
 
 /**
- * `load_skill` (progressive disclosure: the full text of one catalog skill, by name) and
- * `pin_widget` (adds a catalog widget to the user's own "Pinned" dashboard of a board). Both are
- * offered to every role: neither touches Jira, and a pin only writes to the caller's dashboard.
+ * `load_skill` (progressive disclosure: the full text of one catalog skill, by name), `pin_widget`
+ * (adds a catalog widget to the user's own "Pinned" dashboard of a board) and `suggest_skill`
+ * (drafts a SKILL.md from the conversation; never saved). All three are offered to every role:
+ * none touches Jira, a pin only writes to the caller's dashboard, and a suggestion only builds a
+ * document for the user to review in the skill builder.
  */
 export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): ToolSet {
   const tools: ToolSet = {};
@@ -146,6 +149,20 @@ export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): T
         dashboardId: result.dashboardId,
         widget: result.widget,
       });
+    },
+  }) as Tool;
+  tools.suggest_skill = tool({
+    description:
+      'Offer to save a reusable process from this conversation as a skill. The user reviews, edits and saves it in the skill builder; nothing is saved here. Call it only as the system prompt says.',
+    inputSchema: draftSchema,
+    execute: async (input) => {
+      const document = draftToDocument(input, deps.onError);
+      const parsed = document ? parseSkillDocument(document) : null;
+      if (!document || !parsed?.ok) {
+        throw new AgentToolError('skill_suggestion_invalid', { tool: 'suggestion' });
+      }
+      const { name, description, trigger, output } = parsed.skill.frontmatter;
+      return asUntrustedData('skill_suggestion', { name, description, trigger, output, document });
     },
   }) as Tool;
   return tools;

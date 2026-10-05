@@ -126,9 +126,9 @@ describe('agent tool schemas through every provider adapter', () => {
     ],
   ];
 
-  it('declares the 19 agent tools (6 analytics, 11 Jira, load_skill, pin_widget)', () => {
-    expect(names()).toHaveLength(19);
-    expect(names()).toEqual(expect.arrayContaining(['load_skill', 'pin_widget']));
+  it('declares the 20 agent tools (6 analytics, 11 Jira, load_skill, pin_widget, suggest_skill)', () => {
+    expect(names()).toHaveLength(20);
+    expect(names()).toEqual(expect.arrayContaining(['load_skill', 'pin_widget', 'suggest_skill']));
   });
 
   it.each(cases)('%s receives every tool definition', async (_name, model, toolNames) => {
