@@ -16,6 +16,7 @@ import {
   readToolError,
   type SkillSuggestion,
   skillSuggestionOf,
+  suggestionHref,
 } from './tool-output';
 
 /** A failed tool call, translated from its code (plus the people Jira matched, if ambiguous). */
@@ -40,11 +41,14 @@ export function ToolCall({
   part,
   toolName,
   conversationId,
+  busy,
 }: {
   part: ToolUIPart;
   toolName: string;
   /** For the skill builder link of a suggestion. */
   conversationId: string;
+  /** Whether the chat is still submitting or streaming (the suggestion's link stays off until then). */
+  busy: boolean;
 }) {
   const t = useTranslations('agent');
   const running = part.state === 'input-streaming' || part.state === 'input-available';
@@ -53,7 +57,7 @@ export function ToolCall({
   const suggestion =
     toolName === 'suggest_skill' && done ? skillSuggestionOf(part.output) : undefined;
   if (suggestion) {
-    const href = `/skills/new?from=${encodeURIComponent(conversationId)}&suggestion=${encodeURIComponent(part.toolCallId)}`;
+    const href = suggestionHref(conversationId, part.toolCallId, busy);
     return <SkillSuggestionCard suggestion={suggestion} href={href} />;
   }
   return (
@@ -69,7 +73,14 @@ export function ToolCall({
 }
 
 /** A proposed skill: what it is, and the way to review it in the builder (nothing is saved here). */
-function SkillSuggestionCard({ suggestion, href }: { suggestion: SkillSuggestion; href: string }) {
+function SkillSuggestionCard({
+  suggestion,
+  href,
+}: {
+  suggestion: SkillSuggestion;
+  /** Undefined while the reply is still streaming: the link is not live yet. */
+  href: string | undefined;
+}) {
   const t = useTranslations('agent.suggestion');
   const ts = useTranslations('skills');
   const posts = suggestion.trigger === 'schedule' || suggestion.trigger === 'alert';
@@ -89,9 +100,15 @@ function SkillSuggestionCard({ suggestion, href }: { suggestion: SkillSuggestion
         <Badge variant="secondary">{ts(`triggers.${suggestion.trigger}`)}</Badge>
         {posts && <Badge variant="outline">{ts(`outputs.${suggestion.output}`)}</Badge>}
       </div>
-      <Button asChild size="sm" className="justify-self-start">
-        <Link href={href}>{t('open')}</Link>
-      </Button>
+      {href ? (
+        <Button asChild size="sm" className="justify-self-start">
+          <Link href={href}>{t('open')}</Link>
+        </Button>
+      ) : (
+        <Button size="sm" className="justify-self-start" disabled>
+          {t('open')}
+        </Button>
+      )}
     </div>
   );
 }

@@ -75,3 +75,17 @@ export function skillSuggestionOf(output: unknown): SkillSuggestion | undefined 
   const result = suggestionSchema.safeParse(parsed.value);
   return result.success ? result.data : undefined;
 }
+
+/**
+ * The skill builder link for a suggestion, or undefined while the reply is still streaming: the
+ * conversation only stores the tool call once the turn ends, so a link opened before then would
+ * 404 in the builder.
+ */
+export function suggestionHref(
+  conversationId: string,
+  toolCallId: string,
+  busy: boolean,
+): string | undefined {
+  if (busy) return undefined;
+  return `/skills/new?from=${encodeURIComponent(conversationId)}&suggestion=${encodeURIComponent(toolCallId)}`;
+}

@@ -202,6 +202,7 @@ export function AgentChat({
                       part={part}
                       toolName={name}
                       conversationId={conversationId}
+                      busy={busy}
                     />
                   );
                 })}
