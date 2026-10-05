@@ -861,6 +861,8 @@
       "previewHint": "One read-only run on your current data. Nothing was sent.",
       "newTitle": "New skill",
       "newIntro": "Describe it and let the AI draft it, or write it yourself. Preview it on your data, then save.",
+      "fromSuggestion": "Drafted by the assistant from a conversation. Read it before saving: nothing is saved until you click Save.",
+      "suggestionNotFound": "This suggestion is no longer available. You can describe the skill below instead.",
       "templateDescription": "What this skill does, in one line",
       "templateInstructions": "1. Call list_boards.\n2. Describe the analysis to run and how to present the result.",
       "errors": {

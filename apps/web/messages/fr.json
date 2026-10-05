@@ -861,6 +861,8 @@
       "previewHint": "Une exécution en lecture seule sur vos données actuelles. Rien n'a été envoyé.",
       "newTitle": "Nouvelle compétence",
       "newIntro": "Décrivez-la et laissez l'IA la préparer, ou écrivez-la vous-même. Prévisualisez-la sur vos données, puis enregistrez.",
+      "fromSuggestion": "Rédigée par l’assistant à partir d’une conversation. Relisez-la avant de l’enregistrer : rien n’est enregistré avant de cliquer sur Enregistrer.",
+      "suggestionNotFound": "Cette suggestion n’est plus disponible. Vous pouvez décrire la compétence ci-dessous.",
       "templateDescription": "Ce que fait cette compétence, en une ligne",
       "templateInstructions": "1. Appeler list_boards.\n2. Décrire l'analyse à mener et la présentation du résultat.",
       "errors": {
