@@ -32,11 +32,16 @@ export const evalScript: MockScript = (req) => {
   const ask = textOf([...messages].reverse().find((m) => m.role === 'user'));
   const last = messages.at(-1);
   const wantsSkill = /as a skill/i.test(ask);
+  const wantsTime = /time did each person log|time logged/i.test(ask);
   const french = /vélocité|quels|quelle|combien/i.test(ask);
   const wantsMetric = /v[ée]locit|<skill name=/i.test(ask);
   const stale = /stale|old issues/i.test(ask);
   if (last?.role === 'tool') {
     const name = toolOf(messages, last.tool_call_id);
+    if (name === 'jira_worklog_summary') {
+      const total = (payload(last) as { totalHours?: number })?.totalHours;
+      return { text: `${total} hours were logged on DEMO.` };
+    }
     if (name === 'suggest_skill') {
       return {
         text: 'I drafted the skill weekly-velocity: open it in the skill builder to review and save it.',
@@ -67,6 +72,9 @@ export const evalScript: MockScript = (req) => {
       return { text: `I found ${issues.length} issues: ${issues.map((i) => i.key).join(', ')}.` };
     }
     return agentDemoScript(req);
+  }
+  if (wantsTime && tools.includes('jira_worklog_summary')) {
+    return { toolCalls: [{ name: 'jira_worklog_summary', args: { jql: 'filter = 101' } }] };
   }
   if (wantsSkill && tools.includes('suggest_skill')) {
     return {
