@@ -65,6 +65,20 @@ describe.each(['cloud', 'datacenter'] as const)('mock Jira (%s)', (flavor) => {
     expect((await get('/rest/agile/1.0/board/1/sprint')).body.values).toHaveLength(4);
   });
 
+  it("serves a quoted project key, newest first, as mcp-atlassian's own tools query it", async () => {
+    const { get } = await start(flavor);
+    const r = await get(`${searchPath(flavor)}?${jql('project = "DEMO" ORDER BY updated DESC')}`);
+    expect(r.body.issues.length).toBeGreaterThan(0);
+    expect(r.body.issues.every((i: { key: string }) => i.key.startsWith('DEMO-'))).toBe(true);
+    const updated = r.body.issues.map((i: { fields: { updated: string } }) => i.fields.updated);
+    expect(updated).toEqual([...updated].sort().reverse());
+    // No epic in the demo data: a legitimate empty result, not an error.
+    const epics = await get(
+      `${searchPath(flavor)}?${jql('project = "DEMO" AND issuetype = Epic ORDER BY updated DESC')}`,
+    );
+    expect(epics.body.issues).toEqual([]);
+  });
+
   it('filters by the relative updated window', async () => {
     const { get } = await start(flavor, { maxPageSize: 200 });
     const all = await get(`${searchPath(flavor)}?${jql('filter = 102')}`);

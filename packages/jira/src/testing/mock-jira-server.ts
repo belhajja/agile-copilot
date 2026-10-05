@@ -129,19 +129,38 @@ function sprintMemberIssues(dataset: MockJiraDataset, sprintId: number): MockIss
   );
 }
 
+const time = (v: unknown) => parseJiraDate(v)?.getTime() ?? 0;
+
 /**
  * Issues matching `filter = N [AND updated >= "-Mm"]` or `sprint = N` (how mcp-atlassian lists a
- * sprint's issues), oldest first; null for unsupported JQL.
+ * sprint's issues), oldest first; `project = "KEY" [AND issuetype = Epic] ORDER BY updated DESC`
+ * (how it looks up a project's epics and its cross-project links), newest first; null for
+ * unsupported JQL. A bare, unquoted `project = KEY` is not supported (only the quoted form
+ * mcp-atlassian itself sends).
  */
 function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] | null {
   const sprint = /^\s*sprint\s*=\s*(\d+)\s*$/i.exec(jql);
   if (sprint) return sprintMemberIssues(dataset, Number(sprint[1]));
+  const project =
+    /^\s*project\s*=\s*"([^"]+)"(\s+AND\s+issuetype\s*=\s*Epic)?\s*(?:ORDER BY updated DESC)?\s*$/i.exec(
+      jql,
+    );
+  if (project) {
+    const key = project[1];
+    const epicsOnly = !!project[2];
+    return dataset.issues
+      .filter(
+        (i) =>
+          i.key.startsWith(`${key}-`) &&
+          (!epicsOnly || (i.fields.issuetype as { name?: string } | null)?.name === 'Epic'),
+      )
+      .sort((a, b) => time(b.fields.updated) - time(a.fields.updated));
+  }
   const filter = /filter\s*=\s*(\d+)/i.exec(jql);
   if (!filter) return null;
   const filterId = Number(filter[1]);
   const since = /updated\s*>=\s*"-(\d+)m"/i.exec(jql);
   const from = since ? now.getTime() - Number(since[1]) * 60_000 : Number.NEGATIVE_INFINITY;
-  const time = (v: unknown) => parseJiraDate(v)?.getTime() ?? 0;
   return dataset.issues
     .filter((i) => i.filterIds.includes(filterId) && time(i.fields.updated) >= from)
     .sort((a, b) => time(a.fields.created) - time(b.fields.created) || Number(a.id) - Number(b.id));
