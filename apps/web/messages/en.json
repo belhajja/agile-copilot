@@ -502,6 +502,22 @@
     "title": "Assistant",
     "history": "Recent conversations",
     "newChat": "New chat",
+    "historyGroups": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "Previous 7 days",
+      "month": "Previous 30 days",
+      "older": "Older"
+    },
+    "showHistory": "Show conversations",
+    "hideHistory": "Hide conversations",
+    "openHistory": "Conversations",
+    "suggestions": {
+      "velocity": "What is our velocity over the last sprints?",
+      "risks": "Which stories are at risk in the current sprint?",
+      "blockers": "List the blocked issues on my boards.",
+      "forecast": "When will the current sprint scope be done?"
+    },
     "emptyTitle": "Ask about your boards",
     "emptyHint": "For example: “What is our velocity?” or “Comment on DEMO-1: blocked by the API team”.",
     "placeholder": "Ask a question or request a Jira change…",

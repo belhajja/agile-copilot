@@ -35,8 +35,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          {/* @container/main: the dashboard grids (dashboard-01) respond to this container's width. */}
-          <div className="@container/main mx-auto w-full max-w-6xl">{children}</div>
+          {/* @container/main: the dashboard grids (dashboard-01) respond to this container's width.
+              A page whose root has data-wide (the assistant) uses the full width. */}
+          <div className="@container/main mx-auto w-full max-w-6xl has-[>[data-wide]]:max-w-none">
+            {children}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

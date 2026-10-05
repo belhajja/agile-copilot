@@ -502,6 +502,22 @@
     "title": "Assistant",
     "history": "Conversations récentes",
     "newChat": "Nouvelle conversation",
+    "historyGroups": {
+      "today": "Aujourd’hui",
+      "yesterday": "Hier",
+      "week": "7 derniers jours",
+      "month": "30 derniers jours",
+      "older": "Plus ancien"
+    },
+    "showHistory": "Afficher les conversations",
+    "hideHistory": "Masquer les conversations",
+    "openHistory": "Conversations",
+    "suggestions": {
+      "velocity": "Quelle est notre vélocité sur les derniers sprints ?",
+      "risks": "Quelles stories sont à risque dans le sprint en cours ?",
+      "blockers": "Liste les tickets bloqués sur mes tableaux.",
+      "forecast": "Quand le périmètre du sprint en cours sera-t-il terminé ?"
+    },
     "emptyTitle": "Posez une question sur vos tableaux",
     "emptyHint": "Par exemple : « Quelle est notre vélocité ? » ou « Comment on DEMO-1: bloqué par l’équipe API ».",
     "placeholder": "Posez une question ou demandez une modification Jira…",
