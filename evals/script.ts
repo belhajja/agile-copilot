@@ -31,11 +31,17 @@ export const evalScript: MockScript = (req) => {
   const { messages, tools } = req;
   const ask = textOf([...messages].reverse().find((m) => m.role === 'user'));
   const last = messages.at(-1);
+  const wantsSkill = /as a skill/i.test(ask);
   const french = /vélocité|quels|quelle|combien/i.test(ask);
   const wantsMetric = /v[ée]locit|<skill name=/i.test(ask);
   const stale = /stale|old issues/i.test(ask);
   if (last?.role === 'tool') {
     const name = toolOf(messages, last.tool_call_id);
+    if (name === 'suggest_skill') {
+      return {
+        text: 'I drafted the skill weekly-velocity: open it in the skill builder to review and save it.',
+      };
+    }
     if (name === 'list_boards' && (wantsMetric || stale)) {
       const boards = (payload(last) as { boards?: { id: string; name: string }[] })?.boards ?? [];
       const board = boards.find((b) => b.name === 'DEMO Scrum') ?? boards[0];
@@ -61,6 +67,25 @@ export const evalScript: MockScript = (req) => {
       return { text: `I found ${issues.length} issues: ${issues.map((i) => i.key).join(', ')}.` };
     }
     return agentDemoScript(req);
+  }
+  if (wantsSkill && tools.includes('suggest_skill')) {
+    return {
+      toolCalls: [
+        {
+          name: 'suggest_skill',
+          args: {
+            name: 'weekly-velocity',
+            description: 'Average velocity of the Scrum boards, every Monday',
+            trigger: 'schedule',
+            cron: '0 8 * * 1',
+            timezone: 'Europe/Paris',
+            output: 'email',
+            instructions:
+              '1. Call list_boards.\n2. For each Scrum board, call get_metric with average_velocity.\n3. Show a table of boards and velocities.',
+          },
+        },
+      ],
+    };
   }
   if ((wantsMetric || stale) && tools.includes('list_boards')) {
     return { toolCalls: [{ name: 'list_boards', args: {} }] };
