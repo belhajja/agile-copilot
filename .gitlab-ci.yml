@@ -55,10 +55,12 @@ node-lint:
     - mkdir -p reports
     - pnpm exec biome ci --reporter=default --reporter=gitlab --reporter-file=reports/node-lint.gitlab.json .
 
-# Database tests start Postgres through Testcontainers, which needs a Docker daemon.
+# Database tests start Postgres through Testcontainers, which needs a Docker daemon: only the
+# graas-dind runners have one (untagged jobs land on the standard runners, without Docker).
 node-build:
   # A hung step fails the job here instead of running until the job token expires (60 min).
   timeout: 30 minutes
+  tags: [graas-dind]
   services:
     - name: docker:28-dind
       alias: docker
@@ -122,6 +124,7 @@ helm-kubeconform:
 evals:
   extends: .pnpm
   stage: test
+  tags: [graas-dind]
   services:
     - name: docker:28-dind
       alias: docker
@@ -142,6 +145,7 @@ evals:
 evals-live:
   extends: .pnpm
   stage: test
+  tags: [graas-dind]
   environment:
     name: evals-live
   rules:
