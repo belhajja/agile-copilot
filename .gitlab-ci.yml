@@ -19,6 +19,8 @@ workflow:
 stages: [build, check, package-build, package-test, e2e, publish]
 
 # One image per Dockerfile target, named like the Helm chart's image.web/worker/migrate.
+# The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
+# one level deeper than the GitLab registry allows (two below the project), and is refused.
 .docker-base:
   parallel:
     matrix:
@@ -26,14 +28,17 @@ stages: [build, check, package-build, package-test, e2e, publish]
         DOCKER_BUILD_ARGS: --target runner
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/web/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/web:$CI_COMMIT_REF_NAME
+        DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/web/cache
       - DOCKER_ARTIFACTS_NAMESPACE: worker
         DOCKER_BUILD_ARGS: --target worker
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/worker/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/worker:$CI_COMMIT_REF_NAME
+        DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/worker/cache
       - DOCKER_ARTIFACTS_NAMESPACE: migrate
         DOCKER_BUILD_ARGS: --target migrate
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/migrate/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
+        DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
 
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:
