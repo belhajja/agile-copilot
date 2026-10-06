@@ -97,6 +97,13 @@ node-build:
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/migrate/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
+      - DOCKER_ARTIFACTS_NAMESPACE: operator
+        DOCKER_BUILD_ARGS: >-
+          --target operator --build-arg OPERATOR_VERSION=$CI_COMMIT_REF_NAME
+          --build-arg OPERATOR_IMAGE_BASE=$CI_REGISTRY_IMAGE
+        DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/operator/snapshot:$CI_COMMIT_REF_SLUG
+        DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/operator:$CI_COMMIT_REF_NAME
+        DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/operator/cache
 
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:

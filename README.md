@@ -82,6 +82,32 @@ Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ol
 
 The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE`, and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)* and *Sign-in limits*).
 
+## Install with the operator
+
+The operator installs and upgrades the self-host stack on any Docker host inside the Orange
+network. It keeps everything (settings, secrets, compose files, backups) in one folder you choose.
+
+```bash
+docker run --rm -it \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /opt/agile-copilot:/data \
+  registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/operator:<version> install
+```
+
+It asks for the mode (`local`: this computer, `server`: HTTPS with a domain), the port or domain,
+the Jira hosts to allow and a registry deploy token, generates every secret, starts the stack and
+waits until it is healthy. Every answer can be given as a flag (`--yes` takes the defaults).
+
+- `upgrade` (run the operator of the new version): pulls, backs up, migrates, and rolls back to
+  the previous version and data if the new one does not come up.
+- `status`, `backup`, `restore <name|latest>`, `config <setting> <value>`, `logs [service]`.
+- Keep the folder backed up: its `.env` holds `ENCRYPTION_KEYS`, without which the stored Jira and
+  AI credentials cannot be read.
+- The operator runs as root in its container: it drives the Docker socket, which is
+  root-equivalent anyway.
+- A hand-made install moves under the operator by copying its `.env` into the folder's `.env`
+  before `install --resume`; the secrets carry over.
+
 ### Deploying on a server
 
 `docker-compose.server.yml` is an override for `docker-compose.selfhost.yml`. It runs the images the GitLab pipeline publishes, so nothing is built on the server. It also puts [Caddy](https://caddyserver.com/) in front, which gets and renews a Let's Encrypt certificate by itself. Only Caddy is published (ports 80 and 443); the app, Postgres and mcp-atlassian are not.
