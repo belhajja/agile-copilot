@@ -8,6 +8,7 @@ import { allowedCode } from '@/lib/error-code';
 export const TOOL_LABELS = [
   'list_boards',
   'list_metrics',
+  'list_sprints',
   'get_metric',
   'forecast',
   'find_issues',
