@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { install } from './commands/install';
 import { main } from './main';
 import { tempContext } from './testing';
 
@@ -42,6 +43,27 @@ describe('main', () => {
     };
     expect(await main(['install', '--yes'], ctx)).toBe(1);
     expect(leaked).not.toBe('');
+    expect(out.join('\n')).not.toContain(leaked);
+  });
+
+  it('reports an unexpected error without a stack trace or a leaked secret', async () => {
+    const { ctx, out, dataDir } = await tempContext();
+    await install(ctx, {}, { yes: true, resume: false });
+    out.length = 0;
+    // A plain rejection (not a StepError): a permission error reading .env, a docker.run that
+    // throws instead of resolving, ... must still be reported, never rethrown as a stack trace.
+    let leaked = '';
+    ctx.docker = {
+      run: async () => {
+        const { readFile } = await import('node:fs/promises');
+        const env = await readFile(`${dataDir}/.env`, 'utf8').catch(() => '');
+        leaked = /POSTGRES_PASSWORD=(\w+)/.exec(env)?.[1] ?? leaked;
+        throw new Error(`disk error near ${leaked}`);
+      },
+    };
+    expect(await main(['status'], ctx)).toBe(1);
+    expect(leaked).not.toBe('');
+    expect(out.at(-1)).toMatch(/^✗ unexpected error/);
     expect(out.join('\n')).not.toContain(leaked);
   });
 });

@@ -100,6 +100,10 @@ export async function main(argv: string[], ctx: Context): Promise<number> {
       ctx.out(`✗ ${(e as Error).message}\n\n${USAGE}`);
       return 2;
     }
-    throw e;
+    // Anything else (a rejected docker.run, a permission error on .env, ...) is still ours to
+    // report: never let a raw stack trace, possibly holding a secret, reach the console.
+    const message = e instanceof Error ? e.message : String(e);
+    ctx.out(`✗ unexpected error: ${redact(message, await secretsOf(ctx))}`);
+    return 1;
   }
 }

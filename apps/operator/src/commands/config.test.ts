@@ -30,11 +30,16 @@ describe('config', () => {
     ]);
   });
 
-  it('refuses unknown keys, keys of the other mode and bad values', async () => {
-    const { ctx } = await tempContext();
+  it('refuses unknown keys, keys of the other mode and bad values, .env untouched', async () => {
+    const { ctx, dataDir } = await tempContext();
     await install(ctx, {}, { yes: true, resume: false });
+    const envPath = join(dataDir, '.env');
+    const before = await readFile(envPath, 'utf8');
     await expect(config(ctx, 'POSTGRES_PASSWORD', 'x')).rejects.toBeInstanceOf(UsageError);
+    expect(await readFile(envPath, 'utf8')).toBe(before);
     await expect(config(ctx, 'domain', 'c.example.com')).rejects.toBeInstanceOf(UsageError);
+    expect(await readFile(envPath, 'utf8')).toBe(before);
     await expect(config(ctx, 'private-hosts', 'a b')).rejects.toBeInstanceOf(SettingsError);
+    expect(await readFile(envPath, 'utf8')).toBe(before);
   });
 });
