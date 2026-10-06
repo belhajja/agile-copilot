@@ -26,38 +26,86 @@ export interface Docker {
   run(args: string[], opts?: RunOptions): Promise<RunResult>;
 }
 
-/** The host's Docker through the CLI. Arguments as an array: nothing goes through a shell. */
-export const realDocker: Docker = {
-  run(args, opts = {}) {
-    return new Promise((resolve, reject) => {
-      const child = spawn('docker', args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-      let stdout = '';
-      let stderr = '';
-      const file = opts.stdoutFile ? createWriteStream(opts.stdoutFile, { mode: 0o600 }) : null;
-      const written = file
-        ? new Promise<void>((r) => file.on('close', () => r()))
-        : Promise.resolve();
-      if (file) {
-        child.stdout.pipe(file);
-      } else {
-        child.stdout.on('data', (d: Buffer) => {
-          if (opts.onStdout) opts.onStdout(d.toString());
-          else stdout += d.toString();
+/**
+ * The host's Docker through the CLI. Arguments as an array: nothing goes through a shell.
+ *
+ * File-stream errors (a full disk, a missing stdin file) and a broken stdin pipe reject or
+ * resolve the run instead of crashing the process; the promise settles exactly once.
+ */
+export function createDocker(command = 'docker'): Docker {
+  return {
+    run(args, opts = {}) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const settle = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          fn();
+        };
+
+        const child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+
+        const file = opts.stdoutFile ? createWriteStream(opts.stdoutFile, { mode: 0o600 }) : null;
+        const written = file
+          ? new Promise<void>((r) => file.once('close', () => r()))
+          : Promise.resolve();
+        file?.on('error', (err) => {
+          file.destroy();
+          settle(() => reject(err));
         });
-      }
-      child.stderr.on('data', (d: Buffer) => {
-        stderr += d.toString();
+
+        if (file) child.stdout.pipe(file);
+        else {
+          child.stdout.on('data', (d: Buffer) => {
+            if (opts.onStdout) opts.onStdout(d.toString());
+            else stdout += d.toString();
+          });
+        }
+        child.stdout.on('error', () => {});
+
+        child.stderr.on('data', (d: Buffer) => {
+          stderr += d.toString();
+        });
+        child.stderr.on('error', () => {});
+
+        let input: ReturnType<typeof createReadStream> | null = null;
+        child.stdin.on('error', (err) => {
+          input?.destroy();
+          // The child may exit before reading everything we sent it; its exit code is the
+          // real outcome, not this broken pipe (reported as EPIPE, or EOF on Windows).
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code !== 'EPIPE' && code !== 'EOF') settle(() => reject(err));
+        });
+
+        if (opts.stdinFile) {
+          input = createReadStream(opts.stdinFile);
+          input.on('error', (err) => {
+            input?.destroy();
+            child.stdin.end();
+            settle(() => reject(err));
+          });
+          input.pipe(child.stdin);
+        } else {
+          child.stdin.end(opts.stdin ?? '');
+        }
+
+        child.on('error', (err) => {
+          file?.destroy();
+          input?.destroy();
+          settle(() => reject(err));
+        });
+        child.on('close', async (code) => {
+          await written;
+          settle(() => resolve({ code: code ?? 1, stdout, stderr }));
+        });
       });
-      if (opts.stdinFile) createReadStream(opts.stdinFile).pipe(child.stdin);
-      else child.stdin.end(opts.stdin ?? '');
-      child.on('error', reject);
-      child.on('close', async (code) => {
-        await written;
-        resolve({ code: code ?? 1, stdout, stderr });
-      });
-    });
-  },
-};
+    },
+  };
+}
+
+export const realDocker: Docker = createDocker();
 
 /** `docker compose` for the stack in a data folder: always the same project, files and .env. */
 export class Compose {

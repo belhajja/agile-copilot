@@ -1,5 +1,15 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Compose, parsePs, registryLogin, servicesOf, stackHealth, waitHealthy } from './docker';
+import {
+  Compose,
+  createDocker,
+  parsePs,
+  registryLogin,
+  servicesOf,
+  stackHealth,
+  waitHealthy,
+} from './docker';
 import { StepError } from './errors';
 import { psLines, tempContext } from './testing';
 
@@ -109,5 +119,35 @@ describe('registryLogin', () => {
     const { ctx, docker } = await tempContext();
     await registryLogin(ctx, new Map());
     expect(docker.calls).toEqual([]);
+  });
+});
+
+describe('realDocker error paths (no docker binary needed: runs node itself)', () => {
+  it('rejects, rather than crashing, when stdout cannot be written', async () => {
+    const docker = createDocker(process.execPath);
+    // A directory is never a writable file, on any platform.
+    await expect(docker.run(['-e', 'process.exit(0)'], { stdoutFile: tmpdir() })).rejects.toThrow();
+  });
+
+  it('rejects, rather than crashing, when stdin cannot be read', async () => {
+    const docker = createDocker(process.execPath);
+    const missing = join(tmpdir(), `operator-missing-${Date.now()}`);
+    await expect(
+      docker.run(['-e', 'setTimeout(() => process.exit(0), 50)'], { stdinFile: missing }),
+    ).rejects.toThrow();
+  });
+
+  it('rejects, rather than crashing, when the binary itself is missing', async () => {
+    const docker = createDocker('operator-no-such-binary');
+    await expect(docker.run(['version'])).rejects.toThrow();
+  });
+
+  it("ignores a broken stdin pipe and resolves with the child's real exit code", async () => {
+    const docker = createDocker(process.execPath);
+    // More than any OS pipe buffer: writing it to a child that never reads stdin and exits
+    // immediately is guaranteed to hit a broken pipe.
+    const big = 'x'.repeat(10 * 1024 * 1024);
+    const result = await docker.run(['-e', 'process.exit(0)'], { stdin: big });
+    expect(result.code).toBe(0);
   });
 });
