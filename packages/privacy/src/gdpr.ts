@@ -209,6 +209,9 @@ async function* workspaceSection(
           .select({
             id: agentConversations.id,
             title: agentConversations.title,
+            groupId: agentConversations.groupId,
+            llmConnectionId: agentConversations.llmConnectionId,
+            archivedAt: agentConversations.archivedAt,
             createdAt: agentConversations.createdAt,
             updatedAt: agentConversations.updatedAt,
           })

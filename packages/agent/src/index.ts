@@ -5,10 +5,27 @@ export {
   pendingApprovalParts,
 } from './approvals';
 export {
+  type ConversationHistory,
+  createGroup,
+  deleteGroup,
+  GROUP_NAME_MAX_LENGTH,
+  type HistoryGroupSummary,
+  listConversationHistory,
+  MAX_GROUPS,
+  moveConversationToGroup,
+  renameGroup,
+} from './conversation-groups';
+export {
   type ConversationSummary,
+  deleteConversation,
   isConversationId,
+  type LoadedConversation,
   listConversations,
   loadConversation,
+  renameConversation,
+  setConversationArchived,
+  setConversationModel,
+  TITLE_MAX_LENGTH,
 } from './conversations';
 export type { AgentActor, AgentDeps } from './deps';
 export { systemPrompt } from './prompt';

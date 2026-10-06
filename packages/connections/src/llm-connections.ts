@@ -12,7 +12,7 @@ import {
   probeModel,
 } from '@agile/llm';
 import { type BlockedUrlReason, checkOutboundUrl, createOutboundFetch } from '@agile/net';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, ne, type SQL, sql } from 'drizzle-orm';
 import { type Actor, assertCanManage } from './actor';
 import { recordAudit } from './audit';
 import type { ConnectionDeps } from './jira-connections';
@@ -438,10 +438,10 @@ export interface LoadedLlm {
 async function loadLlmWhere(
   deps: LlmDeps,
   orgId: string,
-  flag: typeof llmConnections.isDefault | typeof llmConnections.isBackground,
+  where: SQL | undefined,
 ): Promise<LoadedLlm | null> {
   return withOrg(deps.db, orgId, async (tx) => {
-    const [row] = await tx.select().from(llmConnections).where(eq(flag, true)).limit(1);
+    const [row] = await tx.select().from(llmConnections).where(where).limit(1);
     if (!row) return null;
     return {
       id: row.id,
@@ -453,14 +453,26 @@ async function loadLlmWhere(
 
 /** The default model (chat). */
 export function loadDefaultLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
-  return loadLlmWhere(deps, orgId, llmConnections.isDefault);
+  return loadLlmWhere(deps, orgId, eq(llmConnections.isDefault, true));
+}
+
+/**
+ * One of the workspace's models, picked for a conversation: null when it is gone or failing its
+ * check, so the caller falls back to the default.
+ */
+export function loadUsableLlm(deps: LlmDeps, orgId: string, id: string): Promise<LoadedLlm | null> {
+  return loadLlmWhere(
+    deps,
+    orgId,
+    and(eq(llmConnections.id, id), ne(llmConnections.status, 'error')),
+  );
 }
 
 /** The model for background skill runs: the "cheap model" when one is set, else the default. */
 export async function loadBackgroundLlm(deps: LlmDeps, orgId: string): Promise<LoadedLlm | null> {
   return (
-    (await loadLlmWhere(deps, orgId, llmConnections.isBackground)) ??
-    loadLlmWhere(deps, orgId, llmConnections.isDefault)
+    (await loadLlmWhere(deps, orgId, eq(llmConnections.isBackground, true))) ??
+    loadDefaultLlm(deps, orgId)
   );
 }
 

@@ -32,6 +32,7 @@ export {
   loadBackgroundLlm,
   loadDefaultLlm,
   loadDefaultLlmConfig,
+  loadUsableLlm,
   retestLlmConnection,
   setBackgroundLlmConnection,
   setDefaultLlmConnection,

@@ -694,6 +694,48 @@
     "suggestion": {
       "title": "Save this as a skill?",
       "open": "Open in skill builder"
+    },
+    "model": {
+      "button": "Model: {model}",
+      "menuTitle": "Model for this conversation",
+      "default": "default",
+      "fallback": "The model chosen for this conversation is unavailable: the default answers.",
+      "manage": "Manage AI models",
+      "failed": "The model could not be changed."
+    },
+    "manage": {
+      "actions": "Actions for {title}",
+      "rename": "Rename",
+      "renameTitle": "Rename conversation",
+      "titleLabel": "Title",
+      "moveTo": "Move to group",
+      "newGroup": "New group",
+      "newGroupTitle": "New group",
+      "groupName": "Group name",
+      "removeFromGroup": "Remove from group",
+      "archive": "Archive",
+      "unarchive": "Unarchive",
+      "delete": "Delete",
+      "deleteTitle": "Delete this conversation?",
+      "deleteHint": "“{title}” and its messages are deleted for good. Usage already recorded is kept.",
+      "groups": "Groups",
+      "groupActions": "Actions for group {name}",
+      "renameGroupTitle": "Rename group",
+      "deleteGroup": "Delete group",
+      "deleteGroupTitle": "Delete group “{name}”?",
+      "deleteGroupHint": "Its conversations are kept and go back to the recent list.",
+      "emptyGroup": "No conversations yet. Use a conversation’s menu to move it here.",
+      "archived": "Archived ({count})",
+      "save": "Save",
+      "create": "Create",
+      "cancel": "Cancel",
+      "errors": {
+        "invalid": "Enter a name.",
+        "not_found": "This conversation or group no longer exists.",
+        "turn_in_progress": "A reply is still being written. Try again when it is done.",
+        "too_many": "You have reached the maximum number of groups.",
+        "unknown_model": "This model is no longer available."
+      }
     }
   },
   "usage": {

@@ -7,14 +7,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import type { HistoryGroup } from './group-conversations';
-
-export interface HistoryItem {
-  id: string;
-  title: string;
-  /** Formatted on the server (no time zone mismatch on hydration). */
-  when: string;
-}
+import { HistoryList, type SidebarHistory } from './history-list';
 
 const OPEN_KEY = 'agent-history-open';
 
@@ -23,12 +16,15 @@ const OPEN_KEY = 'agent-history-open';
  * browser; a drawer on small screens) and the chat beside it.
  */
 export function AgentShell({
-  groups,
+  history,
   currentId,
+  headerActions,
   children,
 }: {
-  groups: { key: HistoryGroup; items: HistoryItem[] }[];
+  history: SidebarHistory;
   currentId: string;
+  /** Beside the title (the model picker). */
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   const t = useTranslations('agent');
@@ -49,8 +45,8 @@ export function AgentShell({
       return !was;
     });
 
-  const history = (
-    <HistoryList groups={groups} currentId={currentId} onNavigate={() => setDrawer(false)} />
+  const historyList = (
+    <HistoryList history={history} currentId={currentId} onNavigate={() => setDrawer(false)} />
   );
   const newChat = (
     <Button asChild variant="outline" className="justify-start">
@@ -72,7 +68,7 @@ export function AgentShell({
       {open && (
         <aside className="hidden min-h-0 flex-col gap-3 border-r pr-3 md:flex">
           {newChat}
-          {history}
+          {historyList}
         </aside>
       )}
       <div className={cn('flex min-h-0 min-w-0 flex-col gap-2', open && 'md:pl-4')}>
@@ -99,6 +95,7 @@ export function AgentShell({
             <PanelLeft />
           </Button>
           <h1 className="mr-auto text-base font-semibold tracking-tight">{t('title')}</h1>
+          {headerActions}
           <Button
             asChild
             variant="ghost"
@@ -120,54 +117,9 @@ export function AgentShell({
             <SheetTitle>{t('history')}</SheetTitle>
           </SheetHeader>
           {newChat}
-          {history}
+          {historyList}
         </SheetContent>
       </Sheet>
     </div>
-  );
-}
-
-function HistoryList({
-  groups,
-  currentId,
-  onNavigate,
-}: {
-  groups: { key: HistoryGroup; items: HistoryItem[] }[];
-  currentId: string;
-  onNavigate: () => void;
-}) {
-  const t = useTranslations('agent');
-  if (groups.length === 0) return null;
-  return (
-    <nav
-      aria-label={t('history')}
-      className="-mr-2 grid min-h-0 content-start gap-4 overflow-y-auto pr-2"
-    >
-      {groups.map((g) => (
-        <section key={g.key} className="grid gap-0.5">
-          <h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-            {t(`historyGroups.${g.key}`)}
-          </h2>
-          {g.items.map((c) => {
-            const current = c.id === currentId;
-            return (
-              <Link
-                key={c.id}
-                href={`/agent/${c.id}`}
-                title={`${c.title} · ${c.when}`}
-                aria-current={current ? 'page' : undefined}
-                onClick={onNavigate}
-                className={cn(
-                  'truncate rounded-md px-2 py-1.5 text-sm hover:bg-muted',
-                  current && 'bg-muted font-medium',
-                )}
-              >
-                {c.title}
-              </Link>
-            );
-          })}
-        </section>
-      ))}
-    </nav>
   );
 }

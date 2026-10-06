@@ -1,4 +1,12 @@
-import { agentConversations, agentMessages, type Db, isUuid, type Tx, withOrg } from '@agile/db';
+import {
+  agentConversations,
+  agentMessages,
+  type Db,
+  isUuid,
+  llmConnections,
+  type Tx,
+  withOrg,
+} from '@agile/db';
 import type { UIMessage } from 'ai';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
@@ -80,17 +88,34 @@ async function readMessages(tx: Tx, conversationId: string): Promise<UIMessage[]
   return rows.map((r) => ({ id: r.id, role: r.role, parts: r.parts as UIMessage['parts'] }));
 }
 
+export interface LoadedConversation {
+  id: string;
+  title: string;
+  messages: UIMessage[];
+  /** The model picked for it; null = the workspace default. */
+  llmConnectionId: string | null;
+  groupId: string | null;
+  archived: boolean;
+}
+
 /** The messages of one of the user's conversations; null when it is not theirs (or unknown). */
 export async function loadConversation(
   db: Db,
   actor: AgentActor,
   id: string,
-): Promise<{ id: string; title: string; messages: UIMessage[] } | null> {
+): Promise<LoadedConversation | null> {
   if (!isConversationId(id)) return null;
   return withOrg(db, actor.orgId, async (tx) => {
     const [row] = await tx.select().from(agentConversations).where(ownedBy(actor, id));
     if (!row) return null;
-    return { id: row.id, title: row.title, messages: await readMessages(tx, id) };
+    return {
+      id: row.id,
+      title: row.title,
+      messages: await readMessages(tx, id),
+      llmConnectionId: row.llmConnectionId,
+      groupId: row.groupId,
+      archived: row.archivedAt !== null,
+    };
   });
 }
 
@@ -226,8 +251,7 @@ export async function releaseTurn(db: Db, actor: AgentActor, id: string, turnId:
 
 const titleOf = (messages: UIMessage[]) => {
   const first = messages.find((m) => m.role === 'user');
-  const text = first?.parts.find((p) => p.type === 'text')?.text ?? '';
-  return text.replace(/\s+/g, ' ').trim().slice(0, 80);
+  return cleanTitle(first?.parts.find((p) => p.type === 'text')?.text ?? '');
 };
 
 /**
@@ -259,4 +283,133 @@ export async function saveConversation(
     .update(agentConversations)
     .set({ title: row.title || titleOf(stored), updatedAt: new Date() })
     .where(ownedBy(actor, id));
+}
+
+/** Longest title kept, typed or derived from the first question. */
+export const TITLE_MAX_LENGTH = 80;
+
+const cleanTitle = (title: string) => title.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX_LENGTH);
+
+// Renaming, archiving or filing a conversation is not activity: its place by date stays.
+const unchangedDate = { updatedAt: sql`${agentConversations.updatedAt}` };
+
+/** Renames one of the user's conversations. False when it is not theirs or the title is blank. */
+export async function renameConversation(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+  title: string,
+): Promise<boolean> {
+  const clean = cleanTitle(title);
+  if (!clean || !isConversationId(id)) return false;
+  const rows = await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .update(agentConversations)
+      .set({ title: clean, ...unchangedDate })
+      .where(ownedBy(actor, id))
+      .returning({ id: agentConversations.id }),
+  );
+  return rows.length > 0;
+}
+
+/** Archives (or brings back) one of the user's conversations. False when it is not theirs. */
+export async function setConversationArchived(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+  archived: boolean,
+): Promise<boolean> {
+  if (!isConversationId(id)) return false;
+  const rows = await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .update(agentConversations)
+      .set({ archivedAt: archived ? sql`now()` : null, ...unchangedDate })
+      .where(ownedBy(actor, id))
+      .returning({ id: agentConversations.id }),
+  );
+  return rows.length > 0;
+}
+
+/** A new question brings an archived conversation back (in the caller's transaction). */
+export async function unarchiveConversation(tx: Tx, actor: AgentActor, id: string) {
+  await tx
+    .update(agentConversations)
+    .set({ archivedAt: null })
+    .where(and(ownedBy(actor, id), sql`${agentConversations.archivedAt} is not null`));
+}
+
+/**
+ * Deletes one of the user's conversations with its messages and approvals (usage rows stay: they
+ * carry the workspace's spend). Refused while a reply is being written.
+ */
+export async function deleteConversation(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+): Promise<'deleted' | 'not_found' | 'turn_in_progress'> {
+  if (!isConversationId(id)) return 'not_found';
+  return withOrg(db, actor.orgId, async (tx) => {
+    const [row] = await tx
+      .select({
+        busy: sql<boolean>`(${agentConversations.turnId} is not null and ${agentConversations.turnStartedAt} > now() - make_interval(secs => ${TURN_LEASE_SECONDS}))`,
+      })
+      .from(agentConversations)
+      .where(ownedBy(actor, id))
+      .for('update');
+    if (!row) return 'not_found';
+    if (row.busy) return 'turn_in_progress';
+    await tx.delete(agentConversations).where(ownedBy(actor, id));
+    return 'deleted';
+  });
+}
+
+/**
+ * Picks the model of one of the user's conversations (null = the workspace default), creating the
+ * conversation under the client-chosen id when it is new. The model must be one of the workspace's
+ * connections.
+ */
+export async function setConversationModel(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+  llmConnectionId: string | null,
+): Promise<'ok' | 'not_found' | 'unknown_model'> {
+  if (!isConversationId(id)) return 'not_found';
+  if (llmConnectionId !== null && !isUuid(llmConnectionId)) return 'unknown_model';
+  return withOrg(db, actor.orgId, async (tx) => {
+    if (llmConnectionId !== null) {
+      // RLS shows only this workspace's connections (the foreign key alone would accept any).
+      const [model] = await tx
+        .select({ id: llmConnections.id })
+        .from(llmConnections)
+        .where(eq(llmConnections.id, llmConnectionId));
+      if (!model) return 'unknown_model';
+    }
+    await tx
+      .insert(agentConversations)
+      .values({ id, orgId: actor.orgId, userId: actor.userId })
+      .onConflictDoNothing();
+    const rows = await tx
+      .update(agentConversations)
+      .set({ llmConnectionId, ...unchangedDate })
+      .where(ownedBy(actor, id))
+      .returning({ id: agentConversations.id });
+    return rows.length > 0 ? 'ok' : 'not_found';
+  });
+}
+
+/** The model picked for one of the user's conversations; null = the default (or not theirs). */
+export async function conversationModelId(
+  db: Db,
+  actor: AgentActor,
+  id: string,
+): Promise<string | null> {
+  if (!isConversationId(id)) return null;
+  const [row] = await withOrg(db, actor.orgId, (tx) =>
+    tx
+      .select({ llmConnectionId: agentConversations.llmConnectionId })
+      .from(agentConversations)
+      .where(ownedBy(actor, id)),
+  );
+  return row?.llmConnectionId ?? null;
 }

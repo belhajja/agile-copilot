@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { llmConnections } from './app';
 import { createdAt, tenantPolicy, updatedAt } from './tenant';
 
 export const agentMessageRole = pgEnum('agent_message_role', ['user', 'assistant']);
@@ -21,6 +22,23 @@ export const agentApprovalStatus = pgEnum('agent_approval_status', [
   'executed',
   'failed',
 ]);
+
+/** A user's folder of conversations in the assistant's sidebar. Private to that user. */
+export const agentConversationGroups = pgTable(
+  'agent_conversation_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    name: text('name').notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index('agent_conversation_groups_owner_idx').on(t.orgId, t.userId),
+    tenantPolicy('agent_conversation_groups', t.orgId),
+  ],
+);
 
 /** One chat thread. Private to the user who started it. */
 export const agentConversations = pgTable(
@@ -36,6 +54,16 @@ export const agentConversations = pgTable(
      */
     turnId: uuid('turn_id'),
     turnStartedAt: timestamp('turn_started_at', { withTimezone: true }),
+    /** The model the user picked for this conversation; null (or deleted) = the workspace default. */
+    llmConnectionId: uuid('llm_connection_id').references(() => llmConnections.id, {
+      onDelete: 'set null',
+    }),
+    /** The user's folder for it; null = not in a group. */
+    groupId: uuid('group_id').references(() => agentConversationGroups.id, {
+      onDelete: 'set null',
+    }),
+    /** Hidden from the recent list until unarchived (a new message unarchives it). */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt,
     updatedAt,
   },
@@ -43,6 +71,9 @@ export const agentConversations = pgTable(
     index('agent_conversations_owner_idx').on(t.orgId, t.userId, t.updatedAt),
     // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
     index('agent_conversations_user_idx').on(t.userId),
+    // Set-null lookups when a model connection or a group is deleted.
+    index('agent_conversations_llm_connection_idx').on(t.llmConnectionId),
+    index('agent_conversations_group_idx').on(t.groupId),
     tenantPolicy('agent_conversations', t.orgId),
   ],
 );

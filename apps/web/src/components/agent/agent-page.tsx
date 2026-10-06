@@ -1,4 +1,5 @@
-import { listConversations } from '@agile/agent';
+import { type ConversationSummary, listConversationHistory } from '@agile/agent';
+import { canManageConnections } from '@agile/auth';
 import { listJiraConnections, listLlmConnections } from '@agile/connections';
 import type { UIMessage } from 'ai';
 import { Bot } from 'lucide-react';
@@ -17,22 +18,27 @@ import { connectionDeps, type SessionActor, services } from '@/server/context';
 import { AgentChat } from './agent-chat';
 import { AgentShell } from './agent-shell';
 import { groupConversations } from './group-conversations';
+import type { HistoryItem } from './history-list';
+import { ModelPicker } from './model-picker';
 
 /** The assistant page: past conversations beside the chat (or how to connect a model first). */
 export async function AgentPage({
   actor,
   conversationId,
   initialMessages,
+  conversation,
 }: {
   actor: SessionActor;
   conversationId: string;
   initialMessages: UIMessage[];
+  /** What is stored about it; absent for a new chat. */
+  conversation?: { llmConnectionId: string | null; groupId: string | null; archived: boolean };
 }) {
   const t = await getTranslations('agent');
   const format = await getFormatter();
-  const [llms, conversations, jiraSites, now, timeZone] = await Promise.all([
+  const [llms, history, jiraSites, now, timeZone] = await Promise.all([
     listLlmConnections(connectionDeps(), actor.orgId),
-    listConversations(services().db, actor),
+    listConversationHistory(services().db, actor),
     listJiraConnections(connectionDeps(), actor.orgId),
     getNow(),
     getTimeZone(),
@@ -55,21 +61,46 @@ export async function AgentPage({
       </Empty>
     );
   }
-  // Untitled conversations have no answer yet: nothing worth reopening.
-  const groups = groupConversations(
-    conversations.filter((c) => c.title),
-    now,
-    timeZone,
-  ).map((g) => ({
-    key: g.key,
-    items: g.items.map((c) => ({
+  const item =
+    (place: { groupId: string | null; archived: boolean }) =>
+    (c: ConversationSummary): HistoryItem => ({
       id: c.id,
-      title: c.title ?? '',
+      title: c.title,
       when: format.dateTime(c.updatedAt, { dateStyle: 'medium', timeStyle: 'short' }),
+      ...place,
+    });
+  const sidebar = {
+    folders: history.groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      items: g.conversations.map(item({ groupId: g.id, archived: false })),
     })),
-  }));
+    dated: groupConversations(history.recent, now, timeZone).map((g) => ({
+      key: g.key,
+      items: g.items.map(item({ groupId: null, archived: false })),
+    })),
+    archived: history.archived.map(item({ groupId: null, archived: true })),
+  };
+  // Working models only: a failing one would not answer anyway.
+  const models = llms
+    .filter((c) => c.isDefault || c.status !== 'error')
+    .map((c) => ({ id: c.id, label: c.label, model: c.model, isDefault: c.isDefault }));
+  const pickedId = conversation?.llmConnectionId ?? null;
+  const fallback = pickedId !== null && !models.some((m) => m.id === pickedId);
   return (
-    <AgentShell groups={groups} currentId={conversationId}>
+    <AgentShell
+      history={sidebar}
+      currentId={conversationId}
+      headerActions={
+        <ModelPicker
+          conversationId={conversationId}
+          models={models}
+          pickedId={pickedId}
+          fallback={fallback}
+          canManage={canManageConnections(actor.roles)}
+        />
+      }
+    >
       <AgentChat
         key={conversationId}
         conversationId={conversationId}

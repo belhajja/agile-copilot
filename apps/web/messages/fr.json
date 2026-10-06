@@ -694,6 +694,48 @@
     "suggestion": {
       "title": "Enregistrer ceci comme compétence ?",
       "open": "Ouvrir dans l’éditeur de compétences"
+    },
+    "model": {
+      "button": "Modèle : {model}",
+      "menuTitle": "Modèle pour cette conversation",
+      "default": "par défaut",
+      "fallback": "Le modèle choisi pour cette conversation est indisponible : le modèle par défaut répond.",
+      "manage": "Gérer les modèles d’IA",
+      "failed": "Le modèle n’a pas pu être changé."
+    },
+    "manage": {
+      "actions": "Actions pour {title}",
+      "rename": "Renommer",
+      "renameTitle": "Renommer la conversation",
+      "titleLabel": "Titre",
+      "moveTo": "Déplacer dans un groupe",
+      "newGroup": "Nouveau groupe",
+      "newGroupTitle": "Nouveau groupe",
+      "groupName": "Nom du groupe",
+      "removeFromGroup": "Retirer du groupe",
+      "archive": "Archiver",
+      "unarchive": "Désarchiver",
+      "delete": "Supprimer",
+      "deleteTitle": "Supprimer cette conversation ?",
+      "deleteHint": "« {title} » et ses messages sont supprimés définitivement. La consommation déjà enregistrée est conservée.",
+      "groups": "Groupes",
+      "groupActions": "Actions pour le groupe {name}",
+      "renameGroupTitle": "Renommer le groupe",
+      "deleteGroup": "Supprimer le groupe",
+      "deleteGroupTitle": "Supprimer le groupe « {name} » ?",
+      "deleteGroupHint": "Ses conversations sont conservées et reviennent dans la liste récente.",
+      "emptyGroup": "Aucune conversation. Utilisez le menu d’une conversation pour la déplacer ici.",
+      "archived": "Archivées ({count})",
+      "save": "Enregistrer",
+      "create": "Créer",
+      "cancel": "Annuler",
+      "errors": {
+        "invalid": "Saisissez un nom.",
+        "not_found": "Cette conversation ou ce groupe n’existe plus.",
+        "turn_in_progress": "Une réponse est encore en cours de rédaction. Réessayez quand elle sera terminée.",
+        "too_many": "Vous avez atteint le nombre maximal de groupes.",
+        "unknown_model": "Ce modèle n’est plus disponible."
+      }
     }
   },
   "usage": {

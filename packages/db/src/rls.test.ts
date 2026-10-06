@@ -100,12 +100,14 @@ describe('row-level security (as app_user)', () => {
           where col.table_schema = 'public' and col.table_name = rel.relname
             and col.column_name = 'org_id')
     `)) as unknown as { name: string; on_delete: string }[];
-    // The allowed exceptions are on skill_runs (SET NULL): a run outlives its channel and its
-    // skill (the daily caps count it, P4-R31), and purge works in any order since it only nulls
-    // a column.
+    // The allowed exceptions are SET NULL, and purge works in any order since it only nulls a
+    // column: a skill run outlives its channel and its skill (the daily caps count it, P4-R31); a
+    // conversation outlives the model picked for it (back to the default) and its group.
     const setNullAllowed = [
       'skill_runs_channel_id_delivery_channels_id_fk',
       'skill_runs_skill_id_skills_id_fk',
+      'agent_conversations_llm_connection_id_llm_connections_id_fk',
+      'agent_conversations_group_id_agent_conversation_groups_id_fk',
     ];
     expect(
       rows.filter(
