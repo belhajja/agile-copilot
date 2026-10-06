@@ -8,6 +8,7 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
+COPY apps/operator/package.json apps/operator/
 COPY e2e/package.json e2e/
 COPY evals/package.json evals/
 COPY packages/ packages/
