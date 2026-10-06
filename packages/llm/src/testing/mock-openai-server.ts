@@ -18,7 +18,16 @@ export interface MockOpenAIOptions {
   validKey: string;
   /** Decides each turn; default `agentDemoScript`. The probe's forced tool call is always honoured. */
   script?: MockScript;
+  /**
+   * Behave like MiniMax M2 behind a LiteLLM gateway: without streaming, its reasoning comes inline
+   * as `<think>…</think>` at the start of the content, a `required` tool choice ends with
+   * finish_reason "tool_calls" but no call, and a named tool choice gets the reasoning in front of
+   * the arguments. Streamed, the reasoning arrives apart (`reasoning_content`).
+   */
+  thinking?: boolean;
 }
+
+const THINK = '<think>The user wants an answer; let me work it out.</think>';
 
 const textOf = (m: MockChatMessage | undefined) =>
   typeof m?.content === 'string'
@@ -260,10 +269,17 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
         (body.tools ?? []).map((t) => [t.function.name, t.function.parameters]),
       );
       requests.push({ ...seen, messages, tools, toolSchemas, stream: body.stream === true });
-      const forcedProbe = tools.includes('report_status') && body.tool_choice === 'required';
-      const turn: MockTurn = forcedProbe
-        ? { toolCalls: [{ name: 'report_status', args: { status: 'ok' } }] }
-        : script({ messages, tools });
+      const thinking = opts.thinking === true;
+      const inline = thinking && !body.stream;
+      const required = body.tool_choice === 'required';
+      const named = typeof body.tool_choice === 'object' && body.tool_choice !== null;
+      const forcedProbe = tools.includes('report_status') && (required || thinking);
+      const turn: MockTurn =
+        inline && required
+          ? { toolCalls: [] }
+          : forcedProbe
+            ? { toolCalls: [{ name: 'report_status', args: { status: 'ok' } }] }
+            : script({ messages, tools });
       const id = `chatcmpl-mock-${++calls}`;
       const usage = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 };
       const toolCalls =
@@ -271,10 +287,14 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
           ? turn.toolCalls.map((c, i) => ({
               id: `call_${calls}_${i}`,
               type: 'function' as const,
-              function: { name: c.name, arguments: JSON.stringify(c.args) },
+              function: {
+                name: c.name,
+                arguments: `${inline && named ? `${THINK}\n` : ''}${JSON.stringify(c.args)}`,
+              },
             }))
           : undefined;
-      const finish = toolCalls ? 'tool_calls' : 'stop';
+      const finish = 'toolCalls' in turn ? 'tool_calls' : 'stop';
+      const text = 'text' in turn ? turn.text : null;
 
       if (!body.stream) {
         return send(res, 200, {
@@ -288,8 +308,8 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
               finish_reason: finish,
               message: {
                 role: 'assistant',
-                content: 'text' in turn ? turn.text : null,
-                ...(toolCalls ? { tool_calls: toolCalls } : {}),
+                content: inline ? `${THINK}\n\n${text ?? ''}` : text,
+                ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
               },
             },
           ],
@@ -309,6 +329,7 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
           })}\n\n`,
         );
       chunk({ role: 'assistant', content: '' });
+      if (thinking) chunk({ reasoning_content: THINK.replace(/<\/?think>/g, '') });
       if (toolCalls) {
         // Like real servers: id + name + the start of the arguments first, then the rest in pieces.
         toolCalls.forEach((c, index) => {
@@ -330,9 +351,9 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
             chunk({ tool_calls: [{ index, function: { arguments: rest.slice(at, at + size) } }] });
           }
         });
-      } else if ('text' in turn) {
+      } else if (text !== null) {
         // A few deltas, so clients really stream.
-        for (const piece of turn.text.match(/.{1,16}/gs) ?? []) chunk({ content: piece });
+        for (const piece of text.match(/.{1,16}/gs) ?? []) chunk({ content: piece });
       }
       chunk({}, finish);
       if (body.stream_options?.include_usage) {

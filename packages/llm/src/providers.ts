@@ -7,6 +7,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
 import { LLM_PROVIDERS, type LlmProvider } from './providers-list';
+import { withInlineReasoning } from './reasoning';
 
 export { LLM_PROVIDERS, type LlmProvider };
 
@@ -41,14 +42,16 @@ export function createLanguageModel(
         throw new TypeError('Invalid Azure resource name');
       return createAzure({ apiKey: cfg.apiKey, resourceName: cfg.resourceName, fetch })(cfg.model);
     case 'openai_compatible':
-      return createOpenAICompatible({
-        name: 'openai_compatible',
-        baseURL: cfg.baseUrl,
-        apiKey: cfg.apiKey || 'not-needed',
-        // Ask for token usage in streamed answers (the agent's cost meter needs it).
-        includeUsage: true,
-        // A user-supplied URL must not bounce us to internal hosts.
-        fetch: opts.fetch ?? fetchNoRedirect,
-      })(cfg.model);
+      return withInlineReasoning(
+        createOpenAICompatible({
+          name: 'openai_compatible',
+          baseURL: cfg.baseUrl,
+          apiKey: cfg.apiKey || 'not-needed',
+          // Ask for token usage in streamed answers (the agent's cost meter needs it).
+          includeUsage: true,
+          // A user-supplied URL must not bounce us to internal hosts.
+          fetch: opts.fetch ?? fetchNoRedirect,
+        })(cfg.model),
+      );
   }
 }
