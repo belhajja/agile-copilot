@@ -86,13 +86,18 @@ function mapLlmError(e: unknown): LlmProbeResult {
   return fail('provider_error', 'Unexpected error from the provider.');
 }
 
-/** Cheap check that a key works AND the model can call tools (the agent depends on it). */
+/**
+ * Cheap check that a key works AND the model can call tools (the agent depends on it). Some
+ * reasoning models (MiniMax M2) answer a `required` tool choice with no call yet call tools on
+ * their own: the check then retries with `auto`.
+ */
 export async function probeModel(
   model: LanguageModel,
   opts: { timeoutMs?: number } = {},
 ): Promise<LlmProbeResult> {
   const started = performance.now();
-  try {
+  const abortSignal = AbortSignal.timeout(opts.timeoutMs ?? 30_000);
+  const callsTool = async (toolChoice: 'required' | 'auto') => {
     const result = await generateText({
       model,
       tools: {
@@ -102,16 +107,22 @@ export async function probeModel(
           execute: async ({ status }) => status,
         }),
       },
-      toolChoice: 'required',
+      toolChoice,
       stopWhen: stepCountIs(1),
       prompt: 'Call the report_status tool with status "ok".',
       maxRetries: 0,
-      abortSignal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+      abortSignal,
       telemetry: { functionId: 'llm-probe', recordInputs: false, recordOutputs: false },
     });
-    const called = result.steps.some((s) =>
-      s.toolCalls.some((c) => c.toolName === 'report_status'),
-    );
+    return result.steps.some((s) => s.toolCalls.some((c) => c.toolName === 'report_status'));
+  };
+  try {
+    // The SDK reports an empty forced call as a ToolChoiceViolationError.
+    const forced = await callsTool('required').catch((e: unknown) => {
+      if (ToolChoiceViolationError.isInstance(e)) return false;
+      throw e;
+    });
+    const called = forced || (await callsTool('auto'));
     return called
       ? { ok: true, latencyMs: Math.round(performance.now() - started) }
       : fail(

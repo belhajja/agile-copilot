@@ -64,6 +64,26 @@ describe('probeModel', () => {
     expect(await probeModel(textOnly)).toMatchObject({ ok: false, code: 'no_tool_calling' });
   });
 
+  it('retries with an auto tool choice when a forced call comes back empty', async () => {
+    const choices: unknown[] = [];
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        choices.push(options.toolChoice);
+        if (options.toolChoice?.type === 'required') {
+          return {
+            content: [],
+            finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+            usage,
+            warnings: [],
+          };
+        }
+        return toolCallingModel().doGenerate(options);
+      },
+    });
+    expect(await probeModel(model)).toMatchObject({ ok: true });
+    expect(choices).toEqual([{ type: 'required' }, { type: 'auto' }]);
+  });
+
   it.each([
     [401, 'unauthorized'],
     [403, 'forbidden'],
@@ -125,6 +145,21 @@ describe('probeModel', () => {
       });
       expect(await probeModel(good)).toMatchObject({ ok: true });
       expect(await probeModel(bad)).toMatchObject({ ok: false, code: 'unauthorized' });
+    } finally {
+      await mock.close();
+    }
+  });
+
+  it('accepts a reasoning model that ignores a required tool choice (MiniMax M2)', async () => {
+    const mock = await startMockOpenAI({ validKey: 'k', thinking: true });
+    try {
+      const model = createLanguageModel({
+        provider: 'openai_compatible',
+        model: 'minimax-m2.5',
+        baseUrl: mock.baseUrl,
+        apiKey: 'k',
+      });
+      expect(await probeModel(model)).toMatchObject({ ok: true });
     } finally {
       await mock.close();
     }
