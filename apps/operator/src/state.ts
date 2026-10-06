@@ -52,8 +52,12 @@ export async function writeSecretFile(path: string, content: string): Promise<vo
 
 export class LockedError extends Error {
   override name = 'LockedError';
-  constructor() {
-    super('Another operator command is running on this folder. Try again when it is done.');
+  constructor(path: string, since?: string) {
+    super(
+      `Another operator command is running on this folder (lock ${path}` +
+        `${since ? `, held since ${since}` : ''}). Try again when it is done; if no operator ` +
+        'command is running, delete it.',
+    );
   }
 }
 
@@ -73,9 +77,9 @@ export async function acquireLock(dataDir: string, now: Date): Promise<() => Pro
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
       const held = JSON.parse(await readFile(path, 'utf8').catch(() => '{}')) as { at?: string };
       const age = now.getTime() - Date.parse(held.at ?? '');
-      if (!(age > LOCK_STALE_MS)) throw new LockedError();
+      if (!(age > LOCK_STALE_MS)) throw new LockedError(path, held.at);
       await rm(path, { force: true });
     }
   }
-  throw new LockedError();
+  throw new LockedError(path);
 }

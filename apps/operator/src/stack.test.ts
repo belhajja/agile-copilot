@@ -35,11 +35,13 @@ describe('versions and images', () => {
 describe('the compose override', () => {
   it('injects the init script as an inline config, escaping $ for Compose', () => {
     const yaml = renderOverride('local', {
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
       pgInit: '#!/bin/sh\r\necho "${APP_DB_PASSWORD}"\r\n',
       caddyfile: '{$APP_DOMAIN}',
     });
     expect(yaml).toContain('      echo "$${APP_DB_PASSWORD}"');
     expect(yaml).not.toContain('\r');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     expect(yaml).toContain('127.0.0.1:${WEB_PORT:-3000}:3000');
     expect(yaml).not.toContain('caddy');
   });

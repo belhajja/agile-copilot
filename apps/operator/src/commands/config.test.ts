@@ -42,4 +42,18 @@ describe('config', () => {
     await expect(config(ctx, 'private-hosts', 'a b')).rejects.toBeInstanceOf(SettingsError);
     expect(await readFile(envPath, 'utf8')).toBe(before);
   });
+
+  it('refuses trusted-proxy-hops on a server, where the compose file sets it', async () => {
+    const { ctx, dataDir } = await tempContext({ mode: 'server' });
+    await install(
+      ctx,
+      { mode: 'server', domain: 'copilot.example.com', 'acme-email': 'ops@example.com' },
+      { yes: true, resume: false },
+    );
+    const before = await readFile(join(dataDir, '.env'), 'utf8');
+    const err = await config(ctx, 'trusted-proxy-hops', '2').catch((e) => e);
+    expect(err).toBeInstanceOf(UsageError);
+    expect(err.message).toMatch(/TRUSTED_PROXY_HOPS=1/);
+    expect(await readFile(join(dataDir, '.env'), 'utf8')).toBe(before);
+  });
 });

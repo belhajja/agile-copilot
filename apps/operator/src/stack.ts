@@ -86,15 +86,22 @@ export function renderOverride(mode: Mode, assets: { pgInit: string; caddyfile: 
     '        target: /docker-entrypoint-initdb.d/01-app-role.sh',
     '        mode: 0555',
     '  migrate:',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     '    image: ${MIGRATE_IMAGE:?set MIGRATE_IMAGE}',
     '    build: !reset null',
     '  web:',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     '    image: ${WEB_IMAGE:?set WEB_IMAGE}',
     '    build: !reset null',
     ...(mode === 'local'
-      ? ['    ports: !override', '      - 127.0.0.1:${WEB_PORT:-3000}:3000']
+      ? [
+          '    ports: !override',
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+          '      - 127.0.0.1:${WEB_PORT:-3000}:3000',
+        ]
       : []),
     '  worker:',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     '    image: ${WORKER_IMAGE:?set WORKER_IMAGE}',
     '    build: !reset null',
     ...(mode === 'server'

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { StepError } from '../errors';
 import { tempContext } from '../testing';
 import { backupCommand } from './backup';
 import { install } from './install';
@@ -17,5 +18,23 @@ describe('status', () => {
     expect(text).toMatch(/web\s+running\s+healthy/);
     expect(text).toMatch(/Backup\s+2026-10-06T12-00/);
     expect(text).not.toMatch(/[0-9a-f]{48}/);
+  });
+
+  it('reports a failed compose ps instead of showing every service missing', async () => {
+    let fail = false;
+    const { ctx, out } = await tempContext({
+      respond: (cmd) =>
+        fail && cmd.startsWith('compose ps')
+          ? { code: 1, stderr: 'Cannot connect to the Docker daemon' }
+          : undefined,
+    });
+    await install(ctx, {}, { yes: true, resume: false });
+    fail = true;
+    out.length = 0;
+    await expect(status(ctx)).rejects.toMatchObject({
+      constructor: StepError,
+      detail: 'Cannot connect to the Docker daemon',
+    });
+    expect(out.join('\n')).not.toMatch(/missing/);
   });
 });

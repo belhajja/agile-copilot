@@ -16,7 +16,13 @@ const integer = (key: string, min: number, max: number) => (v: string) => {
 /** What `config` may change, the .env keys each sets and the services that read them. */
 export const CONFIG_KEYS: Record<
   string,
-  { modes: Mode[]; services: string[]; values: (v: string) => Record<string, string> }
+  {
+    modes: Mode[];
+    services: string[];
+    values: (v: string) => Record<string, string>;
+    /** Why the setting does not apply to the other mode, when the plain message is not enough. */
+    refused?: string;
+  }
 > = {
   'jira-hosts': {
     modes: ['local', 'server'],
@@ -29,7 +35,9 @@ export const CONFIG_KEYS: Record<
     values: (v) => ({ ALLOWED_PRIVATE_HOSTS: parseHostList('private-hosts', v).join(',') }),
   },
   'trusted-proxy-hops': {
-    modes: ['local', 'server'],
+    modes: ['local'],
+    refused:
+      'the server compose file sets TRUSTED_PROXY_HOPS=1 itself (Caddy is the one proxy), so it would have no effect.',
     services: ['web'],
     values: (v) => ({ TRUSTED_PROXY_HOPS: integer('trusted-proxy-hops', 0, 5)(v) }),
   },
@@ -67,7 +75,9 @@ export async function config(ctx: Context, key: string, value: string): Promise<
         `Unknown setting "${key}". Settings: ${Object.keys(CONFIG_KEYS).join(', ')}.`,
       );
     if (!spec.modes.includes(state.mode)) {
-      throw new UsageError(`"${key}" does not apply to a ${state.mode} install.`);
+      throw new UsageError(
+        `"${key}" does not apply to a ${state.mode} install${spec.refused ? `: ${spec.refused}` : '.'}`,
+      );
     }
     const values = spec.values(value);
     const p = pathsOf(ctx.dataDir);

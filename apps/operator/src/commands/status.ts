@@ -13,7 +13,9 @@ export async function status(ctx: Context): Promise<void> {
   const env = parseEnv(await readFile(p.env, 'utf8'));
   ctx.out(`Version  ${state.version} (${state.mode})`);
   ctx.out(`URL      ${env.get('BETTER_AUTH_URL') ?? '?'}`);
-  const ps = await new Compose(ctx.docker, ctx.dataDir, state.mode).run([
+  // A failed `ps` (Docker unreachable, a broken compose file) is reported, not shown as every
+  // service missing.
+  const ps = await new Compose(ctx.docker, ctx.dataDir, state.mode).check('status', [
     'ps',
     '-a',
     '--format',

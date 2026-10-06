@@ -28,6 +28,12 @@ describe('state folder', () => {
     const now = new Date('2026-10-06T12:00:00Z');
     const release = await acquireLock(d, now);
     await expect(acquireLock(d, now)).rejects.toBeInstanceOf(LockedError);
+    const message = await acquireLock(d, new Date(now.getTime() + 60_000)).catch(
+      (e: Error) => e.message,
+    );
+    expect(message).toContain(pathsOf(d).lock);
+    expect(message).toContain('held since 2026-10-06T12:00:00.000Z');
+    expect(message).toMatch(/delete it/);
     await release();
     await acquireLock(d, now);
     // A lock a killed run left behind, older than LOCK_STALE_MS.
