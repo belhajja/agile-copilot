@@ -18,6 +18,12 @@ export interface MockOpenAIOptions {
   validKey: string;
   /** Decides each turn; default `agentDemoScript`. The probe's forced tool call is always honoured. */
   script?: MockScript;
+  /**
+   * Model ids served at `GET /v1/models`, for listModels tests. Omitted: that route 404s, like a
+   * server with no such endpoint. An empty `validKey` ('') skips the auth check on this route only
+   * (an unauthenticated local server, e.g. an OpenAI-compatible key-optional setup).
+   */
+  models?: string[];
 }
 
 const textOf = (m: MockChatMessage | undefined) =>
@@ -218,6 +224,18 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
 
   const server = createServer((req, res) => {
     const seen = { method: req.method ?? '', url: req.url ?? '' };
+    if (req.method === 'GET' && req.url?.startsWith('/v1/models')) {
+      req.resume();
+      if (opts.models === undefined) return send(res, 404, { error: { message: 'not found' } });
+      if (opts.validKey && req.headers.authorization !== `Bearer ${opts.validKey}`) {
+        return send(res, 401, {
+          error: { message: 'Incorrect API key provided', type: 'invalid_request_error' },
+        });
+      }
+      return send(res, 200, {
+        data: opts.models.map((id) => ({ id, object: 'model' })),
+      });
+    }
     if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
       requests.push({ ...seen, messages: [], tools: [], toolSchemas: {}, stream: false });
       req.resume();

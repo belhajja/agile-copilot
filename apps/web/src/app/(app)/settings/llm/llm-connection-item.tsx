@@ -19,6 +19,7 @@ import {
   setDefaultLlmConnectionAction,
 } from './actions';
 import { BackgroundModelButton } from './background-model-button';
+import { ChangeModelButton } from './change-model-button';
 import { LLM_ERROR_CODES } from './error-codes';
 import { LlmPriceForm } from './llm-price-form';
 
@@ -76,6 +77,7 @@ export async function LlmConnectionItem({
             </form>
           )}
           <BackgroundModelButton id={c.id} isBackground={c.isBackground} />
+          <ChangeModelButton id={c.id} model={c.model} />
           <form action={retestLlmConnectionAction.bind(null, c.id)}>
             <Button variant="outline" size="sm">
               {t('retest')}

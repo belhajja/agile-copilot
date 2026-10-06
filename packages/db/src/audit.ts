@@ -10,6 +10,7 @@ export type AuditAction =
   | 'llm_connection.retested'
   | 'llm_connection.deleted'
   | 'llm_connection.default_changed'
+  | 'llm_connection.model_changed'
   | 'jira_boards.discovered'
   | 'jira_boards.selection_changed'
   | 'jira_status_mapping.updated'

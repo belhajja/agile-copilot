@@ -1,15 +1,19 @@
 'use server';
 
 import {
+  assertCanManage,
+  changeLlmModel,
   createLlmConnection,
   deleteLlmConnection,
   ForbiddenError,
+  listLlmModelsForConnection,
   retestLlmConnection,
   setBackgroundLlmConnection,
   setDefaultLlmConnection,
   setLlmConnectionPrices,
 } from '@agile/connections';
-import type { LlmConfig } from '@agile/llm';
+import { type LlmConfig, listModels } from '@agile/llm';
+import { checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { connectionDeps, requireActor } from '@/server/context';
@@ -45,6 +49,25 @@ const schema = z.discriminatedUnion('provider', [
   }),
 ]);
 
+// Same shape as `schema`, minus label and model: the add form has neither yet when it loads models.
+const modelsSchema = z.discriminatedUnion('provider', [
+  z.object({ provider: z.enum(['anthropic', 'openai', 'google', 'mistral']), apiKey: key }),
+  z.object({
+    provider: z.literal('azure'),
+    apiKey: key,
+    resourceName: z.string().trim().min(1).max(100),
+  }),
+  z.object({
+    provider: z.literal('openai_compatible'),
+    baseUrl: z.string().trim().min(1).max(500),
+    apiKey: z.string().trim().max(1000).optional(),
+  }),
+]);
+
+export type ListModelsResult =
+  | { ok: true; models: string[] }
+  | { ok: false; code: string; reason?: string; host?: string };
+
 const PATH = '/settings/llm';
 
 export async function createLlmConnectionAction(
@@ -73,6 +96,71 @@ export async function createLlmConnectionAction(
 }
 
 const isId = (id: unknown) => z.uuid().safeParse(id).success;
+
+/** "Load models" on the add form: the key never gets saved, so a parse failure costs no token. */
+export async function listModelsForNewConnectionAction(form: FormData): Promise<ListModelsResult> {
+  const actor = await requireActor();
+  try {
+    assertCanManage(actor);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };
+    throw e;
+  }
+  const parsed = modelsSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return { ok: false, code: 'invalid_input' };
+  const config = parsed.data;
+  if (config.provider === 'azure') return { ok: false, code: 'not_supported' };
+  if (config.provider === 'openai_compatible') {
+    const deps = connectionDeps();
+    const check = await checkOutboundUrl(config.baseUrl, deps);
+    if (!check.ok) return { ok: false, code: 'blocked_url', reason: check.code, host: check.host };
+    const result = await listModels(config, {
+      fetch: createOutboundFetch({
+        allowedPrivateHosts: deps.allowedPrivateHosts,
+        resolve: deps.resolve,
+      }),
+    });
+    if (!result.ok) return { ok: false, code: result.code };
+    return { ok: true, models: result.models };
+  }
+  const result = await listModels(config);
+  if (!result.ok) return { ok: false, code: result.code };
+  return { ok: true, models: result.models };
+}
+
+/** "Change model" on a saved connection: lists what its stored key can use. */
+export async function listModelsForConnectionAction(id: string): Promise<ListModelsResult> {
+  const actor = await requireActor();
+  if (!isId(id)) return { ok: false, code: 'not_found' };
+  try {
+    const result = await listLlmModelsForConnection(connectionDeps(), actor, id);
+    if (!result.ok) return { ok: false, code: result.code, ...result.detail };
+    return { ok: true, models: result.models };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };
+    throw e;
+  }
+}
+
+export async function changeLlmModelAction(
+  id: string,
+  model: string,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const actor = await requireActor();
+  if (!isId(id)) return { ok: false, code: 'not_found' };
+  // `model` crosses the server-action wire as arbitrary JSON; a crafted call could send anything.
+  const parsedModel = z.string().safeParse(model);
+  if (!parsedModel.success) return { ok: false, code: 'invalid_input' };
+  try {
+    const result = await changeLlmModel(connectionDeps(), actor, id, parsedModel.data);
+    if (!result.ok) return { ok: false, code: result.code };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };
+    throw e;
+  }
+  revalidatePath(PATH);
+  return { ok: true };
+}
 
 export async function retestLlmConnectionAction(id: string): Promise<void> {
   const actor = await requireActor();
