@@ -9,7 +9,7 @@ export interface AgentDeps extends Omit<SyncDeps, 'onError'> {
   mcpAtlassianUrl?: string;
   /** Build the model (tests inject a mock). Default: createLanguageModel with DNS pinning. */
   createModel?: (config: LlmConfig) => LanguageModel;
-  /** Model steps per reply (tool round-trips). Default 8. */
+  /** Model steps per reply (tool round-trips). Default CHAT_MAX_STEPS (12). */
   maxSteps?: number;
   /** Log hook: only error names and codes, never messages (they can echo provider bodies). */
   onError?: (error: unknown, code: string) => void;

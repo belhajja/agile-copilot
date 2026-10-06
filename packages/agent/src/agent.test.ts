@@ -57,6 +57,12 @@ const script: MockScript = (req) => {
   }
   // "…then break": the model call after the first tool result fails (HTTP 500).
   if (last?.role === 'tool' && /then break/i.test(ask)) throw new Error('scripted failure');
+  // "Keep searching": a model that never stops calling tools while it has any.
+  if (/keep searching/i.test(ask)) {
+    return req.tools.includes('list_boards')
+      ? { toolCalls: [{ name: 'list_boards', args: {} }] }
+      : { text: 'Here is what I found so far.' };
+  }
   return agentDemoScript(req);
 };
 
@@ -224,6 +230,23 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     // The model saw the analytics results as untrusted data.
     const toolMessage = h.llm.requests.at(-1)?.messages.find((m) => m.role === 'tool');
     expect(contentOf(toolMessage)).toMatch(/^<data source="list_boards">\n/);
+  });
+
+  it('ends with an answer when the model would keep calling tools past the step limit', async () => {
+    const id = randomUUID();
+    const before = h.llm.requests.length;
+    const r = await h.ask(owner(), id, 'Keep searching until you find it');
+    expect(r.status).toBe(200);
+    expect(textOf(r.chunks)).toBe('Here is what I found so far.');
+    const calls = h.llm.requests.slice(before);
+    // 12 model calls: 11 with tools, the last one without any.
+    expect(calls).toHaveLength(12);
+    expect(calls.slice(0, 11).every((c) => c.tools.includes('list_boards'))).toBe(true);
+    expect(calls.at(-1)?.tools).toEqual([]);
+    const convo = await loadConversation(h.db, owner(), id);
+    const parts = convo?.messages[1]?.parts.map((p) => p.type) ?? [];
+    expect(parts.filter((t) => t === 'tool-list_boards')).toHaveLength(11);
+    expect(parts.at(-1)).toBe('text');
   });
 
   it('proposes a Jira comment, writes nothing until approved, then posts it once', async () => {
