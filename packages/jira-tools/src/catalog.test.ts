@@ -1,11 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  isJiraMcpOnlyTool,
   isJiraToolName,
   isJiraWriteTool,
+  JIRA_LOCAL_TOOLS,
+  JIRA_MCP_ONLY_TOOLS,
   JIRA_TOOL_NAMES,
   JIRA_TOOLS,
   JIRA_WRITE_TOOLS,
+  MCP_ISSUE_FIELDS,
+  MCP_ISSUE_LIST_FIELDS,
   parseJiraToolInput,
 } from './catalog';
 
@@ -16,13 +21,24 @@ describe('Jira tool allowlist', () => {
       'jira_assign_issue',
       'jira_create_issue',
       'jira_get_agile_boards',
+      'jira_get_board_issues',
+      'jira_get_cross_project_dependencies',
       'jira_get_issue',
+      'jira_get_issue_dates',
+      'jira_get_issue_watchers',
+      'jira_get_link_types',
+      'jira_get_project_components',
+      'jira_get_project_epic_hierarchy',
+      'jira_get_project_versions',
       'jira_get_sprint_issues',
       'jira_get_sprints_from_board',
       'jira_get_transitions',
+      'jira_get_worklog',
       'jira_search',
+      'jira_search_fields',
       'jira_transition_issue',
       'jira_update_issue',
+      'jira_worklog_summary',
     ]);
     expect([...JIRA_WRITE_TOOLS].sort()).toEqual([
       'jira_add_comment',
@@ -61,6 +77,17 @@ describe('Jira tool allowlist', () => {
       jira_get_agile_boards: { projectKey: 'DEMO' },
       jira_get_sprints_from_board: { boardId: '1', state: 'active' },
       jira_get_sprint_issues: { sprintId: '4', limit: 10 },
+      jira_get_worklog: { issueKey: 'DEMO-1' },
+      jira_worklog_summary: { jql: 'project = DEMO', from: '2026-10-01', to: '2026-10-09' },
+      jira_get_board_issues: { boardId: '1', jql: 'status = Done', limit: 20 },
+      jira_get_issue_dates: { issueKey: 'DEMO-1' },
+      jira_get_project_epic_hierarchy: { projectKey: 'DEMO', maxEpics: 10 },
+      jira_get_cross_project_dependencies: { projectKey: 'DEMO', maxIssues: 20 },
+      jira_get_link_types: {},
+      jira_get_project_versions: { projectKey: 'DEMO' },
+      jira_get_project_components: { projectKey: 'DEMO' },
+      jira_search_fields: { keyword: 'story points', limit: 10 },
+      jira_get_issue_watchers: { issueKey: 'DEMO-1' },
       jira_add_comment: { issueKey: 'DEMO-1', body: 'Blocked by **API**' },
       jira_transition_issue: { issueKey: 'DEMO-1', transitionId: '31', comment: 'Done' },
       jira_assign_issue: { issueKey: 'DEMO-1', assignee: 'alex' },
@@ -108,5 +135,120 @@ describe('Jira tool allowlist', () => {
       ),
     ).toEqual(['x', 'side', 'dyn', 'req']);
     expect(specifiers(source)).toEqual(['zod']);
+  });
+});
+
+describe('read tools for time tracking and delivery context', () => {
+  const NEW_TOOLS = [
+    'jira_get_worklog',
+    'jira_worklog_summary',
+    'jira_get_board_issues',
+    'jira_get_issue_dates',
+    'jira_get_project_epic_hierarchy',
+    'jira_get_cross_project_dependencies',
+    'jira_get_link_types',
+    'jira_get_project_versions',
+    'jira_get_project_components',
+    'jira_search_fields',
+    'jira_get_issue_watchers',
+  ] as const;
+
+  it('are all read-only', () => {
+    for (const name of NEW_TOOLS)
+      expect({ name, write: JIRA_TOOLS[name].write }).toEqual({ name, write: false });
+  });
+
+  it('marks the composite tools mcp-only and the summary local', () => {
+    expect([...JIRA_MCP_ONLY_TOOLS].sort()).toEqual([
+      'jira_get_cross_project_dependencies',
+      'jira_get_issue_dates',
+      'jira_get_project_epic_hierarchy',
+      'jira_search_fields',
+    ]);
+    expect([...JIRA_LOCAL_TOOLS]).toEqual(['jira_worklog_summary']);
+    expect(isJiraMcpOnlyTool('jira_search_fields')).toBe(true);
+    expect(isJiraMcpOnlyTool('jira_get_worklog')).toBe(false);
+  });
+
+  it('asks mcp-atlassian for time tracking on issue reads', () => {
+    expect(MCP_ISSUE_FIELDS.split(',')).toContain('timetracking');
+    expect(MCP_ISSUE_LIST_FIELDS.split(',')).toContain('timetracking');
+    const issue = parseJiraToolInput('jira_get_issue', { issueKey: 'DEMO-1' });
+    const search = parseJiraToolInput('jira_search', { jql: 'project = DEMO' });
+    const sprint = parseJiraToolInput('jira_get_sprint_issues', { sprintId: '4' });
+    const board = parseJiraToolInput('jira_get_board_issues', { boardId: '1' });
+    if (!issue.success || !search.success || !sprint.success || !board.success) {
+      throw new Error('invalid sample');
+    }
+    expect(JIRA_TOOLS.jira_search.toMcp(search.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
+    });
+    expect(JIRA_TOOLS.jira_get_sprint_issues.toMcp(sprint.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
+    });
+    expect(JIRA_TOOLS.jira_get_board_issues.toMcp(board.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
+    });
+  });
+
+  it('asks mcp-atlassian for comments on a single issue read, explicitly (0.23.1 only adds them to its own default field set)', () => {
+    const issue = parseJiraToolInput('jira_get_issue', { issueKey: 'DEMO-1' });
+    if (!issue.success) throw new Error('invalid sample');
+    expect(MCP_ISSUE_FIELDS.split(',')).toContain('comment');
+    expect(JIRA_TOOLS.jira_get_issue.toMcp(issue.data)).toMatchObject({ fields: MCP_ISSUE_FIELDS });
+  });
+
+  it('bounds the inputs', () => {
+    const bad = {
+      jira_get_worklog: { issueKey: 'not a key' },
+      jira_worklog_summary: { jql: 'project = DEMO', from: '2026-10-09', to: '2026-10-01' },
+      jira_get_board_issues: { boardId: '1', limit: 51 },
+      jira_get_project_epic_hierarchy: { projectKey: 'DEMO', maxEpics: 21 },
+      jira_get_cross_project_dependencies: { projectKey: 'DEMO', maxIssues: 51 },
+      jira_get_project_versions: { projectKey: 'demo' },
+      jira_search_fields: { keyword: 'points', limit: 21 },
+    } as const;
+    for (const [name, input] of Object.entries(bad)) {
+      expect({ name, ok: parseJiraToolInput(name as never, input).success }).toEqual({
+        name,
+        ok: false,
+      });
+    }
+    expect(
+      parseJiraToolInput('jira_worklog_summary', {
+        jql: 'sprint in openSprints()',
+        from: '2026-10-01',
+        to: '2026-10-09',
+      }).success,
+    ).toBe(true);
+    expect(
+      parseJiraToolInput('jira_worklog_summary', { jql: 'x', from: '2026-13-01' }).success,
+    ).toBe(false);
+    expect(parseJiraToolInput('jira_get_link_types', {}).success).toBe(true);
+  });
+
+  it('round-trips every new mcp tool through toMcp and fromMcp', () => {
+    const samples = {
+      jira_get_worklog: { issueKey: 'DEMO-1' },
+      jira_get_board_issues: { boardId: '1', jql: 'status = Done', limit: 20 },
+      jira_get_issue_dates: { issueKey: 'DEMO-1' },
+      jira_get_project_epic_hierarchy: { projectKey: 'DEMO', maxEpics: 10 },
+      jira_get_cross_project_dependencies: { projectKey: 'DEMO', maxIssues: 20 },
+      jira_get_link_types: {},
+      jira_get_project_versions: { projectKey: 'DEMO' },
+      jira_get_project_components: { projectKey: 'DEMO' },
+      jira_search_fields: { keyword: 'story points', limit: 10 },
+      jira_get_issue_watchers: { issueKey: 'DEMO-1' },
+    } as const;
+    for (const [name, input] of Object.entries(samples)) {
+      const def = JIRA_TOOLS[name as keyof typeof samples];
+      const parsed = def.input.parse(input);
+      expect({
+        name,
+        back: def.input.parse(
+          def.fromMcp((def.toMcp as (i: unknown) => Record<string, unknown>)(parsed)),
+        ),
+      }).toEqual({ name, back: parsed });
+    }
   });
 });

@@ -28,6 +28,10 @@ const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
 interface ToolDef<S extends z.ZodObject> {
   /** Writes always need the user's approval. */
   write: boolean;
+  /** Only mcp-atlassian connections can run it (Data Center PAT, Cloud OAuth). */
+  mcpOnly?: true;
+  /** Ours, built from other tools: not an mcp-atlassian tool, never in ENABLED_TOOLS. */
+  local?: true;
   description: string;
   input: S;
   toMcp(input: z.output<S>): Record<string, unknown>;
@@ -35,23 +39,54 @@ interface ToolDef<S extends z.ZodObject> {
 }
 const def = <S extends z.ZodObject>(d: ToolDef<S>) => d;
 
+const projectKey = z
+  .string()
+  .trim()
+  .regex(/^[A-Z][A-Z0-9_]{0,19}$/)
+  .describe('Project key');
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'A date such as 2026-10-01')
+  .describe('Date, YYYY-MM-DD');
+
+/**
+ * Fields asked of mcp-atlassian for a list of issues (search, sprint and board issues): only what
+ * `briefFromMcp` reads, plus `timetracking` (0.23.1's defaults leave it out). Passing `fields`
+ * replaces mcp-atlassian's own defaults.
+ */
+export const MCP_ISSUE_LIST_FIELDS = 'summary,issuetype,updated,status,assignee,timetracking';
+
+/**
+ * Fields asked of mcp-atlassian for a single issue: the list fields above, plus `labels` and
+ * `description` (`issueFromMcp` reads both) and `comment`. Requesting `comment` explicitly is the
+ * only way 0.23.1 fetches comments once `fields` differs from its own defaults: it only adds
+ * `comment` to the requested set on its own when that set is exactly
+ * `DEFAULT_READ_JIRA_FIELDS` (`jira/issues.py`), which `timetracking` already takes us out of.
+ */
+export const MCP_ISSUE_FIELDS = `${MCP_ISSUE_LIST_FIELDS},labels,description,comment`;
+
 export const JIRA_TOOLS = {
   jira_search: def({
     write: false,
     description:
-      'Search Jira issues with JQL (live data, may be newer than the synced dashboards). Returns key, summary, status, assignee.',
+      'Search Jira issues with JQL (live data, may be newer than the synced dashboards). Returns key, summary, status, assignee and time tracking (estimates and time spent, in hours and as Jira shows them).',
     input: z.object({ jql: text(2000).describe('JQL query'), limit: limit(50, 20) }),
-    toMcp: (i) => ({ jql: i.jql, limit: i.limit }),
+    toMcp: (i) => ({ jql: i.jql, limit: i.limit, fields: MCP_ISSUE_LIST_FIELDS }),
     fromMcp: (a) => ({ jql: str(a.jql) ?? '', limit: num(a.limit) }),
   }),
   jira_get_issue: def({
     write: false,
-    description: 'Read one Jira issue: fields, status, assignee, description and latest comments.',
+    description:
+      'Read one Jira issue: fields, status, assignee, description, latest comments and time tracking (original and remaining estimate, time spent, in hours and as Jira shows them).',
     input: z.object({
       issueKey,
       commentLimit: z.number().int().min(0).max(20).default(5).describe('Comments to include'),
     }),
-    toMcp: (i) => ({ issue_key: i.issueKey, comment_limit: i.commentLimit }),
+    toMcp: (i) => ({
+      issue_key: i.issueKey,
+      comment_limit: i.commentLimit,
+      fields: MCP_ISSUE_FIELDS,
+    }),
     fromMcp: (a) => ({ issueKey: str(a.issue_key) ?? '', commentLimit: num(a.comment_limit) }),
   }),
   jira_get_transitions: def({
@@ -90,10 +125,137 @@ export const JIRA_TOOLS = {
   }),
   jira_get_sprint_issues: def({
     write: false,
-    description: 'List the issues of a sprint.',
+    description: 'List the issues of a sprint, with their time tracking.',
     input: z.object({ sprintId: numericId('sprint'), limit: limit(50, 50) }),
-    toMcp: (i) => ({ sprint_id: i.sprintId, limit: i.limit }),
+    toMcp: (i) => ({ sprint_id: i.sprintId, limit: i.limit, fields: MCP_ISSUE_LIST_FIELDS }),
     fromMcp: (a) => ({ sprintId: str(a.sprint_id) ?? '', limit: num(a.limit) }),
+  }),
+  jira_get_worklog: def({
+    write: false,
+    description:
+      'List the worklog entries of one issue: who logged time, when, how many hours, and the comment. For totals across many issues use jira_worklog_summary.',
+    input: z.object({ issueKey }),
+    toMcp: (i) => ({ issue_key: i.issueKey }),
+    fromMcp: (a) => ({ issueKey: str(a.issue_key) ?? '' }),
+  }),
+  jira_worklog_summary: def({
+    write: false,
+    local: true,
+    description:
+      'Total the time logged on the issues a JQL query matches (at most 50), per person and per issue, optionally between two dates (inclusive, by the day the work was logged for). Use it for questions such as "time logged per person this sprint". If partial is true, not every issue or worklog was counted (more than 50 issues, an unreadable worklog, or the time limit): say the totals are incomplete and suggest a narrower JQL. Hours are rounded to 0.1, so per-person totals may differ from the total by 0.1.',
+    input: z
+      .object({
+        jql: text(2000).describe('JQL query'),
+        from: isoDate.optional(),
+        to: isoDate.optional(),
+      })
+      .refine((i) => !i.from || !i.to || i.from <= i.to, 'from must not be after to'),
+    toMcp: (i) => ({
+      jql: i.jql,
+      ...(i.from ? { from: i.from } : {}),
+      ...(i.to ? { to: i.to } : {}),
+    }),
+    fromMcp: (a) => ({ jql: str(a.jql) ?? '', from: str(a.from), to: str(a.to) }),
+  }),
+  jira_get_board_issues: def({
+    write: false,
+    description:
+      'List the issues of a board (its filter, backlog included), optionally narrowed by JQL, with their time tracking.',
+    input: z.object({
+      boardId: numericId('board'),
+      jql: text(2000).optional().describe('Optional JQL to narrow the board'),
+      limit: limit(50, 50),
+    }),
+    toMcp: (i) => ({
+      board_id: i.boardId,
+      jql: i.jql ?? 'ORDER BY Rank ASC',
+      fields: MCP_ISSUE_LIST_FIELDS,
+      limit: i.limit,
+    }),
+    fromMcp: (a) => {
+      const jql = str(a.jql);
+      return {
+        boardId: str(a.board_id) ?? '',
+        jql: jql && jql !== 'ORDER BY Rank ASC' ? jql : undefined,
+        limit: num(a.limit),
+      };
+    },
+  }),
+  jira_get_issue_dates: def({
+    write: false,
+    mcpOnly: true,
+    description:
+      'Dates of one issue (created, updated, due, resolved) and its status history with the time spent in each status.',
+    input: z.object({ issueKey }),
+    toMcp: (i) => ({
+      issue_key: i.issueKey,
+      include_status_changes: true,
+      include_status_summary: true,
+    }),
+    fromMcp: (a) => ({ issueKey: str(a.issue_key) ?? '' }),
+  }),
+  jira_get_project_epic_hierarchy: def({
+    write: false,
+    mcpOnly: true,
+    description:
+      "Group a project's epics under their parent issues (initiatives), across projects.",
+    input: z.object({
+      projectKey,
+      maxEpics: z.number().int().min(1).max(20).default(20).describe('At most 20 epics'),
+    }),
+    toMcp: (i) => ({ project_key: i.projectKey, max_epics: i.maxEpics }),
+    fromMcp: (a) => ({ projectKey: str(a.project_key) ?? '', maxEpics: num(a.max_epics) }),
+  }),
+  jira_get_cross_project_dependencies: def({
+    write: false,
+    mcpOnly: true,
+    description:
+      'List the issue links between a project and other projects (blockers and dependencies).',
+    input: z.object({
+      projectKey,
+      maxIssues: z.number().int().min(1).max(50).default(50).describe('At most 50 issues'),
+    }),
+    toMcp: (i) => ({ project_key: i.projectKey, max_issues: i.maxIssues }),
+    fromMcp: (a) => ({ projectKey: str(a.project_key) ?? '', maxIssues: num(a.max_issues) }),
+  }),
+  jira_get_link_types: def({
+    write: false,
+    description: 'List the issue link types (e.g. blocks / is blocked by).',
+    input: z.object({}),
+    toMcp: () => ({}),
+    fromMcp: () => ({}),
+  }),
+  jira_get_project_versions: def({
+    write: false,
+    description: 'List the versions (releases) of a project, with their release dates and status.',
+    input: z.object({ projectKey }),
+    toMcp: (i) => ({ project_key: i.projectKey }),
+    fromMcp: (a) => ({ projectKey: str(a.project_key) ?? '' }),
+  }),
+  jira_get_project_components: def({
+    write: false,
+    description: 'List the components of a project.',
+    input: z.object({ projectKey }),
+    toMcp: (i) => ({ project_key: i.projectKey }),
+    fromMcp: (a) => ({ projectKey: str(a.project_key) ?? '' }),
+  }),
+  jira_search_fields: def({
+    write: false,
+    mcpOnly: true,
+    description: 'Find Jira fields by name (e.g. the custom field id of "Story Points").',
+    input: z.object({
+      keyword: text(100).describe('Part of the field name'),
+      limit: z.number().int().min(1).max(20).default(10).describe('At most 20 results'),
+    }),
+    toMcp: (i) => ({ keyword: i.keyword, limit: i.limit }),
+    fromMcp: (a) => ({ keyword: str(a.keyword) ?? '', limit: num(a.limit) }),
+  }),
+  jira_get_issue_watchers: def({
+    write: false,
+    description: 'List who watches an issue (display names).',
+    input: z.object({ issueKey }),
+    toMcp: (i) => ({ issue_key: i.issueKey }),
+    fromMcp: (a) => ({ issueKey: str(a.issue_key) ?? '' }),
   }),
   jira_add_comment: def({
     write: true,
@@ -221,6 +383,16 @@ export const JIRA_TOOL_NAMES: readonly JiraToolName[] = Object.freeze(
 export const JIRA_WRITE_TOOLS: ReadonlySet<JiraToolName> = new Set(
   JIRA_TOOL_NAMES.filter((n) => JIRA_TOOLS[n].write),
 );
+/** Tools only mcp-atlassian connections can run (Data Center PAT, Cloud OAuth). */
+export const JIRA_MCP_ONLY_TOOLS: ReadonlySet<JiraToolName> = new Set(
+  JIRA_TOOL_NAMES.filter((n) => (JIRA_TOOLS[n] as { mcpOnly?: true }).mcpOnly),
+);
+/** Our own tools, built from other Jira calls: never sent to mcp-atlassian as such. */
+export const JIRA_LOCAL_TOOLS: ReadonlySet<JiraToolName> = new Set(
+  JIRA_TOOL_NAMES.filter((n) => (JIRA_TOOLS[n] as { local?: true }).local),
+);
+export const isJiraMcpOnlyTool = (name: string): boolean =>
+  isJiraToolName(name) && JIRA_MCP_ONLY_TOOLS.has(name);
 /** Own keys only: `toString` or `constructor` are not tools. */
 export const isJiraToolName = (name: string): name is JiraToolName =>
   Object.hasOwn(JIRA_TOOLS, name);

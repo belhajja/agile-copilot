@@ -49,12 +49,51 @@ export interface MockSprint {
   goal?: string;
 }
 
+export interface MockWorklog {
+  id: string;
+  author: { accountId: string; name: string; displayName: string };
+  started: string;
+  timeSpentSeconds: number;
+  comment?: string;
+}
+
+export interface MockComment {
+  id: string;
+  author: { accountId: string; name: string; displayName: string };
+  body: string;
+  created: string;
+}
+
 export interface MockJiraDataset {
   boards: MockBoard[];
   statuses: { id: string; name: string; categoryKey: 'new' | 'indeterminate' | 'done' }[];
   fields: { id: string; name: string; custom: boolean; schemaCustom?: string }[];
   sprints: MockSprint[];
   issues: MockIssue[];
+  worklogs?: Record<string, MockWorklog[]>;
+  comments?: Record<string, MockComment[]>;
+  versions?: Record<
+    string,
+    {
+      id: string;
+      name: string;
+      released: boolean;
+      archived: boolean;
+      releaseDate?: string;
+      description?: string;
+    }[]
+  >;
+  components?: Record<
+    string,
+    { id: string; name: string; description?: string; lead?: { displayName: string } }[]
+  >;
+  linkTypes?: { id: string; name: string; inward: string; outward: string }[];
+  watchers?: Record<
+    string,
+    { displayName: string; name: string; accountId: string; emailAddress?: string }[]
+  >;
+  /** null = time tracking disabled. */
+  timeTracking?: { workingHoursPerDay: number; workingDaysPerWeek: number } | null;
 }
 
 export const DEMO_STORY_POINTS = 'customfield_10016';
@@ -331,6 +370,35 @@ export function demoDataset(anchor: Date): MockJiraDataset {
     });
   }
 
+  const demo1 = issues.find((i) => i.key === 'DEMO-1');
+  const demo2 = issues.find((i) => i.key === 'DEMO-2');
+  if (demo1) {
+    demo1.fields.timetracking = {
+      originalEstimate: '1d 3h 12m',
+      remainingEstimate: '0m',
+      timeSpent: '1d 6h',
+      originalEstimateSeconds: 40320,
+      remainingEstimateSeconds: 0,
+      timeSpentSeconds: 50400,
+    };
+  }
+  if (demo2) {
+    demo2.fields.timetracking = {
+      originalEstimate: '4d',
+      remainingEstimate: '3d 4h',
+      timeSpent: '4h',
+      originalEstimateSeconds: 115200,
+      remainingEstimateSeconds: 100800,
+      timeSpentSeconds: 14400,
+    };
+  }
+  const person = (p: { accountId: string; name: string; displayName: string }) => ({
+    accountId: p.accountId,
+    name: p.name,
+    displayName: p.displayName,
+  });
+  const dateOnly = (d: Date) => d.toISOString().slice(0, 10);
+
   return {
     boards: [
       {
@@ -387,5 +455,65 @@ export function demoDataset(anchor: Date): MockJiraDataset {
     ],
     sprints,
     issues,
+    worklogs: {
+      'DEMO-1': [
+        {
+          id: '100001',
+          author: person(PEOPLE[0]!),
+          started: jiraTime(at(-5, 9)),
+          timeSpentSeconds: 7200,
+          comment: 'Pipeline <b>fix</b>',
+        },
+        {
+          id: '100002',
+          author: person(PEOPLE[1]!),
+          started: jiraTime(at(-3, 14)),
+          timeSpentSeconds: 3600,
+        },
+      ],
+      'DEMO-2': [
+        {
+          id: '100003',
+          author: person(PEOPLE[2]!),
+          started: jiraTime(at(-4, 10)),
+          timeSpentSeconds: 14400,
+        },
+      ],
+    },
+    comments: {
+      'DEMO-1': [
+        {
+          id: '90001',
+          author: person(PEOPLE[0]!),
+          body: 'Looks blocked on the API team.',
+          created: jiraTime(at(-5, 9, 30)),
+        },
+      ],
+    },
+    versions: {
+      DEMO: [
+        {
+          id: '10000',
+          name: '1.0',
+          released: true,
+          archived: false,
+          releaseDate: dateOnly(at(-10)),
+        },
+        { id: '10001', name: '1.1', released: false, archived: false },
+      ],
+    },
+    components: {
+      DEMO: [{ id: '20000', name: 'API', lead: { displayName: PEOPLE[2]!.displayName } }],
+    },
+    linkTypes: [{ id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }],
+    watchers: {
+      'DEMO-1': [
+        {
+          ...person(PEOPLE[0]!),
+          emailAddress: 'alex.martin@example.com',
+        },
+      ],
+    },
+    timeTracking: { workingHoursPerDay: 8, workingDaysPerWeek: 5 },
   };
 }

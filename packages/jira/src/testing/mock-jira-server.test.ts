@@ -65,6 +65,20 @@ describe.each(['cloud', 'datacenter'] as const)('mock Jira (%s)', (flavor) => {
     expect((await get('/rest/agile/1.0/board/1/sprint')).body.values).toHaveLength(4);
   });
 
+  it("serves a quoted project key, newest first, as mcp-atlassian's own tools query it", async () => {
+    const { get } = await start(flavor);
+    const r = await get(`${searchPath(flavor)}?${jql('project = "DEMO" ORDER BY updated DESC')}`);
+    expect(r.body.issues.length).toBeGreaterThan(0);
+    expect(r.body.issues.every((i: { key: string }) => i.key.startsWith('DEMO-'))).toBe(true);
+    const updated = r.body.issues.map((i: { fields: { updated: string } }) => i.fields.updated);
+    expect(updated).toEqual([...updated].sort().reverse());
+    // No epic in the demo data: a legitimate empty result, not an error.
+    const epics = await get(
+      `${searchPath(flavor)}?${jql('project = "DEMO" AND issuetype = Epic ORDER BY updated DESC')}`,
+    );
+    expect(epics.body.issues).toEqual([]);
+  });
+
   it('filters by the relative updated window', async () => {
     const { get } = await start(flavor, { maxPageSize: 200 });
     const all = await get(`${searchPath(flavor)}?${jql('filter = 102')}`);
@@ -104,6 +118,128 @@ describe.each(['cloud', 'datacenter'] as const)('mock Jira (%s)', (flavor) => {
     }
   });
 });
+
+describe.each(['cloud', 'datacenter'] as const)(
+  'mock Jira project metadata and time tracking (%s)',
+  (flavor) => {
+    const api = flavor === 'cloud' ? '3' : '2';
+
+    it('reports the working-time configuration', async () => {
+      const { get } = await start(flavor);
+      const r = await get(`/rest/api/${api}/configuration`);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({
+        timeTrackingEnabled: true,
+        timeTrackingConfiguration: {
+          workingHoursPerDay: 8,
+          workingDaysPerWeek: 5,
+          timeFormat: 'pretty',
+          defaultUnit: 'hour',
+        },
+      });
+    });
+
+    it('pages the worklog of an issue', async () => {
+      const { get } = await start(flavor);
+      const all = await get(`/rest/api/${api}/issue/DEMO-1/worklog`);
+      expect(all.status).toBe(200);
+      expect(all.body.total).toBe(2);
+      expect(all.body.worklogs).toHaveLength(2);
+      expect(all.body.worklogs[0]).toMatchObject({
+        started: expect.any(String),
+        timeSpentSeconds: 7200,
+        timeSpent: '2h',
+        comment: 'Pipeline <b>fix</b>',
+      });
+      expect(all.body.worklogs[0].author.displayName).toBeTruthy();
+      if (flavor === 'cloud') {
+        expect(all.body.worklogs[0].author).toMatchObject({ accountId: expect.any(String) });
+      } else {
+        expect(all.body.worklogs[0].author).toMatchObject({ key: expect.any(String) });
+      }
+
+      const first = await get(`/rest/api/${api}/issue/DEMO-1/worklog?maxResults=1`);
+      expect(first.body.worklogs).toHaveLength(1);
+      expect(first.body.startAt).toBe(0);
+      const second = await get(`/rest/api/${api}/issue/DEMO-1/worklog?startAt=1&maxResults=1`);
+      expect(second.body.startAt).toBe(1);
+      expect(second.body.worklogs).toHaveLength(1);
+      expect(second.body.worklogs[0].id).not.toBe(first.body.worklogs[0].id);
+
+      expect((await get(`/rest/api/${api}/issue/NOPE-1/worklog`)).status).toBe(404);
+    });
+
+    it('serves a seeded issue comment, author shaped per flavour', async () => {
+      const { get } = await start(flavor);
+      const issue = await get(`/rest/api/${api}/issue/DEMO-1`);
+      const comment = issue.body.fields.comment;
+      expect(comment.total).toBe(1);
+      expect(comment.comments[0]).toMatchObject({ body: 'Looks blocked on the API team.' });
+      expect(comment.comments[0].author.displayName).toBeTruthy();
+      if (flavor === 'cloud') {
+        expect(comment.comments[0].author).toMatchObject({ accountId: expect.any(String) });
+      } else {
+        expect(comment.comments[0].author).toMatchObject({ key: expect.any(String) });
+      }
+      const direct = await get(`/rest/api/${api}/issue/DEMO-1/comment`);
+      expect(direct.body).toEqual(comment);
+    });
+
+    it('lists watchers, with emailAddress in the raw mock answer', async () => {
+      const { get } = await start(flavor);
+      const r = await get(`/rest/api/${api}/issue/DEMO-1/watchers`);
+      expect(r.status).toBe(200);
+      expect(r.body.watchCount).toBe(1);
+      expect(r.body.isWatching).toBe(false);
+      expect(r.body.watchers).toHaveLength(1);
+      expect(r.body.watchers[0].displayName).toBeTruthy();
+      expect(r.body.watchers[0].emailAddress).toBeTruthy();
+      expect((await get(`/rest/api/${api}/issue/NOPE-1/watchers`)).status).toBe(404);
+    });
+
+    it('lists issue link types', async () => {
+      const { get } = await start(flavor);
+      const r = await get(`/rest/api/${api}/issueLinkType`);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({
+        issueLinkTypes: [{ id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }],
+      });
+    });
+
+    it("lists a project's versions, 404 for an unknown project", async () => {
+      const { get } = await start(flavor);
+      const r = await get(`/rest/api/${api}/project/DEMO/versions`);
+      expect(r.status).toBe(200);
+      expect(r.body.map((v: { name: string }) => v.name)).toEqual(['1.0', '1.1']);
+      expect((await get(`/rest/api/${api}/project/NOPE/versions`)).status).toBe(404);
+    });
+
+    it("lists a project's components, 404 for an unknown project", async () => {
+      const { get } = await start(flavor);
+      const r = await get(`/rest/api/${api}/project/DEMO/components`);
+      expect(r.status).toBe(200);
+      expect(r.body.map((c: { name: string }) => c.name)).toEqual(['API']);
+      expect((await get(`/rest/api/${api}/project/NOPE/components`)).status).toBe(404);
+    });
+
+    it("lists a board's issues", async () => {
+      const { get } = await start(flavor);
+      const r = await get('/rest/agile/1.0/board/1/issue?maxResults=50');
+      expect(r.status).toBe(200);
+      expect(r.body.issues.map((i: { key: string }) => i.key)).toContain('DEMO-1');
+      expect((await get('/rest/agile/1.0/board/999/issue')).status).toBe(404);
+    });
+
+    it('includes timetracking on issues that have it', async () => {
+      const { get } = await start(flavor);
+      const issue = await get(`/rest/api/${api}/issue/DEMO-1`);
+      expect(issue.body.fields.timetracking).toMatchObject({ timeSpentSeconds: 50400 });
+      const search = await get(`${searchPath(flavor)}?${jql('filter = 101')}`);
+      const demo2 = search.body.issues.find((i: { key: string }) => i.key === 'DEMO-2');
+      expect(demo2.fields.timetracking).toMatchObject({ timeSpentSeconds: 14400 });
+    });
+  },
+);
 
 describe('paging', () => {
   it('Cloud search pages with tokens and no total', async () => {

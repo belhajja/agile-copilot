@@ -21,6 +21,7 @@ const JIRA = [
   'blocked_url',
   'jira_error',
   'unknown_outcome',
+  'not_supported',
 ] as const satisfies readonly JiraToolErrorCode[];
 
 /** What `resolveCredentials` throws for a connection (deleted, OAuth, network, URL policy). */

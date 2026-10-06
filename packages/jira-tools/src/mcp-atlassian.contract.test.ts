@@ -3,7 +3,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { GenericContainer, type StartedTestContainer, TestContainers, Wait } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { JIRA_TOOL_NAMES, JIRA_TOOLS, type JiraToolName, parseJiraToolInput } from './catalog';
+import {
+  JIRA_LOCAL_TOOLS,
+  JIRA_TOOL_NAMES,
+  JIRA_TOOLS,
+  type JiraToolName,
+  parseJiraToolInput,
+} from './catalog';
 import { MCP_ATLASSIAN_IMAGE } from './image';
 import {
   codeFromToolText,
@@ -29,7 +35,6 @@ import { markdownToJiraWiki } from './wiki';
 // forwarder under a hostname (mcp-atlassian refuses IP-literal Jira URLs even when allowlisted).
 // The forwarder works the same against a remote daemon (GitLab's docker:dind service).
 const HOST_ALIAS = 'host.testcontainers.internal';
-const READ_TOOLS = JIRA_TOOL_NAMES.filter((n) => !JIRA_TOOLS[n].write);
 
 const start = (env: Record<string, string>) =>
   new GenericContainer(MCP_ATLASSIAN_IMAGE)
@@ -55,6 +60,17 @@ const SAMPLES: { [N in JiraToolName]: unknown } = {
   jira_get_agile_boards: { projectKey: 'DEMO' },
   jira_get_sprints_from_board: { boardId: '1', state: 'active' },
   jira_get_sprint_issues: { sprintId: '4' },
+  jira_get_worklog: { issueKey: 'DEMO-1' },
+  jira_worklog_summary: { jql: 'filter = 101' },
+  jira_get_board_issues: { boardId: '1' },
+  jira_get_issue_dates: { issueKey: 'DEMO-1' },
+  jira_get_project_epic_hierarchy: { projectKey: 'DEMO' },
+  jira_get_cross_project_dependencies: { projectKey: 'DEMO' },
+  jira_get_link_types: {},
+  jira_get_project_versions: { projectKey: 'DEMO' },
+  jira_get_project_components: { projectKey: 'DEMO' },
+  jira_search_fields: { keyword: 'points' },
+  jira_get_issue_watchers: { issueKey: 'DEMO-1' },
   jira_add_comment: { issueKey: 'DEMO-1', body: 'Blocked by the API team' },
   jira_transition_issue: { issueKey: 'DEMO-2', transitionId: '21', comment: 'Started' },
   jira_assign_issue: { issueKey: 'DEMO-2', assignee: 'alex' },
@@ -76,6 +92,13 @@ const mockJira = () =>
     now: () => ANCHOR,
   });
 const portOf = (m: MockJira) => Number(new URL(m.url).port);
+// workingTime() fetches the Jira it is given directly (not through the container): the image
+// backend's baseUrl is the Testcontainers host alias, which only containers can resolve. Pin it to
+// the mock's real loopback address so the backend's own request succeeds too, the way a real
+// backend process reaches its Jira directly (no indirection; the alias exists only for this test).
+const aliasResolvesToLoopback = async (host: string) =>
+  host === HOST_ALIAS ? ['127.0.0.1'] : Promise.reject(new Error(`unexpected host ${host}`));
+const workingTimeOutbound = { allowedPrivateHosts: [HOST_ALIAS], resolve: aliasResolvesToLoopback };
 
 describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
   /** Reached by the containers (brief's checks, error texts). */
@@ -182,6 +205,8 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       });
     };
     for (const name of JIRA_TOOL_NAMES) {
+      // Local tools (jira_worklog_summary) are ours: no mcp-atlassian tool to check them against.
+      if (JIRA_LOCAL_TOOLS.has(name)) continue;
       const parsed = parseJiraToolInput(name, SAMPLES[name]);
       if (!parsed.success) throw new Error(`sample for ${name} is invalid`);
       check(name, (JIRA_TOOLS[name].toMcp as (i: unknown) => Record<string, unknown>)(parsed.data));
@@ -193,7 +218,9 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
 
   it('the read-only instance (background runs) has no write tools', async () => {
     const tools = await listTools(mcpUrl(readOnly), mcpAtlassianHeaders(dcCreds(jira)));
-    expect(tools.map((t) => t.name).sort()).toEqual([...READ_TOOLS].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [...MCP_ATLASSIAN_READONLY_ENABLED_TOOLS].sort(),
+    );
   });
 
   it('accepts per-request Cloud OAuth credentials (bearer token + cloud id)', async () => {
@@ -226,7 +253,10 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
 
   it('runs the shared scenario like the REST backend, with the exact writes and the PAT', async () => {
     const image = await exercise(
-      createMcpAtlassianBackend(dcCreds(viaImage), { url: mcpUrl(shared) }),
+      createMcpAtlassianBackend(dcCreds(viaImage), {
+        url: mcpUrl(shared),
+        outbound: workingTimeOutbound,
+      }),
       viaImage,
     );
     const rest = await exercise(
@@ -247,6 +277,19 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       assignee: { id: 'alex', displayName: 'Alex Martin' },
     });
     expect(image.issue.summary).toBe(rest.issue.summary);
+    // DEMO-1 has one seeded comment: the image must answer it exactly like the REST backend
+    // (author display name and body only), proving it asked mcp-atlassian for `comment` and got
+    // it back, no account id or email either side.
+    const comments = (image.issue as { comments: unknown }).comments;
+    expect(comments).toEqual((rest.issue as { comments: unknown }).comments);
+    expect(comments).toEqual([
+      {
+        author: 'Alex Martin',
+        body: 'Looks blocked on the API team.',
+        created: expect.any(String),
+      },
+    ]);
+    expect(JSON.stringify(comments)).not.toMatch(/u-alex|account_id|@example\.com/);
     // mcp-atlassian 0.23.1 gives no target status for a transition: only `to` differs.
     expect(image.transitions).toEqual({
       transitions: rest.transitions.transitions.map((t) => ({ ...t, to: null })),

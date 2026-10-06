@@ -75,3 +75,14 @@
         return m.tools.includes('suggest_skill') && /weekly-velocity/.test(m.toolOutputs) && m.jiraWrites === 0;
     - type: icontains
       value: skill builder
+
+- description: Totals logged time per person in one call (worklog summary)
+  vars:
+    question: How much time did each person log on the DEMO project?
+  assert:
+    - type: javascript
+      value: |
+        const m = context.providerResponse.metadata;
+        return m.tools.includes('jira_worklog_summary') && /"totalHours"/.test(m.toolOutputs) && m.jiraWrites === 0;
+    - type: icontains
+      value: hours

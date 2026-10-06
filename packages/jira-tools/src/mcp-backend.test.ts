@@ -7,7 +7,7 @@ import {
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { demoDataset, type MockJira, startMockJira } from '@agile/jira/testing';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { codeForStatus, type JiraToolBackend, JiraToolError } from './backend';
 import {
   isJiraToolName,
@@ -19,17 +19,26 @@ import {
 import { createJiraToolBackend } from './index';
 import {
   codeFromToolText,
+  componentsFromMcp,
   createMcpAtlassianBackend,
+  issueFromMcp,
+  linkTypesFromMcp,
   MCP_ATLASSIAN_BACKEND_ONLY_TOOLS,
   MCP_ATLASSIAN_ENABLED_TOOLS,
   MCP_ATLASSIAN_READONLY_ENABLED_TOOLS,
   mcpAtlassianHeaders,
+  resetWorkingTimeCacheForTests,
   searchFromMcp,
   transitionsFromMcp,
+  versionsFromMcp,
+  watchersFromMcp,
+  workingTime,
+  worklogFromMcp,
 } from './mcp-backend';
 import { createRestJiraBackend } from './rest-backend';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from './testing/mock-mcp-atlassian';
 import { ANCHOR, EXPECTED_WRITES, exercise, outbound, run } from './testing/scenario';
+import { EMPTY_TIME_TRACKING } from './time-tracking';
 
 describe('mcp-atlassian backend through the double', () => {
   let dc: MockJira;
@@ -123,7 +132,13 @@ describe('mcp-atlassian backend through the double', () => {
   });
 
   it('returns the same search shape as the REST backend', async () => {
-    const viaMcp = await run(backend(), 'jira_search', { jql: 'filter = 101', limit: 3 });
+    // Needs `outbound` to read the working-time setting: without it the mcp side cannot turn
+    // DEMO-1/DEMO-2's day-and-hour estimates into hours, and the two shapes would disagree.
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_search', { jql: 'filter = 101', limit: 3 });
     const viaRest = await run(
       createRestJiraBackend(
         { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
@@ -135,6 +150,130 @@ describe('mcp-atlassian backend through the double', () => {
     expect(viaMcp).toEqual(viaRest);
     expect(viaMcp).toMatchObject({ total: expect.any(Number), hasMore: true });
     expect((viaMcp as { issues: unknown[] }).issues).toHaveLength(3);
+  });
+
+  it('returns the same sprint-issues shape as the REST backend', async () => {
+    // mcp-atlassian 0.23.1 answers jira_get_sprint_issues with the same
+    // JiraSearchResult.to_simplified_dict() shape as jira_search; the backend must map it the same way.
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_get_sprint_issues', { sprintId: '1', limit: 3 });
+    const viaRest = await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_sprint_issues',
+      { sprintId: '1', limit: 3 },
+    );
+    expect(viaMcp).toEqual(viaRest);
+    expect((viaMcp as { issues: unknown[] }).issues.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a worklog’s local day in the summary, on both backends', async () => {
+    // Local 00:30+02:00 on the `from` day (kept) and on the day after `to` (dropped): the day a
+    // summary files a worklog under is the local day it was logged for, never UTC's.
+    const mini = await startMockJira({
+      flavor: 'datacenter',
+      validAuthorization: 'Bearer good-pat',
+      dataset: {
+        boards: [],
+        statuses: [],
+        fields: [],
+        sprints: [],
+        issues: [
+          {
+            id: '1',
+            key: 'T-1',
+            filterIds: [999],
+            fields: {
+              summary: 'Boundary',
+              status: { id: 's', name: 'To Do' },
+              assignee: null,
+              created: '2026-10-01T00:00:00.000+0000',
+              updated: '2026-10-01T00:00:00.000+0000',
+            },
+            histories: [],
+          },
+        ],
+        worklogs: {
+          'T-1': [
+            {
+              id: 'w1',
+              author: { accountId: 'a', name: 'ana', displayName: 'Ana' },
+              started: '2026-10-01T00:30:00.000+0200',
+              timeSpentSeconds: 1800,
+            },
+            {
+              id: 'w2',
+              author: { accountId: 'a', name: 'ana', displayName: 'Ana' },
+              started: '2026-10-03T00:30:00.000+0200',
+              // Deliberately a different duration from the first entry: if the UTC-shift bug
+              // creeps back in, this one is wrongly kept (shifted onto `to`) and the first wrongly
+              // dropped (shifted before `from`) — same count, different total, so it still shows.
+              timeSpentSeconds: 7200,
+            },
+          ],
+        },
+      },
+    });
+    try {
+      const creds = { kind: 'datacenter_pat' as const, baseUrl: mini.url, token: 'good-pat' };
+      const query = { jql: 'filter = 999', from: '2026-10-01', to: '2026-10-02' };
+      const viaRest = (await run(
+        createRestJiraBackend(creds, { outbound }),
+        'jira_worklog_summary',
+        query,
+      )) as { totalHours: number };
+      const viaMcp = (await run(
+        createMcpAtlassianBackend(creds, { url: double.url }),
+        'jira_worklog_summary',
+        query,
+      )) as { totalHours: number };
+      // Only the first entry (local 00:30 on `from`) is in range; the second (local 00:30 the day
+      // after `to`) is out, on both backends.
+      expect(viaRest.totalHours).toBe(0.5);
+      expect(viaMcp.totalHours).toBe(0.5);
+    } finally {
+      await mini.close();
+    }
+  });
+
+  it('returns the same get_issue shape as the REST backend, no reporter or comment-author ids', async () => {
+    const withSetting = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const viaMcp = await run(withSetting, 'jira_get_issue', { issueKey: 'DEMO-1' });
+    const viaRest = await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_issue',
+      { issueKey: 'DEMO-1' },
+    );
+    expect(viaMcp).toEqual(viaRest);
+    // The double's raw mcp-atlassian answer carries a reporter and a comment author with an
+    // account id and email; REST never has a `reporter` field at all, so this equality already
+    // proves neither leaked through. Spelled out for clarity, and for the comment itself (DEMO-1
+    // has one seeded): the regression this guards is `jira_get_issue` asking mcp-atlassian for
+    // fields that don't include `comment`, which 0.23.1 then answers with no comments at all.
+    expect(viaMcp).not.toHaveProperty('reporter');
+    const comments = (viaMcp as { comments: { author: string | null; body: string | null }[] })
+      .comments;
+    // Other tests in this file write their own comments to the same DEMO-1 through `dc`; look for
+    // the dataset's seeded one rather than assuming it is the only one.
+    expect(comments.length).toBeGreaterThan(0);
+    expect(comments).toContainEqual(
+      expect.objectContaining({
+        author: 'Alex Martin',
+        body: 'Looks blocked on the API team.',
+      }),
+    );
+    expect(JSON.stringify(viaMcp)).not.toMatch(/u-alex|account_id|@example\.com/);
   });
 
   it('assigns only the one active person matching exactly, resolved before the write', async () => {
@@ -240,6 +379,268 @@ describe('mcp-atlassian backend through the double', () => {
       for (const s of spies) s.mockRestore();
     }
   });
+
+  it('reads time tracking in hours, worklogs and a worklog summary through the double', async () => {
+    const b = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url, outbound },
+    );
+    const issue = (await run(b, 'jira_get_issue', { issueKey: 'DEMO-1' })) as {
+      timeTracking: { originalEstimateHours: number | null };
+    };
+    expect(issue.timeTracking.originalEstimateHours).toBe(11.2);
+    const log = (await run(b, 'jira_get_worklog', { issueKey: 'DEMO-1' })) as {
+      totalHours: number;
+    };
+    expect(log.totalHours).toBe(3);
+    const s = (await run(b, 'jira_worklog_summary', { jql: 'filter = 101' })) as {
+      totalHours: number;
+    };
+    expect(s.totalHours).toBe(7);
+  });
+
+  it('keeps the text when the setting cannot be read', async () => {
+    const b = createMcpAtlassianBackend(
+      { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+      { url: double.url },
+    );
+    const issue = (await run(b, 'jira_get_issue', { issueKey: 'DEMO-2' })) as {
+      timeTracking: Record<string, unknown>;
+    };
+    expect(issue.timeTracking).toMatchObject({
+      originalEstimate: '4d',
+      originalEstimateHours: null,
+      timeSpentHours: 4,
+    });
+  });
+});
+
+describe('mcp-atlassian result mapping', () => {
+  const EIGHT = { hoursPerDay: 8, daysPerWeek: 5 };
+
+  it('adds time tracking in hours to an issue and drops the raw text block', () => {
+    const issue = issueFromMcp(
+      {
+        key: 'AIA-1',
+        summary: 's',
+        timetracking: { original_estimate: '4d', remaining_estimate: '3d 4h', time_spent: '4h' },
+      },
+      EIGHT,
+    ) as Record<string, unknown>;
+    expect(issue.timeTracking).toEqual({
+      originalEstimate: '4d',
+      remainingEstimate: '3d 4h',
+      timeSpent: '4h',
+      originalEstimateHours: 32,
+      remainingEstimateHours: 28,
+      timeSpentHours: 4,
+    });
+    expect(issue).not.toHaveProperty('timetracking');
+  });
+
+  // Controller ruling: map to the REST jira_get_issue shape exactly, and nothing else — mcp-atlassian
+  // 0.23.1's raw issue carries assignee/reporter as full JiraUser.to_simplified_dict() objects
+  // ({ account_id, display_name, name, email, avatar_url }), and each comment's author the same way.
+  it('never lets email, account id, username or a reporter leak out of an issue', () => {
+    const issue = issueFromMcp(
+      {
+        key: 'AIA-1',
+        summary: 's',
+        status: { name: 'Done' },
+        issue_type: { name: 'Bug' },
+        assignee: {
+          account_id: 'u1',
+          display_name: 'Ana',
+          name: 'ana',
+          email: 'ana@x.io',
+          avatar_url: null,
+        },
+        reporter: {
+          account_id: 'u2',
+          display_name: 'Ben',
+          name: 'ben',
+          email: 'ben@x.io',
+          avatar_url: null,
+        },
+        labels: ['risk'],
+        comments: [
+          {
+            id: '1',
+            body: 'hi',
+            author: {
+              account_id: 'u3',
+              display_name: 'Cy',
+              name: 'cy',
+              email: 'cy@x.io',
+              avatar_url: null,
+            },
+            created: '2026-10-01 09:00:00 UTC',
+          },
+        ],
+      },
+      null,
+    ) as Record<string, unknown>;
+    expect(issue).toEqual({
+      key: 'AIA-1',
+      summary: 's',
+      status: 'Done',
+      type: 'Bug',
+      assignee: 'Ana',
+      updated: null,
+      timeTracking: EMPTY_TIME_TRACKING,
+      labels: ['risk'],
+      description: null,
+      comments: [{ author: 'Cy', body: 'hi', created: '2026-10-01 09:00:00 UTC' }],
+    });
+    expect(issue).not.toHaveProperty('reporter');
+    const seen = JSON.stringify(issue);
+    for (const pii of [
+      'u1',
+      'u2',
+      'u3',
+      'ana@x.io',
+      'ben@x.io',
+      'cy@x.io',
+      '"ana"',
+      '"ben"',
+      '"cy"',
+    ]) {
+      expect(seen).not.toContain(pii);
+    }
+  });
+
+  it('adds time tracking to search results', () => {
+    const r = searchFromMcp(
+      { total: 1, issues: [{ key: 'AIA-1', summary: 's', timetracking: { time_spent: '1d' } }] },
+      10,
+      EIGHT,
+    );
+    expect(r.issues[0]?.timeTracking.timeSpentHours).toBe(8);
+  });
+
+  // mcp-atlassian 0.23.1 (WorklogMixin.get_worklogs): `author` is already the plain display-name
+  // string Jira returned (falling back to the literal "Unknown"), not an object; `comment` is
+  // already cleaned text; `started` is `str(parse_date(...))` — space-separated, colon offset, or
+  // the literal "None" when Jira sent nothing parseable.
+  it('maps worklogs to exact hours, the author display name and a capped comment', () => {
+    const log = worklogFromMcp('AIA-1', {
+      worklogs: [
+        {
+          id: '1',
+          time_spent: '2h',
+          time_spent_seconds: 7200,
+          author: 'Ana',
+          comment: 'x'.repeat(700),
+          started: '2026-10-01 09:00:00+02:00',
+          created: '2026-10-01 09:00:00+02:00',
+          updated: '2026-10-01 09:00:00+02:00',
+        },
+        { time_spent: '', time_spent_seconds: 0, author: 'Ben', comment: '', started: '' },
+        { time_spent_seconds: 1800, author: 'Unknown', started: 'None' },
+      ],
+    });
+    expect(log).toEqual({
+      issueKey: 'AIA-1',
+      totalHours: 2.5,
+      partial: false,
+      entries: [
+        {
+          author: 'Ana',
+          started: '2026-10-01T09:00:00+02:00',
+          seconds: 7200,
+          hours: 2,
+          comment: 'x'.repeat(500),
+        },
+        { author: 'Ben', started: null, seconds: 0, hours: 0, comment: null },
+        { author: null, started: null, seconds: 1800, hours: 0.5, comment: null },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (WatchersMixin.get_issue_watchers → JiraUser.to_simplified_dict).
+  it('keeps watcher display names only', () => {
+    expect(
+      watchersFromMcp('AIA-1', {
+        issue_key: 'AIA-1',
+        watcher_count: 2,
+        is_watching: false,
+        watchers: [
+          { account_id: 'u1', display_name: 'Ana', name: 'ana', email: 'ana@x', avatar_url: null },
+          { account_id: null, display_name: 'Ben', name: 'Ben', email: null, avatar_url: null },
+        ],
+      }),
+    ).toEqual({ issueKey: 'AIA-1', count: 2, watchers: ['Ana', 'Ben'] });
+  });
+
+  // mcp-atlassian 0.23.1 (LinksMixin.get_issue_link_types → JiraIssueLinkType.to_simplified_dict):
+  // a bare array, `self` included only when Jira sent one.
+  it('lists link types from a bare array', () => {
+    expect(
+      linkTypesFromMcp([
+        { id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' },
+        {
+          id: '2',
+          name: 'Relates',
+          inward: 'relates to',
+          outward: 'relates to',
+          self: 'https://jira/rest/api/2/issueLinkType/2',
+        },
+      ]),
+    ).toEqual({
+      linkTypes: [
+        { id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' },
+        { id: '2', name: 'Relates', inward: 'relates to', outward: 'relates to' },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (ProjectsMixin.get_project_versions → JiraVersion.to_simplified_dict):
+  // a bare array, null fields left out entirely rather than sent as null.
+  it('lists versions from a bare array', () => {
+    expect(
+      versionsFromMcp([
+        { id: '10000', name: '1.0', released: true, archived: false, releaseDate: '2026-09-01' },
+        { id: '10001', name: '1.1', released: false, archived: false },
+      ]),
+    ).toEqual({
+      versions: [
+        {
+          id: '10000',
+          name: '1.0',
+          released: true,
+          archived: false,
+          releaseDate: '2026-09-01',
+          description: null,
+        },
+        {
+          id: '10001',
+          name: '1.1',
+          released: false,
+          archived: false,
+          releaseDate: null,
+          description: null,
+        },
+      ],
+    });
+  });
+
+  // mcp-atlassian 0.23.1 (ProjectsMixin.get_project_components): Jira's own component JSON,
+  // unprocessed, so `lead` is still the full user object.
+  it('lists components from a bare array of raw Jira fields, the lead reduced to a display name', () => {
+    expect(
+      componentsFromMcp([
+        {
+          id: '20000',
+          name: 'API',
+          description: null,
+          lead: { accountId: 'u1', displayName: 'Kim Dubois', emailAddress: 'kim@x' },
+          assigneeType: 'PROJECT_LEAD',
+        },
+      ]),
+    ).toEqual({
+      components: [{ id: '20000', name: 'API', description: null, lead: 'Kim Dubois' }],
+    });
+  });
 });
 
 describe('mcp-atlassian backend: pure parts', () => {
@@ -260,29 +661,50 @@ describe('mcp-atlassian backend: pure parts', () => {
     ).toEqual({ Authorization: 'Bearer t', 'X-Atlassian-Cloud-Id': 'c-1' });
   });
 
-  it('enables the catalog plus one lookup the model never sees', () => {
+  it('enables the catalog plus one lookup the model never sees, our local summary excluded', () => {
     expect(MCP_ATLASSIAN_BACKEND_ONLY_TOOLS).toEqual(['jira_search_assignable_users']);
     expect([...MCP_ATLASSIAN_ENABLED_TOOLS].sort()).toEqual(
-      [...JIRA_TOOL_NAMES, 'jira_search_assignable_users'].sort(),
+      [
+        ...JIRA_TOOL_NAMES.filter((n) => n !== 'jira_worklog_summary'),
+        'jira_search_assignable_users',
+      ].sort(),
     );
     for (const name of MCP_ATLASSIAN_BACKEND_ONLY_TOOLS) expect(isJiraToolName(name)).toBe(false);
     expect(Object.isFrozen(MCP_ATLASSIAN_ENABLED_TOOLS)).toBe(true);
   });
 
-  it('enables only the six read tools on the read-only twin', () => {
+  it('enables only the read tools on the read-only twin, our local summary excluded', () => {
     expect([...MCP_ATLASSIAN_READONLY_ENABLED_TOOLS].sort()).toEqual(
       [
         'jira_get_agile_boards',
+        'jira_get_board_issues',
+        'jira_get_cross_project_dependencies',
         'jira_get_issue',
+        'jira_get_issue_dates',
+        'jira_get_issue_watchers',
+        'jira_get_link_types',
+        'jira_get_project_components',
+        'jira_get_project_epic_hierarchy',
+        'jira_get_project_versions',
         'jira_get_sprint_issues',
         'jira_get_sprints_from_board',
         'jira_get_transitions',
+        'jira_get_worklog',
         'jira_search',
+        'jira_search_fields',
       ].sort(),
     );
     for (const name of MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)
       expect(isJiraWriteTool(name)).toBe(false);
     expect(Object.isFrozen(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS)).toBe(true);
+  });
+
+  it('allowlists the new native tools but never our local summary', () => {
+    expect(MCP_ATLASSIAN_ENABLED_TOOLS).toContain('jira_get_worklog');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).toContain('jira_get_worklog');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).toContain('jira_search_fields');
+    expect(MCP_ATLASSIAN_ENABLED_TOOLS).not.toContain('jira_worklog_summary');
+    expect(MCP_ATLASSIAN_READONLY_ENABLED_TOOLS).not.toContain('jira_worklog_summary');
   });
 
   it('reads mcp-atlassian search results like the REST backend (Cloud has no total)', () => {
@@ -303,6 +725,7 @@ describe('mcp-atlassian backend: pure parts', () => {
       assignee: null,
       type: 'Bug',
       updated: '2026-10-03T10:00:00Z',
+      timeTracking: EMPTY_TIME_TRACKING,
     };
     // Times are ISO 8601 UTC on both backends; a zone we cannot read is passed on as is.
     for (const [raw, iso] of [
@@ -353,6 +776,135 @@ describe('mcp-atlassian backend: pure parts', () => {
     expect(codeFromToolText('429 Too Many Requests')).toBe('rate_limited');
     expect(codeFromToolText('400 Bad Request')).toBe('invalid_request');
     expect(codeFromToolText('something else')).toBe('jira_error');
+  });
+});
+
+describe('workingTime (the Jira working-time setting cache)', () => {
+  beforeEach(() => {
+    resetWorkingTimeCacheForTests();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  const creds = (baseUrl: string) => ({ kind: 'datacenter_pat' as const, baseUrl, token: 't' });
+  const deadline = () => AbortSignal.timeout(5_000);
+
+  it('caches a successful read for an hour; a second call makes no new request', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          timeTrackingEnabled: true,
+          timeTrackingConfiguration: { workingHoursPerDay: 8, workingDaysPerWeek: 5 },
+        }),
+      );
+    });
+    try {
+      const config = { hoursPerDay: 8, daysPerWeek: 5 };
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toEqual(config);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toEqual(config);
+      expect(calls).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches a 404 (no such endpoint on this Jira) for an hour, like a successful read', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(404).end();
+    });
+    try {
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches a 403 for only 5 minutes, then retries', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(403).end();
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Still inside the 5-minute window: cached, no new request.
+      now.mockReturnValue(1_000_000 + 4 * 60_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Past 5 minutes: retried.
+      now.mockReturnValue(1_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches invalid JSON for only 5 minutes, then retries', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res.writeHead(200, { 'content-type': 'application/json' }).end('not json');
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      now.mockReturnValue(2_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('caches an oversized configuration body (> 64 KB) for only 5 minutes', async () => {
+    let calls = 0;
+    const srv = await listen((_req, res) => {
+      calls++;
+      res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ pad: 'x'.repeat(70_000) }));
+    });
+    try {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(3_000_000);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(1);
+      now.mockReturnValue(3_000_000 + 5 * 60_000 + 1);
+      await expect(workingTime(creds(srv.url), { outbound }, deadline())).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('never caches an aborted read', async () => {
+    let calls = 0;
+    const srv = await listen((req) => {
+      calls++;
+      req.resume(); // never answers
+    });
+    try {
+      const first = new AbortController();
+      setTimeout(() => first.abort(), 30);
+      await expect(workingTime(creds(srv.url), { outbound }, first.signal)).resolves.toBeNull();
+      expect(calls).toBe(1);
+      // Nothing was cached: a second call attempts the network again.
+      const second = new AbortController();
+      setTimeout(() => second.abort(), 30);
+      await expect(workingTime(creds(srv.url), { outbound }, second.signal)).resolves.toBeNull();
+      expect(calls).toBe(2);
+    } finally {
+      await srv.close();
+    }
   });
 });
 
@@ -599,6 +1151,53 @@ describe('cancellation, deadlines and refusals', () => {
       await expect(
         callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
       ).resolves.toMatchObject({});
+    } finally {
+      await stall.close();
+    }
+  });
+
+  it('returns a partial worklog summary when the deadline hits mid-worklog, instead of failing', async () => {
+    // Forwards everything to the double except jira_get_worklog, which never gets an answer: a
+    // stand-in for the SDK's own abort reason or McpError(RequestTimeout), which isn't a
+    // JiraToolError on its own.
+    const stall = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if (
+          /"method":"tools\/call"/.test(body.toString()) &&
+          /jira_get_worklog/.test(body.toString())
+        ) {
+          return;
+        }
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        upstream.end(body);
+      });
+    });
+    try {
+      const tight = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${stall.url}/mcp`,
+        timeoutMs: 300,
+      });
+      const s = (await callWith(tight, 'jira_worklog_summary', { jql: 'filter = 101' })) as {
+        partial: boolean;
+      };
+      expect(s.partial).toBe(true);
     } finally {
       await stall.close();
     }

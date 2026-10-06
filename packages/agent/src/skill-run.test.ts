@@ -81,11 +81,22 @@ describe('skill runs (background, read-only) and the skill builder', () => {
     expect(sent?.tools).toContain('list_boards');
     expect(sent?.tools.filter((t) => t.startsWith('jira_')).sort()).toEqual([
       'jira_get_agile_boards',
+      'jira_get_board_issues',
+      'jira_get_cross_project_dependencies',
       'jira_get_issue',
+      'jira_get_issue_dates',
+      'jira_get_issue_watchers',
+      'jira_get_link_types',
+      'jira_get_project_components',
+      'jira_get_project_epic_hierarchy',
+      'jira_get_project_versions',
       'jira_get_sprint_issues',
       'jira_get_sprints_from_board',
       'jira_get_transitions',
+      'jira_get_worklog',
       'jira_search',
+      'jira_search_fields',
+      'jira_worklog_summary',
     ]);
     expect(sent?.tools).not.toContain('pin_widget');
     expect(sent?.tools).not.toContain('load_skill');
@@ -133,11 +144,22 @@ describe('skill runs (background, read-only) and the skill builder', () => {
     const jiraSent = (lastRequest()?.tools ?? []).filter((t) => t.startsWith('jira_'));
     expect(jiraSent.sort()).toEqual([
       'jira_get_agile_boards',
+      'jira_get_board_issues',
+      'jira_get_cross_project_dependencies',
       'jira_get_issue',
+      'jira_get_issue_dates',
+      'jira_get_issue_watchers',
+      'jira_get_link_types',
+      'jira_get_project_components',
+      'jira_get_project_epic_hierarchy',
+      'jira_get_project_versions',
       'jira_get_sprint_issues',
       'jira_get_sprints_from_board',
       'jira_get_transitions',
+      'jira_get_worklog',
       'jira_search',
+      'jira_search_fields',
+      'jira_worklog_summary',
     ]);
     expect(readonly.calls.slice(readonlyBefore).map((c) => c.name)).toEqual(['jira_search']);
     expect(h.mcp.calls.length).toBe(before);

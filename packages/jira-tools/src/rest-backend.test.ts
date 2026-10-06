@@ -163,6 +163,91 @@ describe('REST Jira backend (Cloud API tokens) against the mock Jira', () => {
     });
   });
 
+  it('reads time tracking on issues in hours', async () => {
+    const issue = (await backend().call('jira_get_issue', {
+      issueKey: 'DEMO-1',
+      commentLimit: 0,
+    })) as { timeTracking: unknown };
+    expect(issue.timeTracking).toEqual({
+      originalEstimate: '1d 3h 12m',
+      remainingEstimate: '0m',
+      timeSpent: '1d 6h',
+      originalEstimateHours: 11.2,
+      remainingEstimateHours: 0,
+      timeSpentHours: 14,
+    });
+    const found = (await backend().call('jira_search', {
+      jql: 'filter = 101',
+      limit: 20,
+    })) as { issues: { key: string; timeTracking: { timeSpentHours: number | null } }[] };
+    expect(found.issues.find((i) => i.key === 'DEMO-2')?.timeTracking.timeSpentHours).toBe(4);
+    expect(found.issues.find((i) => i.key === 'DEMO-3')?.timeTracking.timeSpentHours).toBeNull();
+  });
+
+  it('pages through worklogs and keeps display names only', async () => {
+    const log = (await backend().call('jira_get_worklog', {
+      issueKey: 'DEMO-1',
+    })) as import('./worklog-summary').Worklog;
+    expect(log).toMatchObject({ issueKey: 'DEMO-1', totalHours: 3, partial: false });
+    expect(log.entries).toHaveLength(2);
+    // Jira's own offset, local day and time kept (never converted to UTC): colon offset, no
+    // milliseconds, same shape as the mcp-atlassian backend's `started`.
+    expect(log.entries[0]?.started).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    expect(JSON.stringify(log)).not.toMatch(/accountId|emailAddress|u-/);
+    expect(cloud.requests.filter((r) => r.path.includes('/worklog')).length).toBeGreaterThanOrEqual(
+      1,
+    );
+  });
+
+  it('totals worklogs over a JQL query', async () => {
+    const s = (await backend().call('jira_worklog_summary', {
+      jql: 'filter = 101',
+    })) as import('./worklog-summary').WorklogSummary;
+    expect(s.totalHours).toBe(7);
+    expect(s.partial).toBe(false);
+    expect(s.byPerson.reduce((a, p) => a + p.hours, 0)).toBe(7);
+  });
+
+  it('lists board issues, link types, versions, components and watchers', async () => {
+    const board = (await backend().call('jira_get_board_issues', {
+      boardId: '1',
+      limit: 50,
+    })) as { issues: { key: string }[] };
+    expect(board.issues.map((i) => i.key)).toContain('DEMO-1');
+    expect(await backend().call('jira_get_link_types', {})).toEqual({
+      linkTypes: [{ id: '1', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }],
+    });
+    const versions = (await backend().call('jira_get_project_versions', {
+      projectKey: 'DEMO',
+    })) as { versions: { name: string; released: boolean }[] };
+    expect(versions.versions.map((v) => [v.name, v.released])).toEqual([
+      ['1.0', true],
+      ['1.1', false],
+    ]);
+    const components = (await backend().call('jira_get_project_components', {
+      projectKey: 'DEMO',
+    })) as { components: { name: string }[] };
+    expect(components.components.map((c) => c.name)).toEqual(['API']);
+    const watchers = (await backend().call('jira_get_issue_watchers', {
+      issueKey: 'DEMO-1',
+    })) as { count: number; watchers: string[] };
+    expect(watchers.count).toBe(1);
+    expect(JSON.stringify(watchers)).not.toMatch(/@|accountId/);
+  });
+
+  it('refuses the mcp-only tools with not_supported', async () => {
+    for (const [name, input] of [
+      ['jira_get_issue_dates', { issueKey: 'DEMO-1' }],
+      ['jira_get_project_epic_hierarchy', { projectKey: 'DEMO', maxEpics: 20 }],
+      ['jira_get_cross_project_dependencies', { projectKey: 'DEMO', maxIssues: 50 }],
+      ['jira_search_fields', { keyword: 'points', limit: 10 }],
+    ] as const) {
+      await expect(backend().call(name, input as never)).rejects.toMatchObject({
+        code: 'not_supported',
+      });
+    }
+  });
+
   it('REST backend refuses private hosts that are not allowlisted', async () => {
     const backend = createRestJiraBackend(
       { kind: 'cloud_basic', baseUrl: cloud.url, email: 'pm@acme.com', apiToken: 'tok' },

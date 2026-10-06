@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { parseJiraDate } from '../issue-normalize';
-import { jiraTime, type MockIssue, type MockJiraDataset } from './demo-dataset';
+import { jiraTime, type MockIssue, type MockJiraDataset, type MockWorklog } from './demo-dataset';
 
 export {
   DEMO_SPRINT_FIELD,
@@ -9,9 +9,11 @@ export {
   demoDataset,
   jiraTime,
   type MockBoard,
+  type MockComment,
   type MockIssue,
   type MockJiraDataset,
   type MockSprint,
+  type MockWorklog,
 } from './demo-dataset';
 
 export interface MockJiraOptions {
@@ -128,19 +130,38 @@ function sprintMemberIssues(dataset: MockJiraDataset, sprintId: number): MockIss
   );
 }
 
+const time = (v: unknown) => parseJiraDate(v)?.getTime() ?? 0;
+
 /**
  * Issues matching `filter = N [AND updated >= "-Mm"]` or `sprint = N` (how mcp-atlassian lists a
- * sprint's issues), oldest first; null for unsupported JQL.
+ * sprint's issues), oldest first; `project = "KEY" [AND issuetype = Epic] ORDER BY updated DESC`
+ * (how it looks up a project's epics and its cross-project links), newest first; null for
+ * unsupported JQL. A bare, unquoted `project = KEY` is not supported (only the quoted form
+ * mcp-atlassian itself sends).
  */
 function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] | null {
   const sprint = /^\s*sprint\s*=\s*(\d+)\s*$/i.exec(jql);
   if (sprint) return sprintMemberIssues(dataset, Number(sprint[1]));
+  const project =
+    /^\s*project\s*=\s*"([^"]+)"(\s+AND\s+issuetype\s*=\s*Epic)?\s*(?:ORDER BY updated DESC)?\s*$/i.exec(
+      jql,
+    );
+  if (project) {
+    const key = project[1];
+    const epicsOnly = !!project[2];
+    return dataset.issues
+      .filter(
+        (i) =>
+          i.key.startsWith(`${key}-`) &&
+          (!epicsOnly || (i.fields.issuetype as { name?: string } | null)?.name === 'Epic'),
+      )
+      .sort((a, b) => time(b.fields.updated) - time(a.fields.updated));
+  }
   const filter = /filter\s*=\s*(\d+)/i.exec(jql);
   if (!filter) return null;
   const filterId = Number(filter[1]);
   const since = /updated\s*>=\s*"-(\d+)m"/i.exec(jql);
   const from = since ? now.getTime() - Number(since[1]) * 60_000 : Number.NEGATIVE_INFINITY;
-  const time = (v: unknown) => parseJiraDate(v)?.getTime() ?? 0;
   return dataset.issues
     .filter((i) => i.filterIds.includes(filterId) && time(i.fields.updated) >= from)
     .sort((a, b) => time(a.fields.created) - time(b.fields.created) || Number(a.id) - Number(b.id));
@@ -185,7 +206,10 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
   const now = opts.now ?? (() => new Date());
   const requests: MockJira['requests'] = [];
   const writes: MockJiraWrite[] = [];
-  const comments = new Map<string, { id: string; body: unknown; created: string }[]>();
+  const comments = new Map<
+    string,
+    { id: string; body: unknown; created: string; author?: unknown }[]
+  >();
   let throttled = 0;
   let nextId = 90_000;
 
@@ -289,6 +313,39 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
         ...SYSTEM_FIELDS.filter((f) => !listed.has(f.id)).map((f) => ({ ...f, custom: false })),
       ]);
     }
+    // These data endpoints are always hit at REST v2, whichever flavor is behind the connection
+    // (like /rest/api/2/user/search below), so both API versions answer them.
+    if (new RegExp(`^${prefix}/rest/api/[23]/configuration$`).test(path)) {
+      const tt = ds.timeTracking ?? null;
+      return json(res, 200, {
+        timeTrackingEnabled: tt != null,
+        timeTrackingConfiguration: {
+          workingHoursPerDay: tt?.workingHoursPerDay ?? 8,
+          workingDaysPerWeek: tt?.workingDaysPerWeek ?? 5,
+          timeFormat: 'pretty',
+          defaultUnit: 'hour',
+        },
+      });
+    }
+    if (new RegExp(`^${prefix}/rest/api/[23]/issueLinkType$`).test(path)) {
+      return json(res, 200, { issueLinkTypes: ds.linkTypes ?? [] });
+    }
+    const projectRoute = new RegExp(
+      `^${prefix}/rest/api/[23]/project/([^/]+)/(versions|components)$`,
+    ).exec(path);
+    if (projectRoute) {
+      const [, projectKey, kind] = projectRoute as unknown as [string, string, string];
+      if (!ds.boards.some((b) => b.projectKey === projectKey)) {
+        return json(res, 404, { errorMessages: ['Project not found'] });
+      }
+      return json(
+        res,
+        200,
+        kind === 'versions'
+          ? (ds.versions?.[projectKey] ?? [])
+          : (ds.components?.[projectKey] ?? []),
+      );
+    }
     const categoryOf = (statusId: unknown) => {
       const key = ds.statuses.find((st) => st.id === statusId)?.categoryKey ?? 'new';
       return { id: CATEGORY[key].id, key, name: CATEGORY[key].name };
@@ -327,6 +384,19 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
         },
       };
     };
+    const boardIssues = new RegExp(`^${agile}/(\\d+)/issue$`).exec(path);
+    if (boardIssues) {
+      const board = ds.boards.find((b) => b.id === Number(boardIssues[1]));
+      if (!board) return json(res, 404, { errorMessages: ['Board not found'] });
+      // `jql` is otherwise ignored: the mock's JQL matcher doesn't support a status clause.
+      const found = ds.issues.filter((i) => i.filterIds.includes(board.filterId));
+      return json(res, 200, {
+        startAt,
+        maxResults: size,
+        total: found.length,
+        issues: found.slice(startAt, startAt + size).map(issueJson),
+      });
+    }
     const searchPath =
       opts.flavor === 'cloud' ? `${prefix}/rest/api/3/search/jql` : `${prefix}/rest/api/2/search`;
     if (path === searchPath) {
@@ -367,6 +437,46 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     for (const u of opts.extraUsers ?? []) users.set(u.accountId, { key: u.name, ...u });
     return users;
   };
+  /** A person as this flavour's APIs shape a user (Cloud: accountId; Data Center: key/name). */
+  const shapeUser = (
+    u: { accountId: string; name: string; displayName: string },
+    emailAddress?: string,
+  ) =>
+    opts.flavor === 'cloud'
+      ? {
+          accountId: u.accountId,
+          displayName: u.displayName,
+          active: true,
+          accountType: 'atlassian',
+          ...(emailAddress ? { emailAddress } : {}),
+        }
+      : {
+          key: u.name,
+          name: u.name,
+          displayName: u.displayName,
+          active: true,
+          ...(emailAddress ? { emailAddress } : {}),
+        };
+  // Seed the dataset's own comments (the write handler below adds to the same map).
+  for (const [key, list] of Object.entries(opts.dataset?.comments ?? {})) {
+    comments.set(
+      key,
+      list.map((c) => ({
+        id: c.id,
+        body: c.body,
+        created: c.created,
+        author: shapeUser(c.author),
+      })),
+    );
+  }
+  const worklogJson = (w: MockWorklog) => ({
+    id: w.id,
+    author: shapeUser(w.author),
+    started: w.started,
+    timeSpentSeconds: w.timeSpentSeconds,
+    timeSpent: `${Math.round(w.timeSpentSeconds / 3600)}h`,
+    comment: w.comment ?? null,
+  });
 
   // ---- Issue detail and the writes the agent's Jira tools use (REST v2 and v3 alike) ----
   function issueRoutes(
@@ -382,7 +492,7 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     const ds = opts.dataset;
     if (!ds) return false;
     const route = new RegExp(
-      `^${prefix}/rest/api/[23]/issue(?:/([^/]+)(?:/(comment|transitions|assignee))?)?$`,
+      `^${prefix}/rest/api/[23]/issue(?:/([^/]+)(?:/(comment|transitions|assignee|worklog|watchers))?)?$`,
     ).exec(path);
     const sprintIssues = new RegExp(`^${prefix}/rest/agile/1\\.0/sprint/(\\d+)/issue$`).exec(path);
     if (sprintIssues && req.method === 'GET') {
@@ -492,6 +602,28 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
     if (req.method === 'GET' && issue && sub === 'comment') {
       const own = comments.get(issue.key) ?? [];
       json(res, 200, { comments: own, total: own.length, maxResults: own.length, startAt: 0 });
+      return true;
+    }
+    if (req.method === 'GET' && issue && sub === 'worklog') {
+      const params = new URL(req.url ?? '/', 'http://mock').searchParams;
+      const wStartAt = Number(params.get('startAt') ?? 0);
+      const wMaxResults = Number(params.get('maxResults') ?? 20);
+      const all = ds.worklogs?.[issue.key] ?? [];
+      json(res, 200, {
+        startAt: wStartAt,
+        maxResults: wMaxResults,
+        total: all.length,
+        worklogs: all.slice(wStartAt, wStartAt + wMaxResults).map(worklogJson),
+      });
+      return true;
+    }
+    if (req.method === 'GET' && issue && sub === 'watchers') {
+      const all = ds.watchers?.[issue.key] ?? [];
+      json(res, 200, {
+        watchCount: all.length,
+        isWatching: false,
+        watchers: all.map((w) => shapeUser(w, w.emailAddress)),
+      });
       return true;
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return false;

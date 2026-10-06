@@ -36,7 +36,9 @@ export type JiraToolErrorCode =
   | 'blocked_url'
   | 'jira_error'
   /** A write was cut off (deadline or abort) after its request left: it may or may not have run. */
-  | 'unknown_outcome';
+  | 'unknown_outcome'
+  /** The tool needs an mcp-atlassian connection (Data Center PAT or Cloud OAuth). */
+  | 'not_supported';
 
 /** A person the model may pick instead (id = accountId on Cloud, username on Data Center). */
 export interface JiraUserCandidate {
@@ -118,16 +120,53 @@ export function codeForStatus(status: number): JiraToolErrorCode {
 
 const JIRA_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const MCP_UTC_TIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/;
+// mcp-atlassian 0.23.1's worklog dates (WorklogMixin.get_worklogs: `str(parse_date(...))`): space
+// separator, a colon offset, never a zone name.
+const MCP_OFFSET_TIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})([+-]\d{2}:\d{2})$/;
 
 /**
  * A time as both backends show it: ISO 8601 UTC to the second. Reads Jira's
- * `2026-10-03T12:00:00.000+0200` and mcp-atlassian 0.23.1's `2026-10-03 10:00:00 UTC` (it formats
- * times in its container's zone, UTC in our deployments); any other text is passed on unchanged.
+ * `2026-10-03T12:00:00.000+0200`, mcp-atlassian 0.23.1's `2026-10-03 10:00:00 UTC` (it formats
+ * issue timestamps in its container's zone, UTC in our deployments) and its worklog dates'
+ * `2026-10-03 10:00:00+02:00`; `None` (its own `str(None)` when a worklog date could not be
+ * parsed) reads as null; any other text is passed on unchanged.
  */
 export function isoTime(v: unknown): string | null {
   if (typeof v !== 'string') return null;
-  const mcp = MCP_UTC_TIME.exec(v);
-  const iso = mcp ? `${mcp[1]}T${mcp[2]}Z` : JIRA_TIME.test(v) ? v : null;
+  if (v === 'None') return null;
+  const mcpUtc = MCP_UTC_TIME.exec(v);
+  const mcpOffset = MCP_OFFSET_TIME.exec(v);
+  const iso = mcpUtc
+    ? `${mcpUtc[1]}T${mcpUtc[2]}Z`
+    : mcpOffset
+      ? `${mcpOffset[1]}T${mcpOffset[2]}${mcpOffset[3]}`
+      : JIRA_TIME.test(v)
+        ? v
+        : null;
   const ms = iso ? Date.parse(iso.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : Number.NaN;
   return Number.isNaN(ms) ? v : `${new Date(ms).toISOString().slice(0, 19)}Z`;
+}
+
+// Jira's own worklog timestamps (`2026-10-01T00:30:00.000+0200`): milliseconds and an offset with
+// or without a colon.
+const JIRA_WORKLOG_TIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * A worklog's `started`, kept at the local day and time it was logged for (never converted to
+ * UTC): the day a summary groups it under depends on that local day, not UTC's. Reads
+ * mcp-atlassian 0.23.1's `2026-10-01 00:30:00+02:00` and Jira's own
+ * `2026-10-01T00:30:00.000+0200`, both as `2026-10-01T00:30:00+02:00`; `None` (mcp-atlassian's own
+ * `str(None)` when nothing parsed) or anything else unparseable reads as null.
+ */
+export function worklogStarted(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  if (v === 'None') return null;
+  const mcp = MCP_OFFSET_TIME.exec(v);
+  if (mcp) return `${mcp[1]}T${mcp[2]}${mcp[3]}`;
+  const jira = JIRA_WORKLOG_TIME.exec(v);
+  const offset = jira?.[2];
+  if (jira && offset) {
+    return `${jira[1]}${offset === 'Z' || offset.includes(':') ? offset : `${offset.slice(0, 3)}:${offset.slice(3)}`}`;
+  }
+  return null;
 }

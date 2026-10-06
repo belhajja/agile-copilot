@@ -99,3 +99,21 @@ describe('when the assistant suggests a skill', () => {
     expect(skillRunPrompt({ now, liveJira: false, sites: [] })).not.toContain('suggest_skill');
   });
 });
+
+describe('live Jira time tracking', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+
+  it('tells the model about time tracking when live Jira is available', () => {
+    expect(systemPrompt({ now, jiraSites: [], jira: 'read_only' })).toContain(
+      'jira_worklog_summary',
+    );
+    expect(systemPrompt({ now, jiraSites: [], jira: 'full' })).toContain('jira_worklog_summary');
+    expect(systemPrompt({ now, jiraSites: [], jira: 'unavailable' })).not.toContain(
+      'jira_worklog_summary',
+    );
+    expect(skillRunPrompt({ now, liveJira: true, sites: [] })).toContain('jira_worklog_summary');
+    expect(skillRunPrompt({ now, liveJira: false, sites: [] })).not.toContain(
+      'jira_worklog_summary',
+    );
+  });
+});

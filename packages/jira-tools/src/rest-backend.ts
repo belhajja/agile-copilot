@@ -9,14 +9,23 @@ import {
   JiraToolError,
   type JiraToolErrorCode,
   type JiraUserCandidate,
+  worklogStarted,
 } from './backend';
 import { isJiraToolName, type JiraToolInput, type JiraToolName } from './catalog';
+import { timeTrackingFromRest } from './time-tracking';
 import { markdownToJiraWiki as wiki } from './wiki';
+import {
+  summarizeWorklogs,
+  type Worklog,
+  type WorklogEntry,
+  worklogEntry,
+  worklogOf,
+} from './worklog-summary';
 
 type RestCredentials = Extract<JiraCredentials, { kind: 'cloud_basic' | 'datacenter_pat' }>;
 
 const MAX_BODY = 5 * 1024 * 1024;
-const FIELDS = 'summary,status,assignee,issuetype,updated,labels';
+const FIELDS = 'summary,status,assignee,issuetype,updated,labels,timetracking';
 
 interface RawIssue {
   key?: string;
@@ -28,6 +37,7 @@ interface RawIssue {
     updated?: unknown;
     labels?: unknown;
     description?: unknown;
+    timetracking?: unknown;
     comment?: {
       comments?: { author?: { displayName?: unknown }; body?: unknown; created?: unknown }[];
     };
@@ -75,6 +85,7 @@ const brief = (i: RawIssue) => ({
   assignee: s(i.fields?.assignee?.displayName),
   type: s(i.fields?.issuetype?.name),
   updated: isoTime(i.fields?.updated),
+  timeTracking: timeTrackingFromRest(i.fields?.timetracking),
 });
 
 /**
@@ -173,6 +184,37 @@ export function createRestJiraBackend(
     return exactPerson(people, identifier, { cloud });
   }
 
+  /** Worklog pages, at most 5 × 100 entries; more than that is flagged partial. */
+  async function readWorklog(signal: AbortSignal, issueKey: string): Promise<Worklog> {
+    const PAGE = 100;
+    const MAX_PAGES = 5;
+    const entries: WorklogEntry[] = [];
+    let startAt = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const r = (await request(
+        signal,
+        'GET',
+        `${issuePath(issueKey)}/worklog${q({ startAt, maxResults: PAGE })}`,
+      )) as { worklogs?: unknown[]; total?: unknown };
+      const batch = r?.worklogs ?? [];
+      for (const v of batch) {
+        const w = (v ?? {}) as Record<string, unknown>;
+        const e = worklogEntry({
+          author: ((w.author ?? {}) as Record<string, unknown>).displayName,
+          started: worklogStarted(w.started),
+          seconds: w.timeSpentSeconds,
+          comment: w.comment,
+        });
+        if (e) entries.push(e);
+      }
+      startAt += batch.length;
+      const total = n(r?.total);
+      if (batch.length === 0 || total === null || startAt >= total)
+        return worklogOf(issueKey, entries, false);
+    }
+    return worklogOf(issueKey, entries, true);
+  }
+
   const handlers: {
     [N in JiraToolName]: (input: JiraToolInput<N>, signal: AbortSignal) => Promise<unknown>;
   } = {
@@ -266,6 +308,103 @@ export function createRestJiraBackend(
       const issues = (r?.issues ?? []).slice(0, limit).map(brief);
       const total = n(r?.total);
       return { total, hasMore: total !== null && total > issues.length, issues };
+    },
+    async jira_get_worklog({ issueKey }, signal) {
+      return readWorklog(signal, issueKey);
+    },
+    async jira_worklog_summary(input, signal) {
+      return summarizeWorklogs(input, {
+        search: (jql, limit) =>
+          handlers.jira_search({ jql, limit }, signal) as Promise<{
+            hasMore: boolean;
+            issues: { key: string | null; summary: string | null }[];
+          }>,
+        worklog: (key) => readWorklog(signal, key),
+        signal,
+      });
+    },
+    async jira_get_board_issues({ boardId, jql, limit }, signal) {
+      const page = (await request(
+        signal,
+        'GET',
+        `/rest/agile/1.0/board/${boardId}/issue${q({ jql, maxResults: limit, fields: FIELDS })}`,
+      )) as { issues?: RawIssue[]; total?: unknown };
+      const issues = (page?.issues ?? []).slice(0, limit).map(brief);
+      const total = n(page?.total);
+      return { total, hasMore: total !== null && total > issues.length, issues };
+    },
+    async jira_get_link_types(_input, signal) {
+      const r = (await request(signal, 'GET', '/rest/api/2/issueLinkType')) as {
+        issueLinkTypes?: unknown[];
+      };
+      return {
+        linkTypes: (r?.issueLinkTypes ?? []).map((v) => {
+          const t = (v ?? {}) as Record<string, unknown>;
+          return { id: s(t.id), name: s(t.name), inward: s(t.inward), outward: s(t.outward) };
+        }),
+      };
+    },
+    async jira_get_project_versions({ projectKey }, signal) {
+      const r = await request(
+        signal,
+        'GET',
+        `/rest/api/2/project/${encodeURIComponent(projectKey)}/versions`,
+      );
+      return {
+        versions: (Array.isArray(r) ? r : []).map((v) => {
+          const t = (v ?? {}) as Record<string, unknown>;
+          return {
+            id: s(t.id),
+            name: s(t.name),
+            released: typeof t.released === 'boolean' ? t.released : null,
+            archived: typeof t.archived === 'boolean' ? t.archived : null,
+            releaseDate: s(t.releaseDate),
+            description: s(t.description),
+          };
+        }),
+      };
+    },
+    async jira_get_project_components({ projectKey }, signal) {
+      const r = await request(
+        signal,
+        'GET',
+        `/rest/api/2/project/${encodeURIComponent(projectKey)}/components`,
+      );
+      return {
+        components: (Array.isArray(r) ? r : []).map((v) => {
+          const t = (v ?? {}) as Record<string, unknown>;
+          const lead = (t.lead ?? {}) as Record<string, unknown>;
+          return {
+            id: s(t.id),
+            name: s(t.name),
+            description: s(t.description),
+            lead: s(lead.displayName),
+          };
+        }),
+      };
+    },
+    async jira_get_issue_watchers({ issueKey }, signal) {
+      const r = (await request(signal, 'GET', `${issuePath(issueKey)}/watchers`)) as {
+        watchCount?: unknown;
+        watchers?: unknown[];
+      };
+      const watchers = (r?.watchers ?? []).flatMap((v) => {
+        const name = s(((v ?? {}) as Record<string, unknown>).displayName);
+        return name ? [name] : [];
+      });
+      return { issueKey, count: n(r?.watchCount) ?? watchers.length, watchers };
+    },
+    async jira_get_issue_dates() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_project_epic_hierarchy() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_get_cross_project_dependencies() {
+      throw new JiraToolError('not_supported');
+    },
+    async jira_search_fields() {
+      throw new JiraToolError('not_supported');
     },
     async jira_add_comment({ issueKey, body }, signal) {
       const c = (await request(signal, 'POST', `${issuePath(issueKey)}/comment`, {

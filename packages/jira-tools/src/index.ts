@@ -14,13 +14,18 @@ export {
 } from './backend';
 export {
   ISSUE_KEY_PATTERN,
+  isJiraMcpOnlyTool,
   isJiraToolName,
   isJiraWriteTool,
+  JIRA_LOCAL_TOOLS,
+  JIRA_MCP_ONLY_TOOLS,
   JIRA_TOOL_NAMES,
   JIRA_TOOLS,
   JIRA_WRITE_TOOLS,
   type JiraToolInput,
   type JiraToolName,
+  MCP_ISSUE_FIELDS,
+  MCP_ISSUE_LIST_FIELDS,
   parseJiraToolInput,
 } from './catalog';
 export {
@@ -32,6 +37,14 @@ export {
   mcpAtlassianHeaders,
 } from './mcp-backend';
 export { createRestJiraBackend } from './rest-backend';
+export {
+  summarizeWorklogs,
+  type Worklog,
+  type WorklogEntry,
+  type WorklogSummary,
+  worklogEntry,
+  worklogOf,
+} from './worklog-summary';
 
 /**
  * Picks how a connection's Jira tools run. Data Center PATs and Cloud OAuth go through the shared
@@ -49,5 +62,6 @@ export function createJiraToolBackend(
   return createMcpAtlassianBackend(creds, {
     url: opts.mcpAtlassianUrl,
     timeoutMs: opts.timeoutMs,
+    outbound: opts.outbound,
   });
 }

@@ -41,7 +41,8 @@ describe('mock Jira: issue detail and writes', () => {
     );
     const issue = await call('GET', '/rest/api/2/issue/DEMO-1?fields=summary,comment');
     expect(issue.body.fields.summary).toBe('Set up the release pipeline');
-    expect(issue.body.fields.comment.comments).toMatchObject([{ body: 'Hi' }]);
+    // DEMO-1 already has one seeded comment; this write is appended after it.
+    expect(issue.body.fields.comment.comments.at(-1)).toMatchObject({ body: 'Hi' });
     expect(jira.writes).toMatchObject([
       { method: 'POST', path: '/jira/rest/api/2/issue/DEMO-1/comment', body: { body: 'Hi' } },
     ]);

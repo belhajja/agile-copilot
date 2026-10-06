@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exactPerson, JiraToolError } from './backend';
+import { exactPerson, isoTime, JiraToolError, worklogStarted } from './backend';
 import { ISSUE_KEY_PATTERN, JIRA_TOOLS } from './catalog';
 
 const person = (id: string, displayName: string, extra: Record<string, unknown> = {}) => ({
@@ -50,6 +50,30 @@ describe('exactPerson (both backends resolve assignees with it)', () => {
     expect(() => exactPerson([], 'Ann', { cloud: false })).toThrow(
       expect.objectContaining({ code: 'not_found' }),
     );
+  });
+});
+
+describe('isoTime', () => {
+  it('normalises mcp-atlassian 0.23.1 worklog timestamps (space, colon offset) to UTC', () => {
+    expect(isoTime('2026-10-01 09:00:00+02:00')).toBe('2026-10-01T07:00:00Z');
+  });
+
+  it('reads mcp-atlassian’s str(None) for a worklog date it could not parse as null', () => {
+    expect(isoTime('None')).toBeNull();
+  });
+});
+
+describe('worklogStarted', () => {
+  it('keeps a worklog’s local day and time, never shifting it to UTC', () => {
+    expect(worklogStarted('2026-10-01 00:30:00+02:00')).toBe('2026-10-01T00:30:00+02:00');
+    expect(worklogStarted('2026-10-01T00:30:00.000+0200')).toBe('2026-10-01T00:30:00+02:00');
+    expect(worklogStarted('2026-10-01T00:30:00.000Z')).toBe('2026-10-01T00:30:00Z');
+  });
+
+  it('reads "None" and anything unparseable as null', () => {
+    expect(worklogStarted('None')).toBeNull();
+    expect(worklogStarted('not a date')).toBeNull();
+    expect(worklogStarted(null)).toBeNull();
   });
 });
 

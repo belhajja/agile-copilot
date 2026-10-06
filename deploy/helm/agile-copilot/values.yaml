@@ -73,8 +73,8 @@ migrate:
 mcpAtlassian:
   enabled: true
   image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
-  enabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
-  readonlyEnabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues
+  enabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
+  readonlyEnabledTools: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers
   # The image runs as its user `app`, uid/gid 1000 (`docker run … id`). The kubelet cannot check a
   # user name against runAsNonRoot, so the number is set here (over podSecurityContext).
   podSecurityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
