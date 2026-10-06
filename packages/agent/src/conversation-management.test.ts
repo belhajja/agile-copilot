@@ -184,4 +184,45 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
     });
     expect(await createGroup(app.db, alice, '   ')).toEqual({ ok: false, code: 'invalid_name' });
   });
+
+  it('archiving, filing and picking a model keep a conversation’s place by date', async () => {
+    const id = await started(alice, 'Keep my place');
+    const mine = await llm('org_a', 'placed-model');
+    const group = await createGroup(app.db, alice, 'Placed');
+    if (!group.ok) throw new Error(group.code);
+    const before = await updatedAtOf(id);
+    await setConversationArchived(app.db, alice, id, true);
+    await setConversationArchived(app.db, alice, id, false);
+    await moveConversationToGroup(app.db, alice, id, group.id);
+    await setConversationModel(app.db, alice, id, mine);
+    expect(await updatedAtOf(id)).toBe(before);
+  });
+
+  it('lists groups by their latest activity', async () => {
+    const dan: AgentActor = { orgId: 'org_a', userId: 'user_dan', roles: ['viewer'] };
+    const older = await createGroup(app.db, dan, 'Older');
+    const newer = await createGroup(app.db, dan, 'Newer');
+    if (!older.ok || !newer.ok) throw new Error('groups not created');
+    // Newest group first while both are empty; then a fresh conversation lifts the older one.
+    expect((await listConversationHistory(app.db, dan)).groups.map((g) => g.name)).toEqual([
+      'Newer',
+      'Older',
+    ]);
+    const id = await started(dan, 'Fresh question');
+    await moveConversationToGroup(app.db, dan, id, older.id);
+    expect((await listConversationHistory(app.db, dan)).groups.map((g) => g.name)).toEqual([
+      'Older',
+      'Newer',
+    ]);
+  });
+
+  it('deletes a conversation whose reply lease has run out', async () => {
+    const id = await started(alice, 'Stale lease');
+    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID()));
+    await owner.db
+      .update(agentConversations)
+      .set({ turnStartedAt: new Date(Date.now() - 3_600_000) })
+      .where(eq(agentConversations.id, id));
+    expect(await deleteConversation(app.db, alice, id)).toBe('deleted');
+  });
 });
