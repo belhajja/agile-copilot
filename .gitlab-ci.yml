@@ -203,3 +203,18 @@ e2e:
     when: on_failure
     paths: [e2e/playwright-report, e2e/test-results]
     expire_in: 1 week
+
+# The operator on a real Docker daemon: install, upgrade, a failed upgrade rolled back, restore.
+operator-it:
+  stage: acceptance
+  image: docker:28-cli
+  tags: [graas-dind]
+  services:
+    - name: docker:28-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - sh apps/operator/it/run.sh "$CI_REGISTRY_IMAGE" "$CI_COMMIT_REF_SLUG"
