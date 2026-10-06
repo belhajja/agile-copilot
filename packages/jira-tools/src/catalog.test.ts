@@ -10,6 +10,7 @@ import {
   JIRA_TOOLS,
   JIRA_WRITE_TOOLS,
   MCP_ISSUE_FIELDS,
+  MCP_ISSUE_LIST_FIELDS,
   parseJiraToolInput,
 } from './catalog';
 
@@ -171,15 +172,30 @@ describe('read tools for time tracking and delivery context', () => {
 
   it('asks mcp-atlassian for time tracking on issue reads', () => {
     expect(MCP_ISSUE_FIELDS.split(',')).toContain('timetracking');
+    expect(MCP_ISSUE_LIST_FIELDS.split(',')).toContain('timetracking');
     const issue = parseJiraToolInput('jira_get_issue', { issueKey: 'DEMO-1' });
     const search = parseJiraToolInput('jira_search', { jql: 'project = DEMO' });
     const sprint = parseJiraToolInput('jira_get_sprint_issues', { sprintId: '4' });
-    if (!issue.success || !search.success || !sprint.success) throw new Error('invalid sample');
-    expect(JIRA_TOOLS.jira_get_issue.toMcp(issue.data)).toMatchObject({ fields: MCP_ISSUE_FIELDS });
-    expect(JIRA_TOOLS.jira_search.toMcp(search.data)).toMatchObject({ fields: MCP_ISSUE_FIELDS });
-    expect(JIRA_TOOLS.jira_get_sprint_issues.toMcp(sprint.data)).toMatchObject({
-      fields: MCP_ISSUE_FIELDS,
+    const board = parseJiraToolInput('jira_get_board_issues', { boardId: '1' });
+    if (!issue.success || !search.success || !sprint.success || !board.success) {
+      throw new Error('invalid sample');
+    }
+    expect(JIRA_TOOLS.jira_search.toMcp(search.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
     });
+    expect(JIRA_TOOLS.jira_get_sprint_issues.toMcp(sprint.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
+    });
+    expect(JIRA_TOOLS.jira_get_board_issues.toMcp(board.data)).toMatchObject({
+      fields: MCP_ISSUE_LIST_FIELDS,
+    });
+  });
+
+  it('asks mcp-atlassian for comments on a single issue read, explicitly (0.23.1 only adds them to its own default field set)', () => {
+    const issue = parseJiraToolInput('jira_get_issue', { issueKey: 'DEMO-1' });
+    if (!issue.success) throw new Error('invalid sample');
+    expect(MCP_ISSUE_FIELDS.split(',')).toContain('comment');
+    expect(JIRA_TOOLS.jira_get_issue.toMcp(issue.data)).toMatchObject({ fields: MCP_ISSUE_FIELDS });
   });
 
   it('bounds the inputs', () => {

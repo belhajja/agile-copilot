@@ -97,16 +97,18 @@ function mcpSearchResult(out: unknown, limit: unknown) {
 
 /**
  * One REST `jira_get_issue` result → mcp-atlassian's real raw shape: the same per-issue fields as
- * search/board/sprint issues, plus `labels`/`description`/`comments`, and a synthetic `reporter`
- * (the real image always includes one, since `MCP_ISSUE_FIELDS` asks for it) — the mapper under
- * test must never let it, or a comment's author id/email, reach its output.
+ * search/board/sprint issues, plus `labels`/`description`, a synthetic `reporter` (the real image
+ * always includes one), and `comments` — only when `comment` was requested, like 0.23.1 itself
+ * (`jira/issues.py`: no `comment` in the requested fields, no comments fetched at all) — the
+ * mapper under test must never let a reporter, or a comment's author id/email, reach its output.
  */
-function mcpIssueResult(out: unknown) {
+function mcpIssueResult(out: unknown, fields: unknown) {
   const i = out as Obj & {
     labels?: unknown;
     description?: unknown;
     comments?: { author: unknown; body: unknown; created: unknown }[];
   };
+  const wantsComments = typeof fields === 'string' && fields.split(',').includes('comment');
   return {
     ...mcpIssueFields(i),
     reporter: {
@@ -118,22 +120,26 @@ function mcpIssueResult(out: unknown) {
     },
     labels: i.labels ?? [],
     description: i.description,
-    comments: (Array.isArray(i.comments) ? i.comments : []).map((c, idx) => ({
-      id: String(idx),
-      body: c.body,
-      ...(c.author != null
-        ? {
-            author: {
-              account_id: `a-${idx}`,
-              display_name: c.author,
-              name: `author-${idx}`,
-              email: `author-${idx}@example.com`,
-              avatar_url: null,
-            },
-          }
-        : {}),
-      ...(c.created != null ? { created: c.created } : {}),
-    })),
+    ...(wantsComments
+      ? {
+          comments: (Array.isArray(i.comments) ? i.comments : []).map((c, idx) => ({
+            id: String(idx),
+            body: c.body,
+            ...(c.author != null
+              ? {
+                  author: {
+                    account_id: `a-${idx}`,
+                    display_name: c.author,
+                    name: `author-${idx}`,
+                    email: `author-${idx}@example.com`,
+                    avatar_url: null,
+                  },
+                }
+              : {}),
+            ...(c.created != null ? { created: c.created } : {}),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -288,7 +294,7 @@ export async function startMockMcpAtlassian(
             ) {
               return text(mcpSearchResult(out, args.limit));
             }
-            if (name === 'jira_get_issue') return text(mcpIssueResult(out));
+            if (name === 'jira_get_issue') return text(mcpIssueResult(out, args.fields));
             if (name === 'jira_get_worklog') return text(mcpWorklogResult(out));
             if (name === 'jira_get_issue_watchers') {
               return text(mcpWatchersResult(out, args.issue_key));

@@ -25,6 +25,7 @@ export {
   type JiraToolInput,
   type JiraToolName,
   MCP_ISSUE_FIELDS,
+  MCP_ISSUE_LIST_FIELDS,
   parseJiraToolInput,
 } from './catalog';
 export {

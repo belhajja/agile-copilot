@@ -50,11 +50,20 @@ const isoDate = z
   .describe('Date, YYYY-MM-DD');
 
 /**
- * Fields asked of mcp-atlassian on issue reads: its 0.23.1 defaults plus `timetracking` (its
- * default set leaves time tracking out). Passing `fields` replaces the defaults.
+ * Fields asked of mcp-atlassian for a list of issues (search, sprint and board issues): only what
+ * `briefFromMcp` reads, plus `timetracking` (0.23.1's defaults leave it out). Passing `fields`
+ * replaces mcp-atlassian's own defaults.
  */
-export const MCP_ISSUE_FIELDS =
-  'summary,issuetype,updated,status,labels,assignee,reporter,created,description,versions,priority,timetracking';
+export const MCP_ISSUE_LIST_FIELDS = 'summary,issuetype,updated,status,assignee,timetracking';
+
+/**
+ * Fields asked of mcp-atlassian for a single issue: the list fields above, plus `labels` and
+ * `description` (`issueFromMcp` reads both) and `comment`. Requesting `comment` explicitly is the
+ * only way 0.23.1 fetches comments once `fields` differs from its own defaults: it only adds
+ * `comment` to the requested set on its own when that set is exactly
+ * `DEFAULT_READ_JIRA_FIELDS` (`jira/issues.py`), which `timetracking` already takes us out of.
+ */
+export const MCP_ISSUE_FIELDS = `${MCP_ISSUE_LIST_FIELDS},labels,description,comment`;
 
 export const JIRA_TOOLS = {
   jira_search: def({
@@ -62,7 +71,7 @@ export const JIRA_TOOLS = {
     description:
       'Search Jira issues with JQL (live data, may be newer than the synced dashboards). Returns key, summary, status, assignee and time tracking (estimates and time spent, in hours and as Jira shows them).',
     input: z.object({ jql: text(2000).describe('JQL query'), limit: limit(50, 20) }),
-    toMcp: (i) => ({ jql: i.jql, limit: i.limit, fields: MCP_ISSUE_FIELDS }),
+    toMcp: (i) => ({ jql: i.jql, limit: i.limit, fields: MCP_ISSUE_LIST_FIELDS }),
     fromMcp: (a) => ({ jql: str(a.jql) ?? '', limit: num(a.limit) }),
   }),
   jira_get_issue: def({
@@ -118,7 +127,7 @@ export const JIRA_TOOLS = {
     write: false,
     description: 'List the issues of a sprint, with their time tracking.',
     input: z.object({ sprintId: numericId('sprint'), limit: limit(50, 50) }),
-    toMcp: (i) => ({ sprint_id: i.sprintId, limit: i.limit, fields: MCP_ISSUE_FIELDS }),
+    toMcp: (i) => ({ sprint_id: i.sprintId, limit: i.limit, fields: MCP_ISSUE_LIST_FIELDS }),
     fromMcp: (a) => ({ sprintId: str(a.sprint_id) ?? '', limit: num(a.limit) }),
   }),
   jira_get_worklog: def({
@@ -133,7 +142,7 @@ export const JIRA_TOOLS = {
     write: false,
     local: true,
     description:
-      'Total the time logged on the issues a JQL query matches (at most 50), per person and per issue, optionally between two dates (inclusive, by the day the work was logged for). Use it for questions such as "time logged per person this sprint".',
+      'Total the time logged on the issues a JQL query matches (at most 50), per person and per issue, optionally between two dates (inclusive, by the day the work was logged for). Use it for questions such as "time logged per person this sprint". If partial is true, not every issue or worklog was counted (more than 50 issues, an unreadable worklog, or the time limit): say the totals are incomplete and suggest a narrower JQL. Hours are rounded to 0.1, so per-person totals may differ from the total by 0.1.',
     input: z
       .object({
         jql: text(2000).describe('JQL query'),
@@ -160,7 +169,7 @@ export const JIRA_TOOLS = {
     toMcp: (i) => ({
       board_id: i.boardId,
       jql: i.jql ?? 'ORDER BY Rank ASC',
-      fields: MCP_ISSUE_FIELDS,
+      fields: MCP_ISSUE_LIST_FIELDS,
       limit: i.limit,
     }),
     fromMcp: (a) => {
