@@ -193,7 +193,9 @@ export type JiraToolMode =
  * the model never sees the field. A call runs against exactly that connection, or fails
  * (`not_found` when it is gone, `unavailable` when its tools cannot run here): never another one.
  * Roles with `jira.read` get the read tools, `jira.write` the writes (owners, admins, managers);
- * in read-only mode, write tools are never built.
+ * in read-only mode, write tools are never built. The tools only mcp-atlassian can run
+ * (`isJiraMcpOnlyTool`) are offered, and their `site` choice restricted, to sites that use it
+ * (Data Center PAT or Cloud OAuth, never a Cloud API-token connection).
  */
 export function buildJiraToolSet(
   deps: AgentDeps,
