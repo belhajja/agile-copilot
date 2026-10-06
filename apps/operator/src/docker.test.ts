@@ -142,6 +142,16 @@ describe('realDocker error paths (no docker binary needed: runs node itself)', (
     await expect(docker.run(['version'])).rejects.toThrow();
   });
 
+  it('streams stderr to onStderr instead of collecting it', async () => {
+    const docker = createDocker(process.execPath);
+    const chunks: string[] = [];
+    const result = await docker.run(['-e', 'process.stderr.write("oops\\n")'], {
+      onStderr: (c) => chunks.push(c),
+    });
+    expect(chunks.join('')).toBe('oops\n');
+    expect(result.stderr).toBe('');
+  });
+
   it("ignores a broken stdin pipe and resolves with the child's real exit code", async () => {
     const docker = createDocker(process.execPath);
     // More than any OS pipe buffer: writing it to a child that never reads stdin and exits

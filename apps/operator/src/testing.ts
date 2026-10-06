@@ -80,8 +80,9 @@ export class FakeDocker implements Docker {
       (cmd.startsWith('compose ps') ? { stdout: healthyPs(this.mode) } : {});
     if (opts?.stdoutFile) await writeFile(opts.stdoutFile, r.stdout ?? 'dump');
     if (opts?.onStdout && r.stdout) opts.onStdout(r.stdout);
+    if (opts?.onStderr && r.stderr) opts.onStderr(r.stderr);
     const collected = opts?.stdoutFile || opts?.onStdout ? '' : (r.stdout ?? '');
-    return { code: r.code ?? 0, stdout: collected, stderr: r.stderr ?? '' };
+    return { code: r.code ?? 0, stdout: collected, stderr: opts?.onStderr ? '' : (r.stderr ?? '') };
   }
 
   get commands(): string[] {

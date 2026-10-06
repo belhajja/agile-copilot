@@ -20,6 +20,8 @@ export interface RunOptions {
   stdoutFile?: string;
   /** Stdout is streamed here instead of collected. */
   onStdout?: (chunk: string) => void;
+  /** Stderr is streamed here instead of collected (`RunResult.stderr` stays empty). */
+  onStderr?: (chunk: string) => void;
 }
 
 export interface Docker {
@@ -66,7 +68,8 @@ export function createDocker(command = 'docker'): Docker {
         child.stdout.on('error', () => {});
 
         child.stderr.on('data', (d: Buffer) => {
-          stderr += d.toString();
+          if (opts.onStderr) opts.onStderr(d.toString());
+          else stderr += d.toString();
         });
         child.stderr.on('error', () => {});
 
