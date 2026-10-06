@@ -12,6 +12,7 @@ export const LLM_ERROR_CODES = [
   'no_tool_calling',
   'unreachable',
   'provider_error',
+  'not_supported',
   'not_found',
   'forbidden_role',
 ] as const;
