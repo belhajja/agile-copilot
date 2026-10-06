@@ -97,6 +97,15 @@ docker run --rm -it \
 It asks for the mode (`local`: this computer, `server`: HTTPS with a domain), the port or domain,
 the Jira hosts to allow and a registry deploy token, generates every secret, starts the stack and
 waits until it is healthy. Every answer can be given as a flag (`--yes` takes the defaults).
+Answering the prompts needs `-it` on `docker run`; without a terminal, pass the flags or `--yes`.
+
+Secrets passed as flags end up in the host's process list and shell history. Pass them through
+the environment instead: `OPERATOR_REGISTRY_TOKEN` and `OPERATOR_OIDC_CLIENT_SECRET` (e.g.
+`docker run -e OPERATOR_REGISTRY_TOKEN ...` with the variable set in your shell) are used when
+`--registry-token` or `--oidc-client-secret` is absent. With `--oidc-issuer` and no secret,
+`install` asks for it without echoing. If the registry refused the images, `install --resume
+--registry-user <user>` with the token in `OPERATOR_REGISTRY_TOKEN` (or `--registry-token`)
+stores the new deploy token and carries on; no other setting changes on resume.
 
 - `upgrade` (run the operator of the new version): pulls, backs up, migrates, and rolls back to
   the previous version and data if the new one does not come up.
@@ -105,8 +114,10 @@ waits until it is healthy. Every answer can be given as a flag (`--yes` takes th
   AI credentials cannot be read.
 - The operator runs as root in its container: it drives the Docker socket, which is
   root-equivalent anyway.
-- A hand-made install moves under the operator by copying its `.env` into the folder's `.env`
-  before `install --resume`; the secrets carry over.
+- Adopting an existing hand-made install is not supported in this version: keep running it with
+  `docker compose`, or install fresh with the operator and restore a `pg_dump` of the old
+  database into it (the new install has its own `ENCRYPTION_KEYS`, so the Jira and AI
+  credentials stored in the old database have to be entered again).
 
 ### Deploying on a server
 
