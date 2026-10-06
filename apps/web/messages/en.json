@@ -565,6 +565,7 @@
     "tools": {
       "list_boards": "List boards",
       "list_metrics": "List metrics",
+      "list_sprints": "List sprints",
       "get_metric": "Compute a metric",
       "forecast": "Forecast",
       "find_issues": "Find issues",

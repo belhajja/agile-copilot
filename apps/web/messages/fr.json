@@ -565,6 +565,7 @@
     "tools": {
       "list_boards": "Lister les tableaux",
       "list_metrics": "Lister les indicateurs",
+      "list_sprints": "Lister les sprints",
       "get_metric": "Calculer un indicateur",
       "forecast": "Prévision",
       "find_issues": "Chercher des tickets",

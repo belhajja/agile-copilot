@@ -166,6 +166,7 @@ describe('external analytics MCP (personal tokens)', () => {
         'get_metric',
         'list_boards',
         'list_metrics',
+        'list_sprints',
       ]);
       expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
       const result = await client.callTool({ name: 'list_boards', arguments: {} });

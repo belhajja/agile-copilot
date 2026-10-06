@@ -58,6 +58,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       'get_metric',
       'list_boards',
       'list_metrics',
+      'list_sprints',
     ]);
     expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
     // No tool lets the model pick a workspace, a connection, a user or a tenant.

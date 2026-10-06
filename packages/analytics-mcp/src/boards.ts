@@ -57,16 +57,23 @@ export class UnknownBoardError extends Error {
 }
 
 /**
- * A selected board of the caller's workspace and its dataset. Any other id (malformed, another
- * workspace's, not selected) is "unknown": the model learns nothing about other tenants.
+ * A selected board of the caller's workspace (tenant-checked), without loading its metrics
+ * dataset. Any other id (malformed, another workspace's, not selected) is "unknown": the model
+ * learns nothing about other tenants.
  */
+export async function requireBoard(ctx: AnalyticsContext, boardId: string): Promise<BoardSummary> {
+  if (!isUuid(boardId)) throw new UnknownBoardError();
+  const [board] = await selectedBoards(ctx, boardId);
+  if (!board) throw new UnknownBoardError();
+  return board;
+}
+
+/** A selected board of the caller's workspace and its dataset (see `requireBoard`). */
 export async function openBoard(
   ctx: AnalyticsContext,
   boardId: string,
 ): Promise<{ board: BoardSummary; dataset: BoardDataset }> {
-  if (!isUuid(boardId)) throw new UnknownBoardError();
-  const [board] = await selectedBoards(ctx, boardId);
-  if (!board) throw new UnknownBoardError();
+  const board = await requireBoard(ctx, boardId);
   const dataset = await loadBoardDataset(ctx.db, ctx.orgId, boardId);
   if (!dataset) throw new UnknownBoardError();
   return { board, dataset };

@@ -3,6 +3,7 @@ export {
   type BoardSummary,
   listBoardSummaries,
   openBoard,
+  requireBoard,
   UnknownBoardError,
 } from './boards';
 export { type FindIssuesInput, findIssues, findIssuesInput } from './issues';
@@ -18,3 +19,4 @@ export {
   type AnalyticsServerOptions,
   createAnalyticsMcpServer,
 } from './server';
+export { type ListSprintsInput, listSprints, type SprintSummary } from './sprints';

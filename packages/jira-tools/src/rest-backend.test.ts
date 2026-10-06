@@ -150,6 +150,26 @@ describe('REST Jira backend (Cloud API tokens) against the mock Jira', () => {
     expect(inSprint.issues.every((i) => i.key?.startsWith('DEMO-') && i.status)).toBe(true);
   });
 
+  it('pages sprints with startAt and reports hasMore from isLast', async () => {
+    const b = backend();
+    const first = (await run(b, 'jira_get_sprints_from_board', {
+      boardId: '1',
+      limit: 2,
+    })) as { sprints: { id: unknown }[]; hasMore: boolean };
+    expect(cloud.requests.at(-1)?.search).toContain('maxResults=2');
+    expect(first.sprints.map((s) => s.id)).toEqual([1, 2]);
+    expect(first.hasMore).toBe(true);
+
+    const second = (await run(b, 'jira_get_sprints_from_board', {
+      boardId: '1',
+      startAt: 2,
+      limit: 2,
+    })) as { sprints: { id: unknown }[]; hasMore: boolean };
+    expect(cloud.requests.at(-1)?.search).toContain('startAt=2');
+    expect(second.sprints.map((s) => s.id)).toEqual([3, 4]);
+    expect(second.hasMore).toBe(false);
+  });
+
   it('maps Jira errors to codes', async () => {
     await expect(run(backend(), 'jira_get_issue', { issueKey: 'NOPE-1' })).rejects.toMatchObject({
       code: 'not_found',
@@ -362,8 +382,17 @@ describe('REST Jira backend (Data Center PAT) against the mock Jira', () => {
     ).toContainEqual({ id: 2, name: 'OPS Kanban', type: 'kanban' });
     const sprints = (await run(b, 'jira_get_sprints_from_board', { boardId: '1' })) as {
       sprints: { id: unknown }[];
+      hasMore: boolean;
     };
     expect(sprints.sprints.map((s) => s.id)).toEqual([1, 2, 3, 4]);
+    expect(sprints.hasMore).toBe(false);
+    const paged = (await run(b, 'jira_get_sprints_from_board', {
+      boardId: '1',
+      startAt: 1,
+      limit: 1,
+    })) as { sprints: { id: unknown }[]; hasMore: boolean };
+    expect(paged.sprints.map((s) => s.id)).toEqual([2]);
+    expect(paged.hasMore).toBe(true);
     const inSprint = (await run(b, 'jira_get_sprint_issues', { sprintId: '4' })) as {
       issues: { key: string | null }[];
     };

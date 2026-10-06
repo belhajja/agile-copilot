@@ -76,6 +76,16 @@
     - type: icontains
       value: skill builder
 
+- description: Reads a sprint's official dates from the synced data, not from issue or worklog dates
+  vars:
+    question: What were the dates of the last closed sprint of DEMO Scrum?
+  assert:
+    - type: javascript
+      value: |
+        const m = context.providerResponse.metadata;
+        const start = /"startAt":\s*"([^"]+)"/.exec(m.toolOutputs)?.[1];
+        return m.tools.includes('list_sprints') && start !== undefined && output.includes(start);
+
 - description: Totals logged time per person in one call (worklog summary)
   vars:
     question: How much time did each person log on the DEMO project?

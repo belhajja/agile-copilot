@@ -285,6 +285,31 @@ export function transitionsFromMcp(raw: unknown) {
   };
 }
 
+/**
+ * mcp-atlassian 0.23.1's `jira_get_sprints_from_board` result (a bare list, `JiraSprint.
+ * to_simplified_dict`: snake_case dates, no `completeDate`, no paging envelope) → the REST
+ * backend's `{ sprints, hasMore }` shape. There is no total or `isLast` to read `hasMore` from, so
+ * it is guessed from the page being full, like `searchFromMcp` does for Cloud's `next_page_token`.
+ */
+export function sprintsFromMcp(raw: unknown, limit: number) {
+  const list = Array.isArray(raw) ? raw : [];
+  return {
+    sprints: list.map((v) => {
+      const t = obj(v);
+      const id = typeof t.id === 'string' ? Number(t.id) : typeof t.id === 'number' ? t.id : NaN;
+      return {
+        id: Number.isFinite(id) ? id : null,
+        name: s(t.name),
+        state: s(t.state),
+        startDate: s(t.start_date),
+        endDate: s(t.end_date),
+        goal: s(t.goal),
+      };
+    }),
+    hasMore: list.length === limit,
+  };
+}
+
 /** A definitive answer (2xx parsed, or 404/405 meaning no such endpoint) is good for an hour. */
 const SETTING_TTL_MS = 60 * 60 * 1000;
 /**
@@ -516,6 +541,9 @@ export function createMcpAtlassianBackend(
         }
         if (name === 'jira_get_issue_watchers') {
           return watchersFromMcp((input as JiraToolInput<'jira_get_issue_watchers'>).issueKey, out);
+        }
+        if (name === 'jira_get_sprints_from_board') {
+          return sprintsFromMcp(out, (input as JiraToolInput<'jira_get_sprints_from_board'>).limit);
         }
         if (name === 'jira_get_link_types') return linkTypesFromMcp(out);
         if (name === 'jira_get_project_versions') return versionsFromMcp(out);

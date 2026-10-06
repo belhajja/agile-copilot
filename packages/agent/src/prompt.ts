@@ -25,8 +25,10 @@ function siteList(sites: PromptSite[]): string {
 }
 
 const ANALYTICS_RULE = `- For metrics and forecasts, always call the analytics tools (list_boards, list_metrics, get_metric,
-  forecast, find_issues, explain_metric) and report their numbers with units, board and time window.
-  Never estimate or compute metric values yourself.`;
+  forecast, find_issues, list_sprints, explain_metric) and report their numbers with units, board
+  and time window. Never estimate or compute metric values yourself.
+- Sprint ids, names and official dates (start, end, completion) come from list_sprints; never infer
+  them from issue or worklog dates.`;
 
 const STEP_BUDGET = `- You have a limited number of tool steps per answer: prefer one broad query over many narrow
   ones (one search for all the issues you need, one summary rather than one call per issue). When
