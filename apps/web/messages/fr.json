@@ -279,6 +279,16 @@
     "selectionDescription": "Les tableaux sélectionnés sont synchronisés toutes les quelques minutes et ont leurs tableaux de bord.",
     "saveSelection": "Enregistrer la sélection",
     "selectionSaved": "Sélection des tableaux enregistrée.",
+    "filter": {
+      "search": "Rechercher des tableaux",
+      "searchPlaceholder": "Nom ou clé de projet",
+      "type": "Type de tableau",
+      "allTypes": "Tous les types",
+      "selectedOnly": "Sélectionnés uniquement",
+      "count": "{shown, number} sur {total, number} affichés · {selected, number} sélectionnés",
+      "noMatch": "Aucun tableau ne correspond à ces filtres.",
+      "clear": "Effacer les filtres"
+    },
     "estimates": {
       "points": "Points d'effort",
       "count": "Nombre de tickets",
