@@ -2,7 +2,6 @@
 
 import { ChevronDown, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useTransition } from 'react';
 import { toast } from 'sonner';
@@ -32,15 +31,13 @@ export interface ModelOption {
  */
 export function ModelPicker({
   conversationId,
-  isNew,
   models,
   pickedId,
   fallback,
   canManage,
 }: {
+  /** Stored by the first pick when the chat is still new. */
   conversationId: string;
-  /** Not stored yet: picking a model creates it, under its own URL. */
-  isNew: boolean;
   models: ModelOption[];
   /** The connection picked for this conversation; null = the workspace default. */
   pickedId: string | null;
@@ -49,7 +46,6 @@ export function ModelPicker({
   canManage: boolean;
 }) {
   const t = useTranslations('agent.model');
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const defaultModel = models.find((m) => m.isDefault);
   const current = (!fallback && models.find((m) => m.id === pickedId)) || defaultModel;
@@ -62,11 +58,7 @@ export function ModelPicker({
         conversationId,
         id === defaultModel?.id ? null : id,
       );
-      if (!result.ok) {
-        toast.error(t('failed'));
-        return;
-      }
-      if (isNew) router.replace(`/agent/${conversationId}`);
+      if (!result.ok) toast.error(t('failed'));
     });
   };
 

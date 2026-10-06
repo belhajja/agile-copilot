@@ -11,7 +11,7 @@ import {
 } from 'ai';
 import { Bot } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Conversation,
   ConversationContent,
@@ -75,13 +75,6 @@ export function AgentChat({
   const busy = status === 'submitted' || status === 'streaming';
   const errorKey = error ? chatErrorKey(error) : undefined;
   const atLimit = text.length >= MAX_MESSAGE_LENGTH;
-
-  // A new chat gets its own URL once it exists, so a reload keeps it.
-  useEffect(() => {
-    if (messages.length > 0 && window.location.pathname === '/agent') {
-      window.history.replaceState(null, '', `/agent/${conversationId}`);
-    }
-  }, [messages.length, conversationId]);
 
   const send = (value: string) => {
     const trimmed = value.trim();

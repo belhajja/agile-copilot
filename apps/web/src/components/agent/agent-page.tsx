@@ -94,7 +94,6 @@ export async function AgentPage({
       headerActions={
         <ModelPicker
           conversationId={conversationId}
-          isNew={!conversation}
           models={models}
           pickedId={pickedId}
           fallback={fallback}

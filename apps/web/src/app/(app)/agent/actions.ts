@@ -13,6 +13,7 @@ import {
   TITLE_MAX_LENGTH,
 } from '@agile/agent';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireActor, services } from '@/server/context';
 
@@ -51,20 +52,25 @@ export async function archiveConversationAction(
   archived: unknown,
 ): Promise<ConversationActionResult> {
   const parsed = z.tuple([id, z.boolean()]).safeParse([conversationId, archived]);
-  if (!parsed.success) return invalid;
+  if (!parsed.success) return notFound;
   const actor = await requireActor();
   return done(await setConversationArchived(services().db, actor, ...parsed.data));
 }
 
+/** `leave`: the deleted conversation is the open one, so the user goes to a new chat. */
 export async function deleteConversationAction(
   conversationId: unknown,
+  leave: unknown,
 ): Promise<ConversationActionResult> {
-  const parsed = id.safeParse(conversationId);
-  if (!parsed.success) return invalid;
+  const parsed = z.tuple([id, z.boolean()]).safeParse([conversationId, leave]);
+  if (!parsed.success) return notFound;
   const actor = await requireActor();
-  const result = await deleteConversation(services().db, actor, parsed.data);
+  const result = await deleteConversation(services().db, actor, parsed.data[0]);
   if (result === 'turn_in_progress') return { ok: false, code: 'turn_in_progress' };
-  return done(result === 'deleted');
+  const outcome = done(result === 'deleted');
+  // Redirected from here: re-rendering the deleted conversation first would show a 404.
+  if (outcome.ok && parsed.data[1]) redirect('/agent');
+  return outcome;
 }
 
 export async function setConversationModelAction(
@@ -84,7 +90,7 @@ export async function moveConversationAction(
   groupId: unknown,
 ): Promise<ConversationActionResult> {
   const parsed = z.tuple([id, id.nullable()]).safeParse([conversationId, groupId]);
-  if (!parsed.success) return invalid;
+  if (!parsed.success) return notFound;
   const actor = await requireActor();
   return done(await moveConversationToGroup(services().db, actor, ...parsed.data));
 }
@@ -102,8 +108,7 @@ export async function createGroupAction(
   if (!created.ok) {
     return { ok: false, code: created.code === 'too_many' ? 'too_many' : 'invalid' };
   }
-  if (toFile) await moveConversationToGroup(services().db, actor, toFile, created.id);
-  return done(true);
+  return done(!toFile || (await moveConversationToGroup(services().db, actor, toFile, created.id)));
 }
 
 export async function renameGroupAction(
@@ -118,7 +123,7 @@ export async function renameGroupAction(
 
 export async function deleteGroupAction(groupId: unknown): Promise<ConversationActionResult> {
   const parsed = id.safeParse(groupId);
-  if (!parsed.success) return invalid;
+  if (!parsed.success) return notFound;
   const actor = await requireActor();
   return done(await deleteGroup(services().db, actor, parsed.data));
 }

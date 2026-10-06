@@ -13,9 +13,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import {
   archiveConversationAction,
@@ -214,8 +213,17 @@ function FolderSection({
 }) {
   const t = useTranslations('agent.manage');
   const outcome = useOutcome();
-  const [renaming, setRenaming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [renaming, setRenamingState] = useState(false);
+  const [deleting, setDeletingState] = useState(false);
+  const opening = useRef(false);
+  const setRenaming = (open: boolean) => {
+    opening.current = open;
+    setRenamingState(open);
+  };
+  const setDeleting = (open: boolean) => {
+    opening.current = open;
+    setDeletingState(open);
+  };
   const [pending, startTransition] = useTransition();
 
   return (
@@ -231,7 +239,13 @@ function FolderSection({
           <DropdownMenuTrigger asChild>
             <RowMenuButton label={t('groupActions', { name: folder.name })} />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent
+            align="start"
+            onCloseAutoFocus={(e) => {
+              if (opening.current) e.preventDefault();
+              opening.current = false;
+            }}
+          >
             <DropdownMenuItem onSelect={() => setRenaming(true)}>
               <Pencil />
               {t('rename')}
@@ -283,9 +297,13 @@ function ConversationRow({
   onNavigate: () => void;
 }) {
   const t = useTranslations('agent.manage');
-  const router = useRouter();
   const outcome = useOutcome();
-  const [dialog, setDialog] = useState<'rename' | 'group' | 'delete' | null>(null);
+  const [dialog, setDialogState] = useState<'rename' | 'group' | 'delete' | null>(null);
+  const opening = useRef(false);
+  const setDialog = (next: 'rename' | 'group' | 'delete' | null) => {
+    opening.current = next !== null;
+    setDialogState(next);
+  };
   const [pending, startTransition] = useTransition();
   const run = (action: () => Promise<ConversationActionResult>) =>
     startTransition(async () => {
@@ -316,7 +334,15 @@ function ConversationRow({
         <DropdownMenuTrigger asChild>
           <RowMenuButton label={t('actions', { title: item.title })} visible={current} />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuContent
+          align="start"
+          className="w-56"
+          onCloseAutoFocus={(e) => {
+            // A dialog opened from the menu keeps the focus (on its field).
+            if (opening.current) e.preventDefault();
+            opening.current = false;
+          }}
+        >
           <DropdownMenuItem onSelect={() => setDialog('rename')}>
             <Pencil />
             {t('rename')}
@@ -396,9 +422,11 @@ function ConversationRow({
         pending={pending}
         onConfirm={() =>
           startTransition(async () => {
-            if (!outcome(await deleteConversationAction(item.id))) return;
-            setDialog(null);
-            if (current) router.push('/agent');
+            if (current) onNavigate();
+            // The open conversation: the action redirects to a new chat when it succeeds.
+            const result = await deleteConversationAction(item.id, current);
+            // No result: the action redirected away.
+            if (result && outcome(result)) setDialog(null);
           })
         }
       />
