@@ -154,7 +154,10 @@ export function publicUrl(s: Settings): string {
 
 const isServer = (raw: RawSettings) => raw.mode === 'server';
 
-/** What `install` asks for, in order. SSO is set with flags only (`--oidc-*`). */
+/**
+ * What `install` asks for, in order. SSO is set with the `--oidc-*` flags; only its client secret
+ * is asked for (hidden) when the issuer was given without it, so it need not be on the command line.
+ */
 export const PROMPTS: {
   key: SettingKey;
   question: string;
@@ -184,6 +187,12 @@ export const PROMPTS: {
     key: 'private-hosts',
     question: 'Hosts on a private network the app may reach (comma-separated, empty for none)',
     default: '',
+  },
+  {
+    key: 'oidc-client-secret',
+    question: 'OIDC client secret',
+    secret: true,
+    when: (r) => Boolean(r['oidc-issuer']),
   },
   {
     key: 'registry-user',

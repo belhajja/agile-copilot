@@ -1,5 +1,8 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { install } from './commands/install';
+import { parseEnv } from './env-file';
 import { main } from './main';
 import { tempContext } from './testing';
 
@@ -20,6 +23,38 @@ describe('main', () => {
     });
     expect(await main(['install', '--yes'], failing.ctx)).toBe(1);
     expect(failing.out.join('\n')).toMatch(/pull failed/);
+  });
+
+  it('takes the secrets from the environment when their flags are absent', async () => {
+    const { ctx, dataDir, out } = await tempContext();
+    const code = await main(
+      [
+        'install',
+        '--yes',
+        '--oidc-issuer',
+        'https://sso.example.com/realms/x',
+        '--oidc-client-id',
+        'copilot',
+        '--registry-user',
+        'gitlab+deploy-token-1',
+      ],
+      ctx,
+      { OPERATOR_OIDC_CLIENT_SECRET: 'oidc-from-env', OPERATOR_REGISTRY_TOKEN: 'tok-from-env' },
+    );
+    expect(code).toBe(0);
+    const env = parseEnv(await readFile(join(dataDir, '.env'), 'utf8'));
+    expect(env.get('OIDC_CLIENT_SECRET')).toBe('oidc-from-env');
+    expect(env.get('OPERATOR_REGISTRY_TOKEN')).toBe('tok-from-env');
+    expect(out.join('\n')).not.toMatch(/from-env/);
+  });
+
+  it('prefers the flag over the environment', async () => {
+    const { ctx, dataDir } = await tempContext();
+    await main(['install', '--yes', '--registry-user', 'u', '--registry-token', 'tok-flag'], ctx, {
+      OPERATOR_REGISTRY_TOKEN: 'tok-env',
+    });
+    const env = parseEnv(await readFile(join(dataDir, '.env'), 'utf8'));
+    expect(env.get('OPERATOR_REGISTRY_TOKEN')).toBe('tok-flag');
   });
 
   it('redacts secrets from failure details', async () => {

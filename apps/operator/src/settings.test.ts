@@ -98,6 +98,33 @@ describe('settings', () => {
     expect(asked.some((q) => /Port/.test(q))).toBe(false);
   });
 
+  it('asks for the OIDC client secret, hidden, when the issuer is given without one', async () => {
+    const asked: { question: string; secret?: boolean }[] = [];
+    const prompt: Prompter = {
+      ask: async (question, o) => {
+        asked.push({ question, secret: o?.secret });
+        return /client secret/i.test(question) ? 's3cret' : (o?.default ?? '');
+      },
+      confirm: async () => true,
+    };
+    const raw = await gatherSettings(
+      { 'oidc-issuer': 'https://sso.example.com/realms/x', 'oidc-client-id': 'copilot' },
+      prompt,
+      false,
+    );
+    expect(raw['oidc-client-secret']).toBe('s3cret');
+    expect(asked.find((a) => /client secret/i.test(a.question))?.secret).toBe(true);
+    // not asked when the secret came with the flags, nor without an issuer
+    asked.length = 0;
+    await gatherSettings(
+      { 'oidc-issuer': 'https://sso.example.com', 'oidc-client-secret': 'x' },
+      prompt,
+      false,
+    );
+    await gatherSettings({}, prompt, false);
+    expect(asked.some((a) => /client secret/i.test(a.question))).toBe(false);
+  });
+
   it('asks nothing with --yes', async () => {
     const prompt: Prompter = {
       ask: async () => {

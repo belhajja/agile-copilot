@@ -22,15 +22,30 @@ export const USAGE = `Usage: operator <command> [options]
   backup               back up the database with .env and the compose files
   restore <name|latest> [--yes]
   config <setting> <value>
-  logs [service] [--follow]`;
+  logs [service] [--follow]
+
+Secrets can come from the environment instead of the command line (kept out of the process list
+and the shell history): OPERATOR_OIDC_CLIENT_SECRET and OPERATOR_REGISTRY_TOKEN are used when
+--oidc-client-secret or --registry-token is absent. Without either, install asks for the OIDC
+client secret on the terminal (docker run -it).`;
 
 async function secretsOf(ctx: Context): Promise<string[]> {
   const text = await readFile(pathsOf(ctx.dataDir).env, 'utf8').catch(() => '');
   return secretValues(parseEnv(text));
 }
 
+/** Settings that may come from the environment when their flag is absent. */
+const SECRET_ENV: Partial<Record<SettingKey, string>> = {
+  'oidc-client-secret': 'OPERATOR_OIDC_CLIENT_SECRET',
+  'registry-token': 'OPERATOR_REGISTRY_TOKEN',
+};
+
 /** Runs one command. Exit codes: 0 success, 1 a step failed, 2 usage or a refused value. */
-export async function main(argv: string[], ctx: Context): Promise<number> {
+export async function main(
+  argv: string[],
+  ctx: Context,
+  env: Record<string, string | undefined> = process.env,
+): Promise<number> {
   const [command, ...rest] = argv;
   try {
     const settingOptions = Object.fromEntries(
@@ -52,7 +67,8 @@ export async function main(argv: string[], ctx: Context): Promise<number> {
       case 'install': {
         const raw: RawSettings = {};
         for (const k of SETTING_KEYS) {
-          const v = values[k];
+          const name = SECRET_ENV[k];
+          const v = values[k] ?? (name ? env[name] : undefined);
           if (typeof v === 'string') raw[k] = v;
         }
         await install(ctx, raw, { yes, resume: Boolean(values.resume) });
