@@ -36,6 +36,7 @@ export const evalScript: MockScript = (req) => {
   const french = /vélocité|quels|quelle|combien/i.test(ask);
   const wantsMetric = /v[ée]locit|<skill name=/i.test(ask);
   const stale = /stale|old issues/i.test(ask);
+  const wantsSprintDates = /dates of the last closed sprint/i.test(ask);
   if (last?.role === 'tool') {
     const name = toolOf(messages, last.tool_call_id);
     if (name === 'jira_worklog_summary') {
@@ -47,10 +48,17 @@ export const evalScript: MockScript = (req) => {
         text: 'I drafted the skill weekly-velocity: open it in the skill builder to review and save it.',
       };
     }
-    if (name === 'list_boards' && (wantsMetric || stale)) {
+    if (name === 'list_boards' && (wantsMetric || stale || wantsSprintDates)) {
       const boards = (payload(last) as { boards?: { id: string; name: string }[] })?.boards ?? [];
       const board = boards.find((b) => b.name === 'DEMO Scrum') ?? boards[0];
       if (!board) return { text: french ? 'Aucun tableau.' : 'No board.' };
+      if (wantsSprintDates) {
+        return {
+          toolCalls: [
+            { name: 'list_sprints', args: { boardId: board.id, state: 'closed', limit: 1 } },
+          ],
+        };
+      }
       return stale
         ? { toolCalls: [{ name: 'find_issues', args: { boardId: board.id, staleDays: 1 } }] }
         : {
@@ -58,6 +66,16 @@ export const evalScript: MockScript = (req) => {
               { name: 'get_metric', args: { boardId: board.id, metric: 'average_velocity' } },
             ],
           };
+    }
+    if (name === 'list_sprints') {
+      const sprints =
+        (payload(last) as { sprints?: { name: string; startAt: string; endAt: string }[] })
+          ?.sprints ?? [];
+      const sprint = sprints[0];
+      if (!sprint) return { text: 'No closed sprint found.' };
+      return {
+        text: `The last closed sprint of DEMO Scrum, ${sprint.name}, ran from ${sprint.startAt} to ${sprint.endAt}.`,
+      };
     }
     if (name === 'get_metric') {
       const value = (payload(last) as { data?: { value?: number } })?.data?.value;
@@ -95,7 +113,7 @@ export const evalScript: MockScript = (req) => {
       ],
     };
   }
-  if ((wantsMetric || stale) && tools.includes('list_boards')) {
+  if ((wantsMetric || stale || wantsSprintDates) && tools.includes('list_boards')) {
     return { toolCalls: [{ name: 'list_boards', args: {} }] };
   }
   return agentDemoScript(req);
