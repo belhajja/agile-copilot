@@ -1,7 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { UsageError } from '../errors';
+import { StepError, UsageError } from '../errors';
 import { readState } from '../state';
 import { tempContext } from '../testing';
 import { backupCommand, KEEP_BACKUPS, listBackups, restoreCommand } from './backup';
@@ -33,6 +33,26 @@ describe('backup', () => {
     }
     expect(await listBackups(join(dataDir, 'backups'))).toHaveLength(KEEP_BACKUPS);
   });
+
+  it('leaves nothing behind when the dump fails', async () => {
+    const { ctx, dataDir } = await installed({
+      respond: (cmd) =>
+        cmd === 'compose exec -T postgres pg_dump -U agile -d agile -Fc'
+          ? { code: 1, stderr: 'disk full' }
+          : undefined,
+    });
+    await expect(backupCommand(ctx)).rejects.toThrow();
+    expect(await readdir(join(dataDir, 'backups'))).toEqual([]);
+    expect(await listBackups(join(dataDir, 'backups'))).toEqual([]);
+  });
+
+  it('ignores stray entries and partial backups', async () => {
+    const { dataDir } = await installed();
+    const backups = join(dataDir, 'backups');
+    await mkdir(join(backups, 'lost+found'), { recursive: true });
+    await mkdir(join(backups, '2026-01-01T00-00-00-000Z-v1.0.0.partial'), { recursive: true });
+    expect(await listBackups(backups)).toEqual([]);
+  });
 });
 
 describe('restore', () => {
@@ -44,18 +64,35 @@ describe('restore', () => {
     expect(docker.commands).toEqual([]);
   });
 
-  it('stops the app, recreates the database from the dump and starts again', async () => {
-    const { ctx, docker } = await installed();
+  it('stops the app, takes a safety backup and recreates the database from the dump', async () => {
+    const { ctx, docker, dataDir } = await installed();
     await backupCommand(ctx);
     docker.calls.length = 0;
     await restoreCommand(ctx, 'latest', { yes: true });
     expect(docker.commands[0]).toBe('compose stop web worker');
-    expect(docker.commands[1]).toMatch(/psql .*DROP DATABASE IF EXISTS agile WITH \(FORCE\)/);
-    expect(docker.commands[2]).toBe(
-      'compose exec -T postgres pg_restore -U agile -d agile --exit-on-error',
+    expect(docker.commands[1]).toBe('compose exec -T postgres pg_dump -U agile -d agile -Fc');
+    expect(docker.commands[2]).toBe('compose exec -T postgres pg_restore --list');
+    expect(docker.commands[3]).toMatch(/psql .*DROP DATABASE IF EXISTS agile WITH \(FORCE\)/);
+    expect(docker.commands[4]).toBe(
+      'compose exec -T postgres pg_restore -U agile -d agile --exit-on-error --single-transaction',
     );
-    expect(docker.calls[2]?.opts?.stdinFile).toMatch(/db\.dump$/);
+    expect(docker.calls[4]?.opts?.stdinFile).toMatch(/db\.dump$/);
     expect(docker.commands).toContain('compose up -d');
+    // the backup being restored and the safety backup taken along the way are both still there
+    expect(await listBackups(join(dataDir, 'backups'))).toHaveLength(2);
+  });
+
+  it('checks the dump before dropping anything', async () => {
+    const { ctx, docker } = await installed({
+      respond: (cmd) =>
+        cmd === 'compose exec -T postgres pg_restore --list'
+          ? { code: 1, stderr: 'not a dump' }
+          : undefined,
+    });
+    await backupCommand(ctx);
+    docker.calls.length = 0;
+    await expect(restoreCommand(ctx, 'latest', { yes: true })).rejects.toBeInstanceOf(StepError);
+    expect(docker.commands.some((c) => c.includes('DROP DATABASE'))).toBe(false);
   });
 
   it('only restores backups that exist in the backups folder', async () => {
@@ -64,6 +101,33 @@ describe('restore', () => {
       UsageError,
     );
     await expect(restoreCommand(ctx, 'latest', { yes: true })).rejects.toBeInstanceOf(UsageError);
+  });
+
+  it('rejects "." and ".." as a backup name', async () => {
+    const { ctx } = await installed();
+    await backupCommand(ctx);
+    await expect(restoreCommand(ctx, '.', { yes: true })).rejects.toBeInstanceOf(UsageError);
+    await expect(restoreCommand(ctx, '..', { yes: true })).rejects.toBeInstanceOf(UsageError);
+  });
+
+  it('refuses a backup outside the backups folder', async () => {
+    const { ctx, dataDir } = await installed();
+    const evil = join(dataDir, 'evil');
+    await mkdir(join(evil, 'compose'), { recursive: true });
+    await writeFile(join(evil, 'db.dump'), 'x');
+    await writeFile(join(evil, '.env'), 'x');
+    await writeFile(join(evil, 'version'), 'v1.0.0');
+    await expect(restoreCommand(ctx, '../evil', { yes: true })).rejects.toBeInstanceOf(UsageError);
+  });
+
+  it('refuses a backup missing a file', async () => {
+    const { ctx, docker, dataDir } = await installed();
+    await backupCommand(ctx);
+    const [name] = await listBackups(join(dataDir, 'backups'));
+    await rm(join(dataDir, 'backups', name ?? '', '.env'));
+    docker.calls.length = 0;
+    await expect(restoreCommand(ctx, 'latest', { yes: true })).rejects.toBeInstanceOf(UsageError);
+    expect(docker.commands).toEqual([]);
   });
 
   it('puts back the version of the backup', async () => {
