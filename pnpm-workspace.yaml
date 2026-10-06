@@ -9,3 +9,7 @@ auditConfig:
     # drizzle-kit's config loader (better-auth > drizzle-kit > @esbuild-kit); nothing here runs
     # esbuild's server.
     - GHSA-67mh-4wv8-2f99
+    # katex <0.18.2: prototype pollution elsewhere could switch on its `trust` option. We render
+    # math with @streamdown/math's defaults (no `trust`), and it requires katex ^0.16, which has no
+    # fixed release. Drop this once @streamdown/math accepts katex 0.18.
+    - GHSA-238p-pmpm-9mq7

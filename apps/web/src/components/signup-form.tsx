@@ -32,6 +32,7 @@ export function SignupForm({
     setError(null);
     const form = new FormData(e.currentTarget);
     const password = String(form.get('password'));
+    // nosemgrep: gitlab.eslint.detect-possible-timing-attacks -- the user's own two fields, in their browser
     if (password !== String(form.get('confirmPassword'))) return setError(t('passwordMismatch'));
     setPending(true);
     const { error } = await authClient.signUp.email({
