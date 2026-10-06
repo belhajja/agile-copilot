@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type AnalyticsContext, listBoardSummaries, openBoard, UnknownBoardError } from './boards';
 import { findIssues, findIssuesInput } from './issues';
 import { computeMetric, METRIC_GUIDE, metricCatalog, metricSpec } from './metrics';
+import { listSprints } from './sprints';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
@@ -162,6 +163,31 @@ export function createAnalyticsMcpServer(
           ...findIssues(dataset, input, ctx.now()),
         });
       }),
+  );
+
+  server.registerTool(
+    'list_sprints',
+    {
+      description:
+        "List a synced board's sprints with their official start, end and completion dates (newest first). Use it for sprint ids, names and dates; never infer sprint dates from issue or worklog dates.",
+      inputSchema: {
+        boardId: z.string().describe('Board id from list_boards'),
+        state: z.enum(['active', 'closed', 'future']).optional().describe('Sprint state to keep'),
+        nameContains: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Words in the sprint name (case-insensitive)'),
+        limit: z.number().int().min(1).max(50).default(20).describe('At most 50 results'),
+      },
+      annotations: readOnly,
+    },
+    async ({ boardId, state, nameContains, limit }) =>
+      guarded(options, async () =>
+        result(await listSprints(ctx, boardId, { state, nameContains, limit })),
+      ),
   );
 
   server.registerTool(

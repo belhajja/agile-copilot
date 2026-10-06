@@ -390,6 +390,9 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
+      '@agile/jira':
+        specifier: workspace:*
+        version: link:../jira
       '@agile/sync':
         specifier: workspace:*
         version: link:../sync

@@ -17,6 +17,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@agile/jira": "workspace:*",
     "@agile/sync": "workspace:*",
     "@testcontainers/postgresql": "12.2.0"
   }
