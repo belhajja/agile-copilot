@@ -17,6 +17,7 @@ export default async function AgentConversationPage({
       actor={actor}
       conversationId={conversation.id}
       initialMessages={conversation.messages}
+      conversation={conversation}
     />
   );
 }
