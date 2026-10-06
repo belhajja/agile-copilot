@@ -16,8 +16,7 @@ import {
   listModelsForNewConnectionAction,
 } from './actions';
 import { LLM_ERROR_CODES } from './error-codes';
-
-const OTHER_MODEL = '__other__';
+import { canShowModelList, initialSelection, OTHER_MODEL } from './model-picker';
 
 type ModelsState =
   | { status: 'idle' }
@@ -59,7 +58,8 @@ export function LlmConnectionForm() {
 
   const canLoadModels =
     provider !== 'azure' && (provider === 'openai_compatible' ? baseUrlFilled : apiKeyFilled);
-  const showModelList = modelMode === 'list' && modelsState.status === 'loaded';
+  const showModelList =
+    modelMode === 'list' && modelsState.status === 'loaded' && canShowModelList(modelsState.models);
 
   const loadModels = () => {
     if (!formRef.current) return;
@@ -77,8 +77,9 @@ export function LlmConnectionForm() {
         return;
       }
       setModelsState({ status: 'loaded', models: result.models });
-      setModelMode('list');
-      setModelValue(result.models[0] ?? '');
+      // An empty list stays in free-text mode: a <select> with only "Other…" would auto-select it.
+      setModelMode(canShowModelList(result.models) ? 'list' : 'other');
+      setModelValue(initialSelection(result.models, ''));
     });
   };
 

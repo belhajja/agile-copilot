@@ -148,8 +148,11 @@ export async function changeLlmModelAction(
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   const actor = await requireActor();
   if (!isId(id)) return { ok: false, code: 'not_found' };
+  // `model` crosses the server-action wire as arbitrary JSON; a crafted call could send anything.
+  const parsedModel = z.string().safeParse(model);
+  if (!parsedModel.success) return { ok: false, code: 'invalid_input' };
   try {
-    const result = await changeLlmModel(connectionDeps(), actor, id, model);
+    const result = await changeLlmModel(connectionDeps(), actor, id, parsedModel.data);
     if (!result.ok) return { ok: false, code: result.code };
   } catch (e) {
     if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };

@@ -6,17 +6,17 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { allowedCode } from '@/lib/error-code';
+import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import { changeLlmModelAction, listModelsForConnectionAction } from './actions';
 import { LLM_ERROR_CODES } from './error-codes';
+import {
+  type ModelsLoadFailure,
+  OTHER_MODEL,
+  type PickingState,
+  pickingStateFromLoad,
+} from './model-picker';
 
-const OTHER_MODEL = '__other__';
-
-type State =
-  | { mode: 'idle' }
-  | { mode: 'loading' }
-  | { mode: 'error'; code: string }
-  | { mode: 'picking'; models: string[]; selected: string; other: boolean };
+type State = { mode: 'idle' } | { mode: 'loading' } | ({ mode: 'picking' } & PickingState);
 
 /** "Change model": loads what the stored key can use, then saves the pick. */
 export function ChangeModelButton({ id, model }: { id: string; model: string }) {
@@ -24,28 +24,21 @@ export function ChangeModelButton({ id, model }: { id: string; model: string }) 
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<State>({ mode: 'idle' });
 
-  const errorText = (code: string) =>
-    t(`errors.${allowedCode(code, LLM_ERROR_CODES) ?? 'unknown'}`);
+  const errorText = (err: ModelsLoadFailure) => {
+    const blockedReason =
+      err.code === 'blocked_url' ? allowedCode(err.reason, BLOCKED_REASONS) : null;
+    return blockedReason
+      ? t(`errors.blocked.${blockedReason}`, { host: err.host ?? '' })
+      : t(`errors.${allowedCode(err.code, LLM_ERROR_CODES) ?? 'unknown'}`);
+  };
 
   const load = () => {
     setState({ mode: 'loading' });
     startTransition(async () => {
       const result = await listModelsForConnectionAction(id);
-      if (!result.ok) {
-        // Azure deployments cannot be listed: go straight to free text instead of a dead end.
-        if (result.code === 'not_supported') {
-          setState({ mode: 'picking', models: [], selected: model, other: true });
-          return;
-        }
-        setState({ mode: 'error', code: result.code });
-        return;
-      }
-      setState({
-        mode: 'picking',
-        models: result.models,
-        selected: result.models.includes(model) ? model : (result.models[0] ?? ''),
-        other: result.models.length === 0,
-      });
+      // A failure (unauthorized, provider_error, Azure's not_supported, …) still falls back to
+      // free text alongside the error, instead of leaving the user at a dead end.
+      setState({ mode: 'picking', ...pickingStateFromLoad(result, model) });
     });
   };
 
@@ -56,7 +49,7 @@ export function ChangeModelButton({ id, model }: { id: string; model: string }) 
         toast.success(t('modelChanged'));
         setState({ mode: 'idle' });
       } else {
-        toast.error(errorText(result.code));
+        toast.error(errorText({ code: result.code }));
       }
     });
   };
@@ -74,19 +67,12 @@ export function ChangeModelButton({ id, model }: { id: string; model: string }) 
     );
   }
 
-  if (state.mode === 'error') {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-destructive">{errorText(state.code)}</span>
-        <Button variant="outline" size="sm" onClick={load}>
-          {t('changeModel')}
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {state.error && <span className="text-sm text-destructive">{errorText(state.error)}</span>}
+      {!state.error && state.models.length === 0 && (
+        <span className="text-sm text-muted-foreground">{t('noModelsFound')}</span>
+      )}
       {state.other ? (
         <Input
           className="h-8 w-48"
@@ -101,9 +87,6 @@ export function ChangeModelButton({ id, model }: { id: string; model: string }) 
             else setState({ ...state, selected: e.target.value });
           }}
         >
-          {state.models.length === 0 && (
-            <NativeSelectOption value="">{t('noModelsFound')}</NativeSelectOption>
-          )}
           {state.models.map((m) => (
             <NativeSelectOption key={m} value={m}>
               {m}

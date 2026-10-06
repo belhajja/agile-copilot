@@ -201,6 +201,12 @@ describe('changeLlmModelAction', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/settings/llm');
   });
 
+  it('rejects a non-string model without calling the service (a crafted call)', async () => {
+    const r = await changeLlmModelAction(ID, { toString: () => 'x' } as unknown as string);
+    expect(r).toEqual({ ok: false, code: 'invalid_input' });
+    expect(changeLlmModel).not.toHaveBeenCalled();
+  });
+
   it('passes through a failure code without revalidating', async () => {
     changeLlmModel.mockResolvedValue({ ok: false, code: 'invalid_input', message: 'x' });
     expect(await changeLlmModelAction(ID, '')).toEqual({ ok: false, code: 'invalid_input' });
