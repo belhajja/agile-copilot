@@ -57,6 +57,13 @@ export interface MockWorklog {
   comment?: string;
 }
 
+export interface MockComment {
+  id: string;
+  author: { accountId: string; name: string; displayName: string };
+  body: string;
+  created: string;
+}
+
 export interface MockJiraDataset {
   boards: MockBoard[];
   statuses: { id: string; name: string; categoryKey: 'new' | 'indeterminate' | 'done' }[];
@@ -64,6 +71,7 @@ export interface MockJiraDataset {
   sprints: MockSprint[];
   issues: MockIssue[];
   worklogs?: Record<string, MockWorklog[]>;
+  comments?: Record<string, MockComment[]>;
   versions?: Record<
     string,
     {
@@ -469,6 +477,16 @@ export function demoDataset(anchor: Date): MockJiraDataset {
           author: person(PEOPLE[2]!),
           started: jiraTime(at(-4, 10)),
           timeSpentSeconds: 14400,
+        },
+      ],
+    },
+    comments: {
+      'DEMO-1': [
+        {
+          id: '90001',
+          author: person(PEOPLE[0]!),
+          body: 'Looks blocked on the API team.',
+          created: jiraTime(at(-5, 9, 30)),
         },
       ],
     },

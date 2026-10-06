@@ -169,6 +169,22 @@ describe.each(['cloud', 'datacenter'] as const)(
       expect((await get(`/rest/api/${api}/issue/NOPE-1/worklog`)).status).toBe(404);
     });
 
+    it('serves a seeded issue comment, author shaped per flavour', async () => {
+      const { get } = await start(flavor);
+      const issue = await get(`/rest/api/${api}/issue/DEMO-1`);
+      const comment = issue.body.fields.comment;
+      expect(comment.total).toBe(1);
+      expect(comment.comments[0]).toMatchObject({ body: 'Looks blocked on the API team.' });
+      expect(comment.comments[0].author.displayName).toBeTruthy();
+      if (flavor === 'cloud') {
+        expect(comment.comments[0].author).toMatchObject({ accountId: expect.any(String) });
+      } else {
+        expect(comment.comments[0].author).toMatchObject({ key: expect.any(String) });
+      }
+      const direct = await get(`/rest/api/${api}/issue/DEMO-1/comment`);
+      expect(direct.body).toEqual(comment);
+    });
+
     it('lists watchers, with emailAddress in the raw mock answer', async () => {
       const { get } = await start(flavor);
       const r = await get(`/rest/api/${api}/issue/DEMO-1/watchers`);

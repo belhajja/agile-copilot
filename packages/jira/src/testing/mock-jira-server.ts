@@ -9,6 +9,7 @@ export {
   demoDataset,
   jiraTime,
   type MockBoard,
+  type MockComment,
   type MockIssue,
   type MockJiraDataset,
   type MockSprint,
@@ -205,7 +206,10 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
   const now = opts.now ?? (() => new Date());
   const requests: MockJira['requests'] = [];
   const writes: MockJiraWrite[] = [];
-  const comments = new Map<string, { id: string; body: unknown; created: string }[]>();
+  const comments = new Map<
+    string,
+    { id: string; body: unknown; created: string; author?: unknown }[]
+  >();
   let throttled = 0;
   let nextId = 90_000;
 
@@ -453,6 +457,18 @@ export async function startMockJira(opts: MockJiraOptions): Promise<MockJira> {
           active: true,
           ...(emailAddress ? { emailAddress } : {}),
         };
+  // Seed the dataset's own comments (the write handler below adds to the same map).
+  for (const [key, list] of Object.entries(opts.dataset?.comments ?? {})) {
+    comments.set(
+      key,
+      list.map((c) => ({
+        id: c.id,
+        body: c.body,
+        created: c.created,
+        author: shapeUser(c.author),
+      })),
+    );
+  }
   const worklogJson = (w: MockWorklog) => ({
     id: w.id,
     author: shapeUser(w.author),
