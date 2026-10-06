@@ -34,7 +34,7 @@ spec:
           resources:
             requests: { cpu: 50m, memory: 256Mi }
             limits: { memory: 512Mi }
-          # pnpm and tsx write to HOME and /tmp.
+          # Writable scratch space under a read-only root filesystem.
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
             - { name: home, mountPath: /home/app }
