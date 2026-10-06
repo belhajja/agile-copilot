@@ -70,13 +70,15 @@ describe('restore', () => {
     docker.calls.length = 0;
     await restoreCommand(ctx, 'latest', { yes: true });
     expect(docker.commands[0]).toBe('compose stop web worker');
-    expect(docker.commands[1]).toBe('compose exec -T postgres pg_dump -U agile -d agile -Fc');
-    expect(docker.commands[2]).toBe('compose exec -T postgres pg_restore --list');
-    expect(docker.commands[3]).toMatch(/psql .*DROP DATABASE IF EXISTS agile WITH \(FORCE\)/);
-    expect(docker.commands[4]).toBe(
+    expect(docker.commands[1]).toBe('compose up -d postgres');
+    expect(docker.commands[2]).toBe('compose ps -a --format json');
+    expect(docker.commands[3]).toBe('compose exec -T postgres pg_dump -U agile -d agile -Fc');
+    expect(docker.commands[4]).toBe('compose exec -T postgres pg_restore --list');
+    expect(docker.commands[5]).toMatch(/psql .*DROP DATABASE IF EXISTS agile WITH \(FORCE\)/);
+    expect(docker.commands[6]).toBe(
       'compose exec -T postgres pg_restore -U agile -d agile --exit-on-error --single-transaction',
     );
-    expect(docker.calls[4]?.opts?.stdinFile).toMatch(/db\.dump$/);
+    expect(docker.calls[6]?.opts?.stdinFile).toMatch(/db\.dump$/);
     expect(docker.commands).toContain('compose up -d');
     // the backup being restored and the safety backup taken along the way are both still there
     expect(await listBackups(join(dataDir, 'backups'))).toHaveLength(2);

@@ -1,7 +1,15 @@
-import { chmod, copyFile, cp, readFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Context } from '../context';
-import { Compose, parsePs, registryLogin, servicesOf, stackHealth, waitHealthy } from '../docker';
+import {
+  Compose,
+  parsePs,
+  registryLogin,
+  servicesOf,
+  stackHealth,
+  waitHealthy,
+  waitService,
+} from '../docker';
 import { parseEnv, renderEnv } from '../env-file';
 import { StepError, UsageError } from '../errors';
 import { compareVersions, imagesFor, isRelease, writeStack } from '../stack';
@@ -15,6 +23,14 @@ import {
   writeState,
 } from '../state';
 import { restoreDatabase, takeBackup } from './backup';
+
+function describeError(e: unknown): string {
+  if (e instanceof StepError) {
+    return e.detail ? `${e.step} failed: ${e.detail}` : `${e.step} failed`;
+  }
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
 
 async function record(
   ctx: Context,
@@ -30,13 +46,38 @@ async function record(
   });
 }
 
+/**
+ * Restarts the app after `stop` or the backup failed. The original failure (`cause`) is what gets
+ * thrown; a restart that also fails is folded into that error instead of replacing it, so the
+ * caller never loses why the upgrade stopped.
+ */
+async function restartOrFail(compose: Compose, cause: unknown): Promise<never> {
+  let restarted: boolean;
+  try {
+    restarted = (await compose.run(['up', '-d'])).code === 0;
+  } catch {
+    restarted = false;
+  }
+  if (!restarted) {
+    throw new StepError(
+      'upgrade',
+      `${describeError(cause)}; the app is stopped and did not restart: fix docker, then run \`upgrade\` again, or \`restore latest\` to bring it back up.`,
+    );
+  }
+  throw cause;
+}
+
 /** Back to the files and data of `backupDir`, on the images still on this host. */
 async function rollback(ctx: Context, state: InstallState, compose: Compose, backupDir: string) {
   const p = pathsOf(ctx.dataDir);
   await compose.run(['stop', 'web', 'worker', 'migrate']);
-  await cp(join(backupDir, 'compose'), p.compose, { recursive: true, force: true });
+  await rm(p.compose, { recursive: true, force: true });
+  await cp(join(backupDir, 'compose'), p.compose, { recursive: true });
   await copyFile(join(backupDir, '.env'), p.env);
   await chmod(p.env, 0o600);
+  // postgres on the images still on this host, up and healthy before anything is restored to it.
+  await compose.check('postgres', ['up', '-d', 'postgres']);
+  await waitService(ctx, compose, 'postgres');
   await restoreDatabase(compose, join(backupDir, 'db.dump'));
   await compose.check('rollback', ['up', '-d']);
   await waitHealthy(ctx, compose, state.mode);
@@ -79,13 +120,19 @@ export async function upgrade(ctx: Context): Promise<void> {
     }
     ctx.out('✓ new images pulled');
 
-    // The app stops before the backup, so the backup holds every change.
-    await compose.check('stop', ['stop', 'web', 'worker']);
+    // The app stops before the backup, so the backup holds every change. A stop that only half
+    // worked, or a backup that fails, must not leave the app down with no way back up.
+    try {
+      await compose.check('stop', ['stop', 'web', 'worker']);
+    } catch (e) {
+      await restartOrFail(compose, e);
+      throw e;
+    }
     let backupDir: string;
     try {
       backupDir = await takeBackup(ctx, state, compose);
     } catch (e) {
-      await compose.run(['up', '-d']);
+      await restartOrFail(compose, e);
       throw e;
     }
     ctx.out(`✓ backup ${basename(backupDir)}`);
@@ -105,11 +152,16 @@ export async function upgrade(ctx: Context): Promise<void> {
       ctx.out(`✗ ${target} did not come up: rolling back to ${state.version}`);
       try {
         await rollback(ctx, state, compose, backupDir);
-      } catch {
-        await record(ctx, state, target, 'rollback_failed');
+      } catch (rollbackErr) {
+        ctx.out(`✗ rollback failed too: run \`restore ${basename(backupDir)}\``);
+        try {
+          await record(ctx, state, target, 'rollback_failed');
+        } catch {
+          // best effort: the advice above and both errors below must stand regardless.
+        }
         throw new StepError(
           'rollback',
-          `the rollback failed too: run \`restore ${basename(backupDir)}\``,
+          `upgrade: ${describeError(e)}; rollback: ${describeError(rollbackErr)}`,
         );
       }
       await record(ctx, state, target, 'rolled_back');

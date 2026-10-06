@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Context } from '../context';
-import { Compose, waitHealthy } from '../docker';
+import { Compose, waitHealthy, waitService } from '../docker';
 import { UsageError } from '../errors';
 import { acquireLock, type InstallState, pathsOf, readState, writeState } from '../state';
 
@@ -178,6 +178,9 @@ export async function restoreCommand(
     }
     const compose = new Compose(ctx.docker, ctx.dataDir, state.mode);
     await compose.check('stop', ['stop', 'web', 'worker']);
+    // The safety backup dumps from postgres, so it must be up before that, not just the app.
+    await compose.check('postgres', ['up', '-d', 'postgres']);
+    await waitService(ctx, compose, 'postgres');
     const safety = await takeBackup(ctx, state, compose, { prune: false });
     ctx.out(`✓ safety backup ${basename(safety)}`);
     await restoreDatabase(compose, join(dir, 'db.dump'));

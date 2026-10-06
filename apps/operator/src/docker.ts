@@ -227,6 +227,29 @@ export async function waitHealthy(
   }
 }
 
+/** Waits for one service alone, e.g. postgres before the rest of the stack depends on it. */
+export async function waitService(
+  ctx: Pick<Context, 'now' | 'sleep' | 'healthTimeoutMs'>,
+  compose: Compose,
+  service: string,
+): Promise<void> {
+  const deadline = ctx.now().getTime() + ctx.healthTimeoutMs;
+  for (;;) {
+    const ps = await compose.check('status', ['ps', '-a', '--format', 'json']);
+    const s = parsePs(ps.stdout).find((x) => x.service === service);
+    if (s) {
+      if (s.state === 'exited' || s.state === 'dead' || s.health === 'unhealthy') {
+        throw new StepError('health', `${service} did not start`);
+      }
+      if (s.state === 'running' && (s.health === '' || s.health === 'healthy')) return;
+    }
+    if (ctx.now().getTime() >= deadline) {
+      throw new StepError('health', `${service} was not healthy in time`);
+    }
+    await ctx.sleep(3000);
+  }
+}
+
 /** Logs in with the deploy token kept in .env (if any); the token goes through stdin. */
 export async function registryLogin(
   ctx: Pick<Context, 'docker' | 'build'>,
