@@ -112,15 +112,25 @@ export const JIRA_TOOLS = {
   }),
   jira_get_sprints_from_board: def({
     write: false,
-    description: 'List the sprints of a Jira board.',
+    description:
+      'List the sprints of a board (oldest first, at most 50 per call; page with startAt, or filter by state). For a synced board, list_sprints has every sprint with its dates.',
     input: z.object({
       boardId: numericId('board'),
       state: z.enum(['active', 'future', 'closed']).optional(),
+      startAt: z.number().int().min(0).max(10_000).default(0).describe('Paging offset'),
+      limit: limit(50, 50),
     }),
-    toMcp: (i) => ({ board_id: i.boardId, ...(i.state ? { state: i.state } : {}) }),
+    toMcp: (i) => ({
+      board_id: i.boardId,
+      ...(i.state ? { state: i.state } : {}),
+      start_at: i.startAt,
+      limit: i.limit,
+    }),
     fromMcp: (a) => ({
       boardId: str(a.board_id) ?? '',
       state: str(a.state) as 'active' | 'future' | 'closed' | undefined,
+      startAt: num(a.start_at),
+      limit: num(a.limit),
     }),
   }),
   jira_get_sprint_issues: def({

@@ -282,12 +282,12 @@ export function createRestJiraBackend(
         boards: (r?.values ?? []).map((b) => ({ id: n(b.id), name: s(b.name), type: s(b.type) })),
       };
     },
-    async jira_get_sprints_from_board({ boardId, state }, signal) {
+    async jira_get_sprints_from_board({ boardId, state, startAt, limit }, signal) {
       const r = (await request(
         signal,
         'GET',
-        `/rest/agile/1.0/board/${boardId}/sprint${q({ state, maxResults: 50 })}`,
-      )) as { values?: Record<string, unknown>[] };
+        `/rest/agile/1.0/board/${boardId}/sprint${q({ state, startAt, maxResults: limit })}`,
+      )) as { values?: Record<string, unknown>[]; isLast?: unknown };
       return {
         sprints: (r?.values ?? []).map((sp) => ({
           id: n(sp.id),
@@ -297,6 +297,7 @@ export function createRestJiraBackend(
           endDate: s(sp.endDate),
           goal: s(sp.goal),
         })),
+        hasMore: r?.isLast === false,
       };
     },
     async jira_get_sprint_issues({ sprintId, limit }, signal) {

@@ -29,6 +29,7 @@ import {
   mcpAtlassianHeaders,
   resetWorkingTimeCacheForTests,
   searchFromMcp,
+  sprintsFromMcp,
   transitionsFromMcp,
   versionsFromMcp,
   watchersFromMcp,
@@ -170,6 +171,67 @@ describe('mcp-atlassian backend through the double', () => {
     );
     expect(viaMcp).toEqual(viaRest);
     expect((viaMcp as { issues: unknown[] }).issues.length).toBeGreaterThan(0);
+  });
+
+  it('returns the same sprints shape as the REST backend, paged the same way', async () => {
+    const viaMcp = await run(backend(), 'jira_get_sprints_from_board', {
+      boardId: '1',
+      limit: 2,
+    });
+    const viaRest = await run(
+      createRestJiraBackend(
+        { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
+        { outbound },
+      ),
+      'jira_get_sprints_from_board',
+      { boardId: '1', limit: 2 },
+    );
+    expect(viaMcp).toEqual(viaRest);
+    expect((viaMcp as { sprints: { id: number }[] }).sprints.map((s) => s.id)).toEqual([1, 2]);
+    expect((viaMcp as { hasMore: boolean }).hasMore).toBe(true);
+  });
+
+  it('maps mcp-atlassian 0.23.1’s bare sprint list (JiraSprint.to_simplified_dict)', () => {
+    // No pagination envelope and no completeDate: `hasMore` is guessed from a full page.
+    expect(
+      sprintsFromMcp(
+        [
+          { id: '1', name: 'DEMO Sprint 1', state: 'closed', goal: 'Sprint 1 goal' },
+          {
+            id: '2',
+            name: 'DEMO Sprint 2',
+            state: 'closed',
+            start_date: '2026-07-01T10:00:00.000+0000',
+            end_date: '2026-07-15T09:00:00.000+0000',
+          },
+        ],
+        2,
+      ),
+    ).toEqual({
+      sprints: [
+        {
+          id: 1,
+          name: 'DEMO Sprint 1',
+          state: 'closed',
+          startDate: null,
+          endDate: null,
+          goal: 'Sprint 1 goal',
+        },
+        {
+          id: 2,
+          name: 'DEMO Sprint 2',
+          state: 'closed',
+          startDate: '2026-07-01T10:00:00.000+0000',
+          endDate: '2026-07-15T09:00:00.000+0000',
+          goal: null,
+        },
+      ],
+      hasMore: true,
+    });
+    expect(sprintsFromMcp([{ id: '1', name: 'x', state: 'closed' }], 2)).toMatchObject({
+      hasMore: false,
+    });
+    expect(sprintsFromMcp('not a list', 10)).toEqual({ sprints: [], hasMore: false });
   });
 
   it('keeps a worklog’s local day in the summary, on both backends', async () => {

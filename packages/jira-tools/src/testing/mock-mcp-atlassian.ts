@@ -189,6 +189,20 @@ function mcpWatchersResult(out: unknown, issueKey: unknown) {
   };
 }
 
+/**
+ * The REST backend's `{ sprints, hasMore }` → mcp-atlassian's bare list (`JiraSprint.
+ * to_simplified_dict`: snake_case dates, no `hasMore`, empty goal/dates left out entirely).
+ */
+function mcpSprintsResult(out: unknown) {
+  return (out as { sprints: Obj[] }).sprints.map((sp) => {
+    const sprint: Obj = { id: String(sp.id), name: sp.name, state: sp.state };
+    if (sp.goal) sprint.goal = sp.goal;
+    if (sp.startDate) sprint.start_date = sp.startDate;
+    if (sp.endDate) sprint.end_date = sp.endDate;
+    return sprint;
+  });
+}
+
 /** The REST backend's `{ linkTypes }` → mcp-atlassian's bare array (`JiraIssueLinkType.to_simplified_dict`). */
 function mcpLinkTypesResult(out: unknown) {
   return (out as { linkTypes: Obj[] }).linkTypes;
@@ -299,6 +313,7 @@ export async function startMockMcpAtlassian(
             if (name === 'jira_get_issue_watchers') {
               return text(mcpWatchersResult(out, args.issue_key));
             }
+            if (name === 'jira_get_sprints_from_board') return text(mcpSprintsResult(out));
             if (name === 'jira_get_link_types') return text(mcpLinkTypesResult(out));
             if (name === 'jira_get_project_versions') return text(mcpVersionsResult(out));
             if (name === 'jira_get_project_components') return text(mcpComponentsResult(out));

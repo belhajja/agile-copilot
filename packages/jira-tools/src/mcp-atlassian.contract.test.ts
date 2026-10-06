@@ -58,7 +58,7 @@ const SAMPLES: { [N in JiraToolName]: unknown } = {
   jira_get_issue: { issueKey: 'DEMO-1' },
   jira_get_transitions: { issueKey: 'DEMO-1' },
   jira_get_agile_boards: { projectKey: 'DEMO' },
-  jira_get_sprints_from_board: { boardId: '1', state: 'active' },
+  jira_get_sprints_from_board: { boardId: '1', state: 'active', startAt: 0, limit: 2 },
   jira_get_sprint_issues: { sprintId: '4' },
   jira_get_worklog: { issueKey: 'DEMO-1' },
   jira_worklog_summary: { jql: 'filter = 101' },
@@ -396,6 +396,31 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
     expect(unassigned.length).toBeGreaterThan(0);
     // What searchFromMcp turns into `assignee: null`.
     for (const i of unassigned) expect(i.assignee).toEqual({ display_name: 'Unassigned' });
+  });
+
+  it('pins the raw sprints result: a bare list, snake_case dates, no paging envelope', async () => {
+    const { isError, text } = await rawCall(dcCreds(jira), 'jira_get_sprints_from_board', {
+      board_id: '1',
+      limit: 2,
+    });
+    expect(isError).toBe(false);
+    const raw = JSON.parse(text) as Record<string, unknown>[];
+    expect(Array.isArray(raw)).toBe(true);
+    expect(raw).toHaveLength(2);
+    for (const sp of raw) {
+      expect(sp).toMatchObject({
+        id: expect.any(String),
+        name: expect.any(String),
+        state: expect.any(String),
+      });
+      expect(sp).not.toHaveProperty('completeDate');
+      expect(sp).not.toHaveProperty('hasMore');
+      expect(sp).not.toHaveProperty('total');
+    }
+    expect(raw[0]).toHaveProperty('start_date');
+    expect(raw[0]).toHaveProperty('end_date');
+    expect(raw[0]).not.toHaveProperty('startDate');
+    expect(raw[0]).not.toHaveProperty('endDate');
   });
 
   it('reports a wrong PAT and an unreachable Jira with texts our codes recognise', async () => {
