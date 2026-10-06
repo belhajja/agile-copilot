@@ -6,6 +6,7 @@ import { languageModelFor } from './model';
 import { jiraSitesData, skillRunPrompt } from './prompt';
 import { draftSchema, draftToDocument } from './skill-draft';
 import { asSkillText, preferencesMessage } from './skills';
+import { lastStepWithoutTools } from './steps';
 import { analyticsTools, liveJira } from './tools';
 import { asUntrustedData } from './untrusted';
 import { recordUsage, type TokenUsage, tokenUsageOf } from './usage';
@@ -113,6 +114,7 @@ export async function runSkill(
         messages,
         tools,
         stopWhen: stepCountIs(SKILL_RUN_MAX_STEPS),
+        prepareStep: lastStepWithoutTools(SKILL_RUN_MAX_STEPS),
         maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
         abortSignal: AbortSignal.any(signals),
         // Steps' usage, summed as they end: the total is lost when a later step fails.

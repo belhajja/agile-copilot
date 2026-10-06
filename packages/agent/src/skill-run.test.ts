@@ -35,6 +35,12 @@ const script: MockScript = (req) => {
     throw new Error('scripted draft failure');
   }
   if (/<skill name="silent">/.test(ask)) return { text: '   ' };
+  // Never stops calling tools while it has any.
+  if (/<skill name="endless">/.test(ask)) {
+    return req.tools.includes('list_boards')
+      ? { toolCalls: [{ name: 'list_boards', args: {} }] }
+      : { text: 'Partial report: the boards were listed.' };
+  }
   return agentDemoScript(req);
 };
 
@@ -109,6 +115,16 @@ describe('skill runs (background, read-only) and the skill builder', () => {
       inputTokens: 240,
       outputTokens: 60,
     });
+  });
+
+  it('ends a run with a report when the model would keep calling tools past its 6 steps', async () => {
+    const before = h.llm.requests.length;
+    const r = await runSkill(deps, owner(), { skill: skill('endless') });
+    expect(r).toEqual({ ok: true, text: 'Partial report: the boards were listed.' });
+    const calls = h.llm.requests.slice(before);
+    expect(calls).toHaveLength(6);
+    expect(calls.slice(0, 5).every((c) => c.tools.includes('list_boards'))).toBe(true);
+    expect(calls.at(-1)?.tools).toEqual([]);
   });
 
   it('reads live Jira only through the read-only instance, never the read-write one', async () => {

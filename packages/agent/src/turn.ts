@@ -35,6 +35,7 @@ import {
 import type { AgentActor, AgentDeps } from './deps';
 import { languageModelFor } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
+import { CHAT_MAX_STEPS, lastStepWithoutTools } from './steps';
 import { AgentToolError } from './tool-errors';
 import { buildAgentTools, canProposeJiraChanges } from './tools';
 import { recordUsage, tokenUsageOf } from './usage';
@@ -260,13 +261,15 @@ export async function handleAgentRequest(
   const abort = new AbortController();
 
   try {
+    const maxSteps = deps.maxSteps ?? CHAT_MAX_STEPS;
     const result = streamText({
       model,
       system: systemPrompt({ now: now(), jiraSites: sites, jira }),
       messages: modelMessages,
       tools,
       toolApproval,
-      stopWhen: stepCountIs(deps.maxSteps ?? 8),
+      stopWhen: stepCountIs(maxSteps),
+      prepareStep: lastStepWithoutTools(maxSteps),
       abortSignal: abort.signal,
       // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
       telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },

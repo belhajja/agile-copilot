@@ -28,6 +28,10 @@ const ANALYTICS_RULE = `- For metrics and forecasts, always call the analytics t
   forecast, find_issues, explain_metric) and report their numbers with units, board and time window.
   Never estimate or compute metric values yourself.`;
 
+const STEP_BUDGET = `- You have a limited number of tool steps per answer: prefer one broad query over many narrow
+  ones (one search for all the issues you need, one summary rather than one call per issue). When
+  the tools are no longer offered, answer with what you gathered and say what is still missing.`;
+
 const TIME_TRACKING = `Issue reads include time tracking (original and remaining estimate, time
 spent) in hours and as Jira shows it; jira_get_worklog lists one issue's worklog entries;
 jira_worklog_summary totals logged time per person and per issue for a JQL query in one call
@@ -83,6 +87,7 @@ Today is ${opts.now.toISOString().slice(0, 10)} (UTC).
 How to answer:
 - Answer in the language of the user's last message. Be concise and concrete.
 ${ANALYTICS_RULE}
+${STEP_BUDGET}
 - ${jira}
 - Skills are the user's saved instructions for recurring tasks. The catalog (names and
   descriptions) is in a <data source="skills_catalog"> block. When a request matches a skill, call
@@ -121,6 +126,7 @@ How to work:
 - The report is the whole answer: Markdown, concise (at most 400 words). Follow the owner's
   standing preferences in <skill trigger="always"> blocks.
 ${ANALYTICS_RULE}
+${STEP_BUDGET}
 - ${jira}
 
 ${securityRules('run')}`;
