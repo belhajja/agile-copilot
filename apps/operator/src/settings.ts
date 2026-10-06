@@ -103,7 +103,8 @@ function oidcOf(raw: RawSettings): Oidc | null {
   return { provider, issuer, clientId, clientSecret };
 }
 
-function registryOf(raw: RawSettings): Registry | null {
+/** The deploy token user and token, both or neither. */
+export function registryOf(raw: RawSettings): Registry | null {
   const user = clean('registry-user', raw['registry-user']);
   const token = clean('registry-token', raw['registry-token']);
   if (!user && !token) return null;
@@ -186,7 +187,7 @@ export const PROMPTS: {
   },
   {
     key: 'registry-user',
-    question: 'Registry deploy token user (empty if this host is already logged in)',
+    question: 'Registry deploy token user (empty if the images are public)',
     default: '',
   },
   {

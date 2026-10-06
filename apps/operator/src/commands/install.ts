@@ -2,11 +2,43 @@ import { readFile } from 'node:fs/promises';
 import type { Context } from '../context';
 import { Compose, registryLogin, waitHealthy } from '../docker';
 import { envFor, parseEnv, renderEnv } from '../env-file';
-import { UsageError } from '../errors';
+import { StepError, UsageError } from '../errors';
 import { generateSecrets } from '../secrets';
-import { gatherSettings, type RawSettings, validateSettings } from '../settings';
+import {
+  gatherSettings,
+  type RawSettings,
+  registryOf,
+  SETTING_KEYS,
+  validateSettings,
+} from '../settings';
 import { imagesFor, writeStack } from '../stack';
 import { acquireLock, pathsOf, readState, writeSecretFile, writeState } from '../state';
+
+/**
+ * On `--resume` only the registry credentials may change (a missing or wrong deploy token is a
+ * common reason the first attempt failed); every other setting stays as the first attempt wrote it.
+ */
+async function resumeSettings(ctx: Context, raw: RawSettings): Promise<void> {
+  const ignored = SETTING_KEYS.filter(
+    (k) => raw[k] !== undefined && k !== 'registry-user' && k !== 'registry-token',
+  );
+  if (ignored.length > 0) {
+    ctx.out(
+      `Note: ${ignored.map((k) => `--${k}`).join(', ')} ignored on resume (use \`config\` later).`,
+    );
+  }
+  const registry = registryOf(raw);
+  if (!registry) return;
+  const p = pathsOf(ctx.dataDir);
+  await writeSecretFile(
+    p.env,
+    renderEnv(
+      { OPERATOR_REGISTRY_USER: registry.user, OPERATOR_REGISTRY_TOKEN: registry.token },
+      await readFile(p.env, 'utf8'),
+    ),
+  );
+  ctx.out('✓ registry credentials updated');
+}
 
 export async function install(
   ctx: Context,
@@ -39,6 +71,8 @@ export async function install(
         history: [],
       });
       ctx.out('✓ settings and secrets written');
+    } else {
+      await resumeSettings(ctx, raw);
     }
 
     const env = parseEnv(await readFile(p.env, 'utf8'));
@@ -50,8 +84,20 @@ export async function install(
       await compose.check('start', ['up', '-d']);
       await waitHealthy(ctx, compose, mode);
     } catch (e) {
-      await compose.run(['stop']);
-      ctx.out('Fix the cause, then run `install --resume` (the settings and secrets are kept).');
+      try {
+        await compose.run(['stop']);
+      } catch {
+        // best effort: the original failure is the one to report.
+      }
+      if (e instanceof StepError && (e.step === 'registry login' || e.step === 'pull')) {
+        ctx.out(
+          'If the images need a deploy token: run `install --resume --registry-user <user> ' +
+            '--registry-token <token>` (or put the token in OPERATOR_REGISTRY_TOKEN instead of ' +
+            '--registry-token).',
+        );
+      } else {
+        ctx.out('Fix the cause, then run `install --resume` (the settings and secrets are kept).');
+      }
       throw e;
     }
     ctx.out(`✓ healthy: ${env.get('BETTER_AUTH_URL')}`);
