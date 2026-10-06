@@ -367,14 +367,16 @@ export async function changeLlmModel(
       })
       .where(eq(llmConnections.id, id))
       .returning();
-    await recordAudit(tx, {
-      orgId: actor.orgId,
-      actorUserId: actor.userId,
-      action: 'llm_connection.model_changed',
-      targetType: 'llm_connection',
-      targetId: id,
-      metadata: { from: loaded.previousModel, to: trimmed },
-    });
+    if (updated) {
+      await recordAudit(tx, {
+        orgId: actor.orgId,
+        actorUserId: actor.userId,
+        action: 'llm_connection.model_changed',
+        targetType: 'llm_connection',
+        targetId: id,
+        metadata: { from: loaded.previousModel, to: trimmed },
+      });
+    }
     return updated;
   });
   return row ? { ok: true, connection: toView(row) } : notFound;

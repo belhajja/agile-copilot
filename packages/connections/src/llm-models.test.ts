@@ -7,6 +7,7 @@ import { ForbiddenError } from './errors';
 import {
   changeLlmModel,
   createLlmConnection,
+  deleteLlmConnection,
   type LlmDeps,
   listLlmModelsForConnection,
 } from './llm-connections';
@@ -144,6 +145,27 @@ describe('listing and changing a connection’s model', () => {
     expect(await changeLlmModel(deps, owner('org_b'), id, 'claude-sonnet-5-5')).toMatchObject({
       code: 'not_found',
     });
+  });
+
+  it('does not audit a model change when the connection was deleted mid-flight', async () => {
+    const racy = await createLlmConnection(deps, owner(), {
+      label: 'Racy',
+      config: anthropic('sk-ant-racy-value-1234'),
+    });
+    if (!racy.ok) throw new Error(racy.code);
+    const racyId = racy.connection.id;
+    // The retest (probe) runs between the read and the update: delete the row from under it here.
+    const deletingProbe: LlmDeps = {
+      ...deps,
+      probe: async () => {
+        await deleteLlmConnection(deps, owner(), racyId);
+        return { ok: true, latencyMs: 1 };
+      },
+    };
+    const r = await changeLlmModel(deletingProbe, owner(), racyId, 'claude-haiku-5');
+    expect(r).toMatchObject({ ok: false, code: 'not_found' });
+    const auditRows = await h.rawDb.select().from(auditLog).where(eq(auditLog.targetId, racyId));
+    expect(auditRows.some((a) => a.action === 'llm_connection.model_changed')).toBe(false);
   });
 
   it('leaves label, prices and default/background flags untouched', async () => {
