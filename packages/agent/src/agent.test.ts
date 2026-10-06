@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
 import {
   agentApprovals,
   agentConversations,
@@ -7,6 +8,7 @@ import {
   auditLog,
   jiraBoards as jiraBoardsTable,
   jiraConnections,
+  llmConnections,
 } from '@agile/db';
 import { createLanguageModel, type LlmConfig } from '@agile/llm';
 import { agentDemoScript, type MockChatMessage, type MockScript } from '@agile/llm/testing';
@@ -17,7 +19,7 @@ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApprovalRequiredError, claimApprovedExecution, hashInput } from './approvals';
-import { loadConversation } from './conversations';
+import { loadConversation, setConversationArchived, setConversationModel } from './conversations';
 import type { AgentDeps } from './deps';
 import { startAgentHarness, textOf } from './test-harness';
 import { AgentToolError, toolErrorText } from './tool-errors';
@@ -230,6 +232,54 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     // The model saw the analytics results as untrusted data.
     const toolMessage = h.llm.requests.at(-1)?.messages.find((m) => m.role === 'tool');
     expect(contentOf(toolMessage)).toMatch(/^<data source="list_boards">\n/);
+  });
+
+  it('answers with the model picked for the conversation, else with the default', async () => {
+    const created = await createLlmConnection(h.deps, owner(), {
+      label: 'Second',
+      config: {
+        provider: 'openai_compatible',
+        model: 'mock-2',
+        baseUrl: h.llm.baseUrl,
+        apiKey: 'good-key',
+      },
+    });
+    if (!created.ok) throw new Error(created.code);
+    const second = created.connection.id;
+    // Priced like the default: the spend tests below expect every reply priced.
+    await setLlmConnectionPrices(h.deps, owner(), second, {
+      inputMicros: 3_000_000,
+      outputMicros: 15_000_000,
+    });
+    const id = randomUUID();
+    expect(await setConversationModel(h.db, owner(), id, second)).toBe('ok');
+    const modelsUsed = async () =>
+      (
+        await h.rawDb
+          .select({ model: agentUsage.model, connection: agentUsage.llmConnectionId })
+          .from(agentUsage)
+          .where(eq(agentUsage.conversationId, id))
+          .orderBy(agentUsage.createdAt)
+      ).map((r) => r.model);
+
+    expect((await h.ask(owner(), id, 'What is our velocity?')).status).toBe(200);
+    expect(await modelsUsed()).toEqual(['mock-2']);
+    // A model failing its check is skipped: the default answers.
+    await h.rawDb
+      .update(llmConnections)
+      .set({ status: 'error' })
+      .where(eq(llmConnections.id, second));
+    expect((await h.ask(owner(), id, 'What is our velocity?')).status).toBe(200);
+    expect(await modelsUsed()).toEqual(['mock-2', 'mock']);
+    await h.rawDb.delete(llmConnections).where(eq(llmConnections.id, second));
+  });
+
+  it('a new question brings an archived conversation back', async () => {
+    const id = randomUUID();
+    expect((await h.ask(owner(), id, 'What is our velocity?')).status).toBe(200);
+    expect(await setConversationArchived(h.db, owner(), id, true)).toBe(true);
+    expect((await h.ask(owner(), id, 'And the throughput?')).status).toBe(200);
+    expect((await loadConversation(h.db, owner(), id))?.archived).toBe(false);
   });
 
   it('ends with an answer when the model would keep calling tools past the step limit', async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { loadDefaultLlm } from '@agile/connections';
+import { loadDefaultLlm, loadUsableLlm } from '@agile/connections';
 import { withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import {
@@ -22,6 +22,7 @@ import {
 import {
   beginTurn,
   ConversationNotFoundError,
+  conversationModelId,
   endTurn,
   heldHistory,
   holdsTurn,
@@ -31,6 +32,7 @@ import {
   saveConversation,
   TurnInProgressError,
   TurnLostError,
+  unarchiveConversation,
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
 import { languageModelFor } from './model';
@@ -127,7 +129,11 @@ export async function handleAgentRequest(
   if (!parsed.success) return fail('invalid_request');
   const req = parsed.data;
 
-  const llm = await loadDefaultLlm(deps, actor.orgId);
+  // The model picked for this conversation, unless it is gone or failing: then the default.
+  const picked = await conversationModelId(deps.db, actor, req.conversationId);
+  const llm =
+    (picked ? await loadUsableLlm(deps, actor.orgId, picked) : null) ??
+    (await loadDefaultLlm(deps, actor.orgId));
   if (!llm) return fail('no_llm');
   // Only a new message may create a conversation; decisions need an existing one.
   const conversation = req.message
@@ -171,6 +177,7 @@ export async function handleAgentRequest(
           ...messages,
           { id: message.id, role: 'user', parts: [{ type: 'text', text: message.text }] },
         ];
+        await unarchiveConversation(tx, actor, conversationId);
       }
       await saveConversation(tx, actor, conversationId, messages);
       return messages;
