@@ -89,6 +89,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  // nosemgrep: gitlab.eslint.react-dangerouslysetinnerhtml -- CSS variables from the chart config in code
   return (
     <style
       dangerouslySetInnerHTML={{

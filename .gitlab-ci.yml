@@ -19,6 +19,13 @@ include:
       # What ships: devDependencies (shadcn CLI, drizzle-kit) are build tools. Ignored advisories are
       # listed, with the reason, in pnpm-workspace.yaml (auditConfig).
       audit-args: --prod --audit-level=low
+      # The template's defaults, minus two rules that flag every `obj[key]` and `new RegExp(x)`
+      # (hundreds of hits, none actionable); merge requests only scan their diff, develop and main
+      # scan everything.
+      semgrep-args: >-
+        --metrics off --disable-version-check --no-suppress-errors
+        --exclude-rule gitlab.eslint.detect-object-injection
+        --exclude-rule gitlab.eslint.detect-non-literal-regexp
   # Container images: hadolint, build with buildah, trivy scan and SBOM, then publish. Snapshots are
   # pushed on every pipeline; release images are published from main (manual) and from tags.
   - component: $CI_SERVER_FQDN/to-be-continuous/docker/gitlab-ci-docker@8.5.1

@@ -26,6 +26,7 @@ export default async function globalSetup() {
   if (!(await listening(4050))) missing.push('mcp-atlassian double (4050)');
   else {
     // An older mocks process proxies /readonly/mcp to the read-write double, which answers 404.
+    // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request -- local test double
     const twin = await fetch('http://127.0.0.1:4050/readonly/mcp').catch(() => null);
     if (!twin || twin.status === 404) missing.push('read-only mcp-atlassian twin (4050/readonly)');
   }
