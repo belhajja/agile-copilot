@@ -56,7 +56,8 @@ function open(key: Buffer, aad: string, sealed: string): Buffer {
   if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES)
     throw new CryptoError('Malformed ciphertext');
   try {
-    const decipher = createDecipheriv(ALG, key, iv);
+    // The tag length is pinned: GCM would otherwise accept a truncated tag.
+    const decipher = createDecipheriv(ALG, key, iv, { authTagLength: TAG_BYTES });
     decipher.setAAD(Buffer.from(aad, 'utf8'));
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]);
