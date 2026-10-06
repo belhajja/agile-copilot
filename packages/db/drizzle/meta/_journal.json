@@ -253,6 +253,13 @@
       "when": 1791149048046,
       "tag": "0035_final_sync_lease_and_expiry_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791295709826,
+      "tag": "0036_final_conversation_management",
+      "breakpoints": true
     }
   ]
 }
