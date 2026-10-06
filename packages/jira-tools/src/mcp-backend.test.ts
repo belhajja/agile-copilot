@@ -172,6 +172,75 @@ describe('mcp-atlassian backend through the double', () => {
     expect((viaMcp as { issues: unknown[] }).issues.length).toBeGreaterThan(0);
   });
 
+  it('keeps a worklog’s local day in the summary, on both backends', async () => {
+    // Local 00:30+02:00 on the `from` day (kept) and on the day after `to` (dropped): the day a
+    // summary files a worklog under is the local day it was logged for, never UTC's.
+    const mini = await startMockJira({
+      flavor: 'datacenter',
+      validAuthorization: 'Bearer good-pat',
+      dataset: {
+        boards: [],
+        statuses: [],
+        fields: [],
+        sprints: [],
+        issues: [
+          {
+            id: '1',
+            key: 'T-1',
+            filterIds: [999],
+            fields: {
+              summary: 'Boundary',
+              status: { id: 's', name: 'To Do' },
+              assignee: null,
+              created: '2026-10-01T00:00:00.000+0000',
+              updated: '2026-10-01T00:00:00.000+0000',
+            },
+            histories: [],
+          },
+        ],
+        worklogs: {
+          'T-1': [
+            {
+              id: 'w1',
+              author: { accountId: 'a', name: 'ana', displayName: 'Ana' },
+              started: '2026-10-01T00:30:00.000+0200',
+              timeSpentSeconds: 1800,
+            },
+            {
+              id: 'w2',
+              author: { accountId: 'a', name: 'ana', displayName: 'Ana' },
+              started: '2026-10-03T00:30:00.000+0200',
+              // Deliberately a different duration from the first entry: if the UTC-shift bug
+              // creeps back in, this one is wrongly kept (shifted onto `to`) and the first wrongly
+              // dropped (shifted before `from`) — same count, different total, so it still shows.
+              timeSpentSeconds: 7200,
+            },
+          ],
+        },
+      },
+    });
+    try {
+      const creds = { kind: 'datacenter_pat' as const, baseUrl: mini.url, token: 'good-pat' };
+      const query = { jql: 'filter = 999', from: '2026-10-01', to: '2026-10-02' };
+      const viaRest = (await run(
+        createRestJiraBackend(creds, { outbound }),
+        'jira_worklog_summary',
+        query,
+      )) as { totalHours: number };
+      const viaMcp = (await run(
+        createMcpAtlassianBackend(creds, { url: double.url }),
+        'jira_worklog_summary',
+        query,
+      )) as { totalHours: number };
+      // Only the first entry (local 00:30 on `from`) is in range; the second (local 00:30 the day
+      // after `to`) is out, on both backends.
+      expect(viaRest.totalHours).toBe(0.5);
+      expect(viaMcp.totalHours).toBe(0.5);
+    } finally {
+      await mini.close();
+    }
+  });
+
   it('returns the same get_issue shape as the REST backend, no reporter or comment-author ids', async () => {
     const withSetting = createMcpAtlassianBackend(
       { kind: 'datacenter_pat', baseUrl: dc.url, token: 'good-pat' },
@@ -187,10 +256,24 @@ describe('mcp-atlassian backend through the double', () => {
       { issueKey: 'DEMO-1' },
     );
     expect(viaMcp).toEqual(viaRest);
-    // The double's raw mcp-atlassian answer carries a reporter (and, on a commented issue, a
-    // comment author) with an account id and email; REST never has a `reporter` field at all, so
-    // this equality already proves it didn't leak through. Spelled out for clarity:
+    // The double's raw mcp-atlassian answer carries a reporter and a comment author with an
+    // account id and email; REST never has a `reporter` field at all, so this equality already
+    // proves neither leaked through. Spelled out for clarity, and for the comment itself (DEMO-1
+    // has one seeded): the regression this guards is `jira_get_issue` asking mcp-atlassian for
+    // fields that don't include `comment`, which 0.23.1 then answers with no comments at all.
     expect(viaMcp).not.toHaveProperty('reporter');
+    const comments = (viaMcp as { comments: { author: string | null; body: string | null }[] })
+      .comments;
+    // Other tests in this file write their own comments to the same DEMO-1 through `dc`; look for
+    // the dataset's seeded one rather than assuming it is the only one.
+    expect(comments.length).toBeGreaterThan(0);
+    expect(comments).toContainEqual(
+      expect.objectContaining({
+        author: 'Alex Martin',
+        body: 'Looks blocked on the API team.',
+      }),
+    );
+    expect(JSON.stringify(viaMcp)).not.toMatch(/u-alex|account_id|@example\.com/);
   });
 
   it('assigns only the one active person matching exactly, resolved before the write', async () => {
@@ -463,7 +546,7 @@ describe('mcp-atlassian result mapping', () => {
       entries: [
         {
           author: 'Ana',
-          started: '2026-10-01T07:00:00Z',
+          started: '2026-10-01T09:00:00+02:00',
           seconds: 7200,
           hours: 2,
           comment: 'x'.repeat(500),
@@ -1068,6 +1151,53 @@ describe('cancellation, deadlines and refusals', () => {
       await expect(
         callWith(backend, 'jira_get_issue', { issueKey: 'DEMO-1' }),
       ).resolves.toMatchObject({});
+    } finally {
+      await stall.close();
+    }
+  });
+
+  it('returns a partial worklog summary when the deadline hits mid-worklog, instead of failing', async () => {
+    // Forwards everything to the double except jira_get_worklog, which never gets an answer: a
+    // stand-in for the SDK's own abort reason or McpError(RequestTimeout), which isn't a
+    // JiraToolError on its own.
+    const stall = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if (
+          /"method":"tools\/call"/.test(body.toString()) &&
+          /jira_get_worklog/.test(body.toString())
+        ) {
+          return;
+        }
+        const target = new URL(double.url);
+        const upstream = httpRequest(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers,
+          },
+          (r) => {
+            res.writeHead(r.statusCode ?? 502, r.headers);
+            r.pipe(res);
+          },
+        );
+        upstream.on('error', () => res.destroy());
+        upstream.end(body);
+      });
+    });
+    try {
+      const tight = createMcpAtlassianBackend(pat(dc.url), {
+        url: `${stall.url}/mcp`,
+        timeoutMs: 300,
+      });
+      const s = (await callWith(tight, 'jira_worklog_summary', { jql: 'filter = 101' })) as {
+        partial: boolean;
+      };
+      expect(s.partial).toBe(true);
     } finally {
       await stall.close();
     }

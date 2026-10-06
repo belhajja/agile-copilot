@@ -277,6 +277,19 @@ describe(`contract: ${MCP_ATLASSIAN_IMAGE}`, () => {
       assignee: { id: 'alex', displayName: 'Alex Martin' },
     });
     expect(image.issue.summary).toBe(rest.issue.summary);
+    // DEMO-1 has one seeded comment: the image must answer it exactly like the REST backend
+    // (author display name and body only), proving it asked mcp-atlassian for `comment` and got
+    // it back, no account id or email either side.
+    const comments = (image.issue as { comments: unknown }).comments;
+    expect(comments).toEqual((rest.issue as { comments: unknown }).comments);
+    expect(comments).toEqual([
+      {
+        author: 'Alex Martin',
+        body: 'Looks blocked on the API team.',
+        created: expect.any(String),
+      },
+    ]);
+    expect(JSON.stringify(comments)).not.toMatch(/u-alex|account_id|@example\.com/);
     // mcp-atlassian 0.23.1 gives no target status for a transition: only `to` differs.
     expect(image.transitions).toEqual({
       transitions: rest.transitions.transitions.map((t) => ({ ...t, to: null })),
