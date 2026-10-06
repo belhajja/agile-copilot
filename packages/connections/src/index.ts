@@ -20,6 +20,7 @@ export {
   OAuthTimeoutError,
 } from './jira-oauth';
 export {
+  changeLlmModel,
   createLlmConnection,
   deleteLlmConnection,
   type LlmConnectionView,
@@ -27,6 +28,7 @@ export {
   type LlmServiceFailure,
   type LoadedLlm,
   listLlmConnections,
+  listLlmModelsForConnection,
   loadBackgroundLlm,
   loadDefaultLlm,
   loadDefaultLlmConfig,

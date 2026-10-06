@@ -6,6 +6,8 @@ import {
   type LlmConfig,
   type LlmProbeResult,
   type LlmProvider,
+  listModels,
+  type ModelListResult,
   type ProbeFailureCode,
   probeModel,
 } from '@agile/llm';
@@ -18,6 +20,7 @@ import { getOrgDek } from './vault';
 
 export interface LlmDeps extends ConnectionDeps {
   probe?: (cfg: LlmConfig) => Promise<LlmProbeResult>;
+  listModels?: (cfg: LlmConfig) => Promise<ModelListResult>;
 }
 
 export interface LlmConnectionView {
@@ -42,7 +45,7 @@ export interface LlmConnectionView {
 
 export type LlmServiceFailure = {
   ok: false;
-  code: ProbeFailureCode | 'blocked_url' | 'not_found';
+  code: ProbeFailureCode | 'not_supported' | 'blocked_url' | 'not_found';
   message: string;
   detail?: { reason: BlockedUrlReason; host?: string };
 };
@@ -104,42 +107,64 @@ async function lockOrgDefaults(tx: Tx, orgId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`llm_default:${orgId}`}))`);
 }
 
+/**
+ * The OpenAI-compatible base URL check, shared by probing and listing models: refuses a private
+ * URL unless allowlisted, else hands back the DNS-pinned fetch to use for the real call (fixed
+ * vendor hosts need neither check nor pin).
+ */
+async function checkedOutboundFetch(
+  deps: LlmDeps,
+  config: LlmConfig,
+): Promise<{ ok: true; fetch?: typeof fetch } | LlmServiceFailure> {
+  if (config.provider !== 'openai_compatible') return { ok: true };
+  const check = await checkOutboundUrl(config.baseUrl, deps);
+  if (!check.ok) {
+    return {
+      ok: false,
+      code: 'blocked_url',
+      message: check.reason,
+      detail: { reason: check.code, host: check.host },
+    };
+  }
+  return {
+    ok: true,
+    fetch: createOutboundFetch({
+      allowedPrivateHosts: deps.allowedPrivateHosts,
+      resolve: deps.resolve,
+    }),
+  };
+}
+
 async function probe(
   deps: LlmDeps,
   config: LlmConfig,
 ): Promise<LlmProbeResult | LlmServiceFailure> {
-  if (config.provider === 'openai_compatible') {
-    const check = await checkOutboundUrl(config.baseUrl, deps);
-    if (!check.ok) {
-      return {
-        ok: false,
-        code: 'blocked_url',
-        message: check.reason,
-        detail: { reason: check.code, host: check.host },
-      };
-    }
-  }
+  const outbound = await checkedOutboundFetch(deps, config);
+  if (!outbound.ok) return outbound;
   if (deps.probe) return deps.probe(config);
   let model: ReturnType<typeof createLanguageModel>;
   try {
-    // Only the OpenAI-compatible provider has a user-supplied URL to pin.
-    model = createLanguageModel(
-      config,
-      config.provider === 'openai_compatible'
-        ? {
-            fetch: createOutboundFetch({
-              allowedPrivateHosts: deps.allowedPrivateHosts,
-              resolve: deps.resolve,
-            }),
-          }
-        : {},
-    );
+    model = createLanguageModel(config, outbound.fetch ? { fetch: outbound.fetch } : {});
   } catch (e) {
     if (config.provider === 'azure' && e instanceof TypeError)
       return { ok: false, code: 'provider_error', message: 'Invalid Azure resource name.' };
     throw e;
   }
   return probeModel(model);
+}
+
+/** The models a key can use, for the "Load models" / "Change model" pickers. */
+async function modelsFor(
+  deps: LlmDeps,
+  config: LlmConfig,
+): Promise<{ ok: true; models: string[] } | LlmServiceFailure> {
+  const outbound = await checkedOutboundFetch(deps, config);
+  if (!outbound.ok) return outbound;
+  const result = deps.listModels
+    ? await deps.listModels(config)
+    : await listModels(config, outbound.fetch ? { fetch: outbound.fetch } : {});
+  if (!result.ok) return { ok: false, code: result.code, message: result.message };
+  return { ok: true, models: result.models };
 }
 
 async function readConfig(
@@ -277,6 +302,78 @@ export async function retestLlmConnection(
       targetType: 'llm_connection',
       targetId: id,
       metadata: { ok: result.ok, ...(result.ok ? {} : { code: result.code }) },
+    });
+    return updated;
+  });
+  return row ? { ok: true, connection: toView(row) } : notFound;
+}
+
+const MAX_MODEL_LENGTH = 200;
+
+/** The models the connection's stored key can use, for its "Change model" picker. */
+export async function listLlmModelsForConnection(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+): Promise<{ ok: true; models: string[] } | LlmServiceFailure> {
+  assertCanManage(actor);
+  const config = await withOrg(deps.db, actor.orgId, async (tx) => {
+    const [row] = await tx.select().from(llmConnections).where(eq(llmConnections.id, id));
+    return row ? readConfig(tx, deps, actor.orgId, row) : null;
+  });
+  if (!config) return notFound;
+  return modelsFor(deps, config);
+}
+
+/**
+ * Switches a connection to a different model from the same key, re-testing it exactly like
+ * `retestLlmConnection`. The model is kept even when the new test fails, so the connection shows
+ * why instead of silently reverting. Label, prices and the default/background flags are untouched.
+ */
+export async function changeLlmModel(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+  model: string,
+): Promise<
+  | { ok: true; connection: LlmConnectionView }
+  | LlmServiceFailure
+  | { ok: false; code: 'invalid_input' }
+> {
+  assertCanManage(actor);
+  const trimmed = model.trim();
+  if (!trimmed || trimmed.length > MAX_MODEL_LENGTH) {
+    return { ok: false, code: 'invalid_input' };
+  }
+  const loaded = await withOrg(deps.db, actor.orgId, async (tx) => {
+    const [row] = await tx.select().from(llmConnections).where(eq(llmConnections.id, id));
+    return row
+      ? { previousModel: row.model, config: await readConfig(tx, deps, actor.orgId, row) }
+      : null;
+  });
+  if (!loaded) return notFound;
+  const config: LlmConfig = { ...loaded.config, model: trimmed };
+  const result = await probe(deps, config);
+  const row = await withOrg(deps.db, actor.orgId, async (tx) => {
+    const dek = await getOrgDek(tx, deps.keyring, actor.orgId);
+    const [updated] = await tx
+      .update(llmConnections)
+      .set({
+        model: trimmed,
+        secret: encryptSecret(dek, secretContext(id), JSON.stringify(config)),
+        status: result.ok ? 'ok' : 'error',
+        lastError: result.ok ? null : result.code,
+        lastCheckedAt: new Date(),
+      })
+      .where(eq(llmConnections.id, id))
+      .returning();
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.model_changed',
+      targetType: 'llm_connection',
+      targetId: id,
+      metadata: { from: loaded.previousModel, to: trimmed },
     });
     return updated;
   });
