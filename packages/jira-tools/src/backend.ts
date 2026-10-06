@@ -146,3 +146,27 @@ export function isoTime(v: unknown): string | null {
   const ms = iso ? Date.parse(iso.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : Number.NaN;
   return Number.isNaN(ms) ? v : `${new Date(ms).toISOString().slice(0, 19)}Z`;
 }
+
+// Jira's own worklog timestamps (`2026-10-01T00:30:00.000+0200`): milliseconds and an offset with
+// or without a colon.
+const JIRA_WORKLOG_TIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * A worklog's `started`, kept at the local day and time it was logged for (never converted to
+ * UTC): the day a summary groups it under depends on that local day, not UTC's. Reads
+ * mcp-atlassian 0.23.1's `2026-10-01 00:30:00+02:00` and Jira's own
+ * `2026-10-01T00:30:00.000+0200`, both as `2026-10-01T00:30:00+02:00`; `None` (mcp-atlassian's own
+ * `str(None)` when nothing parsed) or anything else unparseable reads as null.
+ */
+export function worklogStarted(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  if (v === 'None') return null;
+  const mcp = MCP_OFFSET_TIME.exec(v);
+  if (mcp) return `${mcp[1]}T${mcp[2]}${mcp[3]}`;
+  const jira = JIRA_WORKLOG_TIME.exec(v);
+  const offset = jira?.[2];
+  if (jira && offset) {
+    return `${jira[1]}${offset === 'Z' || offset.includes(':') ? offset : `${offset.slice(0, 3)}:${offset.slice(3)}`}`;
+  }
+  return null;
+}

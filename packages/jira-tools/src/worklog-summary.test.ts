@@ -153,6 +153,38 @@ describe('summarizeWorklogs', () => {
     expect(s.totalHours).toBe(3);
   });
 
+  it('treats any worker rejection after the deadline as partial, not a JiraToolError only', async () => {
+    const ctrl = new AbortController();
+    const s = await summarizeWorklogs(
+      { jql: 'x' },
+      deps({
+        signal: ctrl.signal,
+        worklog: async (key) => {
+          if (key === 'P-1') return LOGS[key] as Worklog;
+          ctrl.abort();
+          // A transport error (SDK abort reason, timeout), not a JiraToolError.
+          throw new Error('request aborted');
+        },
+      }),
+    );
+    expect(s.partial).toBe(true);
+    expect(s.totalHours).toBe(3);
+  });
+
+  it('still lets a non-JiraToolError before the deadline propagate (a programming error)', async () => {
+    await expect(
+      summarizeWorklogs(
+        { jql: 'x' },
+        deps({
+          worklog: async (key) => {
+            if (key === 'P-2') throw new Error('boom');
+            return LOGS[key] as Worklog;
+          },
+        }),
+      ),
+    ).rejects.toThrow('boom');
+  });
+
   it('flags partial when an issue worklog was itself partial', async () => {
     const s = await summarizeWorklogs(
       { jql: 'x' },

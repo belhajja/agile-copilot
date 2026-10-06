@@ -108,7 +108,10 @@ export async function summarizeWorklogs(
       try {
         log = await deps.worklog(issue.key);
       } catch (e) {
-        if (!(e instanceof JiraToolError)) throw e;
+        // A JiraToolError is always a partial result, not a failure; once the deadline has hit,
+        // any rejection is too (the deadline itself, or a transport error racing it) — anything
+        // else, before the deadline, is a programming error and must still propagate.
+        if (!(e instanceof JiraToolError) && !deps.signal.aborted) throw e;
         partial = true;
         continue;
       }

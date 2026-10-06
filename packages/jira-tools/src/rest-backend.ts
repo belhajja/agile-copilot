@@ -9,6 +9,7 @@ import {
   JiraToolError,
   type JiraToolErrorCode,
   type JiraUserCandidate,
+  worklogStarted,
 } from './backend';
 import { isJiraToolName, type JiraToolInput, type JiraToolName } from './catalog';
 import { timeTrackingFromRest } from './time-tracking';
@@ -200,7 +201,7 @@ export function createRestJiraBackend(
         const w = (v ?? {}) as Record<string, unknown>;
         const e = worklogEntry({
           author: ((w.author ?? {}) as Record<string, unknown>).displayName,
-          started: w.started,
+          started: worklogStarted(w.started),
           seconds: w.timeSpentSeconds,
           comment: w.comment,
         });

@@ -190,6 +190,9 @@ describe('REST Jira backend (Cloud API tokens) against the mock Jira', () => {
     })) as import('./worklog-summary').Worklog;
     expect(log).toMatchObject({ issueKey: 'DEMO-1', totalHours: 3, partial: false });
     expect(log.entries).toHaveLength(2);
+    // Jira's own offset, local day and time kept (never converted to UTC): colon offset, no
+    // milliseconds, same shape as the mcp-atlassian backend's `started`.
+    expect(log.entries[0]?.started).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
     expect(JSON.stringify(log)).not.toMatch(/accountId|emailAddress|u-/);
     expect(cloud.requests.filter((r) => r.path.includes('/worklog')).length).toBeGreaterThanOrEqual(
       1,

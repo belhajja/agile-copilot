@@ -11,6 +11,7 @@ import {
   JiraToolError,
   type JiraToolErrorCode,
   type JiraUserCandidate,
+  worklogStarted,
 } from './backend';
 import {
   isJiraToolName,
@@ -183,7 +184,7 @@ export function worklogFromMcp(issueKey: string, raw: unknown): Worklog {
     const author = s(w.author);
     const e = worklogEntry({
       author: author === 'Unknown' ? null : author,
-      started: isoTime(w.started),
+      started: worklogStarted(w.started),
       seconds: w.time_spent_seconds,
       comment: w.comment,
     });
@@ -461,11 +462,21 @@ export function createMcpAtlassianBackend(
                 ),
                 limit,
               ),
-            worklog: async (key) =>
-              worklogFromMcp(
-                key,
-                await callText(client, signal, 'jira_get_worklog', { issue_key: key }),
-              ),
+            // A transport error here (the SDK's own abort reason, McpError(RequestTimeout), a
+            // reset connection) is not a JiraToolError on its own; summarizeWorklogs only treats
+            // JiraToolError as partial, so map it to one here (reusing the same codes a direct
+            // call would get).
+            worklog: async (key) => {
+              try {
+                return worklogFromMcp(
+                  key,
+                  await callText(client, signal, 'jira_get_worklog', { issue_key: key }),
+                );
+              } catch (e) {
+                if (e instanceof JiraToolError) throw e;
+                throw new JiraToolError(codeFromError(e));
+              }
+            },
             signal,
           });
         }
