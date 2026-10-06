@@ -11,7 +11,7 @@ import {
   waitService,
 } from '../docker';
 import { parseEnv, renderEnv } from '../env-file';
-import { StepError, UsageError } from '../errors';
+import { describeError, StepError, UsageError } from '../errors';
 import { compareVersions, imagesFor, isRelease, writeStack } from '../stack';
 import {
   acquireLock,
@@ -23,14 +23,6 @@ import {
   writeState,
 } from '../state';
 import { restoreDatabase, takeBackup } from './backup';
-
-function describeError(e: unknown): string {
-  if (e instanceof StepError) {
-    return e.detail ? `${e.step} failed: ${e.detail}` : `${e.step} failed`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
 
 async function record(
   ctx: Context,

@@ -97,6 +97,40 @@ describe('restore', () => {
     expect(docker.commands.some((c) => c.includes('DROP DATABASE'))).toBe(false);
   });
 
+  it('says the database was not changed when it fails before the drop', async () => {
+    const { ctx, out } = await installed({
+      respond: (cmd) =>
+        cmd === 'compose exec -T postgres pg_restore --list'
+          ? { code: 1, stderr: 'not a dump' }
+          : undefined,
+    });
+    await backupCommand(ctx);
+    const err = await restoreCommand(ctx, 'latest', { yes: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(StepError);
+    expect(err.detail).toContain('not a dump');
+    expect(err.detail).toMatch(/app is stopped.*database was not changed.*install --resume/);
+    expect(out.join('\n')).toMatch(/install --resume/);
+  });
+
+  it('points at the safety backup when it fails after the drop', async () => {
+    const { ctx, out, dataDir } = await installed({
+      respond: (cmd) =>
+        cmd.startsWith('compose exec -T postgres pg_restore -U agile')
+          ? { code: 1, stderr: 'relation exists' }
+          : undefined,
+    });
+    await backupCommand(ctx);
+    const [original] = await listBackups(join(dataDir, 'backups'));
+    const err = await restoreCommand(ctx, 'latest', { yes: true }).catch((e) => e);
+    const safety = (await listBackups(join(dataDir, 'backups'))).find((b) => b !== original);
+    expect(safety).toBeDefined();
+    expect(err).toBeInstanceOf(StepError);
+    expect(err.detail).toContain('relation exists');
+    expect(err.detail).toMatch(/app is stopped/);
+    expect(err.detail).toContain(`restore ${safety}`);
+    expect(out.join('\n')).toContain(`restore ${safety}`);
+  });
+
   it('only restores backups that exist in the backups folder', async () => {
     const { ctx } = await installed();
     await expect(restoreCommand(ctx, '../../etc', { yes: true })).rejects.toBeInstanceOf(

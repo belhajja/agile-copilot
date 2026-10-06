@@ -14,7 +14,7 @@ import {
 import { basename, join } from 'node:path';
 import type { Context } from '../context';
 import { Compose, waitHealthy, waitService } from '../docker';
-import { UsageError } from '../errors';
+import { describeError, StepError, UsageError } from '../errors';
 import { acquireLock, type InstallState, pathsOf, readState, writeState } from '../state';
 
 export const KEEP_BACKUPS = 10;
@@ -90,12 +90,18 @@ export async function takeBackup(
  * Replaces the database with a dump: the dump is checked with `pg_restore --list` before
  * anything is dropped, then a fresh database with the grants the init script made, then the data
  * in a single transaction (so a bad dump rolls back instead of leaving the database half-loaded).
+ * `onDrop` runs just before the drop: from there on the old database may be gone.
  */
-export async function restoreDatabase(compose: Compose, dumpFile: string): Promise<void> {
+export async function restoreDatabase(
+  compose: Compose,
+  dumpFile: string,
+  onDrop: () => void = () => {},
+): Promise<void> {
   const psql = ['exec', '-T', 'postgres', 'psql', '-U', 'agile', '-v', 'ON_ERROR_STOP=1'];
   await compose.check('restore', ['exec', '-T', 'postgres', 'pg_restore', '--list'], {
     stdinFile: dumpFile,
   });
+  onDrop();
   await compose.check('restore', [
     ...psql,
     '-d',
@@ -177,26 +183,44 @@ export async function restoreCommand(
       return;
     }
     const compose = new Compose(ctx.docker, ctx.dataDir, state.mode);
-    await compose.check('stop', ['stop', 'web', 'worker']);
-    // The safety backup dumps from postgres, so it must be up before that, not just the app.
-    await compose.check('postgres', ['up', '-d', 'postgres']);
-    await waitService(ctx, compose, 'postgres');
-    const safety = await takeBackup(ctx, state, compose, { prune: false });
-    ctx.out(`✓ safety backup ${basename(safety)}`);
-    await restoreDatabase(compose, join(dir, 'db.dump'));
-    await copyFile(join(dir, '.env'), p.env);
-    await chmod(p.env, 0o600);
-    // Copied next to the live folder and swapped in only once complete, so a failed copy never
-    // leaves the install without any compose folder at all.
-    const nextCompose = `${p.compose}.restore`;
-    await rm(nextCompose, { recursive: true, force: true });
-    await cp(join(dir, 'compose'), nextCompose, { recursive: true });
-    await rm(p.compose, { recursive: true, force: true });
-    await rename(nextCompose, p.compose);
-    const version = (await readFile(join(dir, 'version'), 'utf8')).trim();
-    await writeState(ctx.dataDir, { ...state, version });
-    await compose.check('start', ['up', '-d']);
-    await waitHealthy(ctx, compose, state.mode);
+    // From the stop on, a failure leaves the app down: say how to get it back either way.
+    let safety: string | null = null;
+    let dropped = false;
+    let version: string;
+    try {
+      await compose.check('stop', ['stop', 'web', 'worker']);
+      // The safety backup dumps from postgres, so it must be up before that, not just the app.
+      await compose.check('postgres', ['up', '-d', 'postgres']);
+      await waitService(ctx, compose, 'postgres');
+      safety = await takeBackup(ctx, state, compose, { prune: false });
+      ctx.out(`✓ safety backup ${basename(safety)}`);
+      await restoreDatabase(compose, join(dir, 'db.dump'), () => {
+        dropped = true;
+      });
+      await copyFile(join(dir, '.env'), p.env);
+      await chmod(p.env, 0o600);
+      // Copied next to the live folder and swapped in only once complete, so a failed copy never
+      // leaves the install without any compose folder at all.
+      const nextCompose = `${p.compose}.restore`;
+      await rm(nextCompose, { recursive: true, force: true });
+      await cp(join(dir, 'compose'), nextCompose, { recursive: true });
+      await rm(p.compose, { recursive: true, force: true });
+      await rename(nextCompose, p.compose);
+      version = (await readFile(join(dir, 'version'), 'utf8')).trim();
+      await writeState(ctx.dataDir, { ...state, version });
+      await compose.check('start', ['up', '-d']);
+      await waitHealthy(ctx, compose, state.mode);
+    } catch (e) {
+      const advice =
+        dropped && safety
+          ? `run \`restore ${basename(safety)}\` to get back the state from before this restore`
+          : 'the database was not changed: run `install --resume` to start the app again';
+      ctx.out(`✗ the app is stopped; ${advice}`);
+      // The step that failed stays the one reported, with its own text first.
+      const step = e instanceof StepError ? e.step : 'restore';
+      const cause = e instanceof StepError ? e.detail : describeError(e);
+      throw new StepError(step, `${cause ? `${cause}; ` : ''}the app is stopped, ${advice}`);
+    }
     ctx.out(`✓ restored ${chosen} (${version})`);
   } finally {
     await release();

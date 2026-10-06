@@ -13,3 +13,12 @@ export class StepError extends Error {
     super(`${step} failed`);
   }
 }
+
+/** One line for an error of any kind, keeping a StepError's step and detail. */
+export function describeError(e: unknown): string {
+  if (e instanceof StepError) {
+    return e.detail ? `${e.step} failed: ${e.detail}` : `${e.step} failed`;
+  }
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
