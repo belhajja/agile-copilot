@@ -186,8 +186,13 @@ export async function restoreCommand(
     await restoreDatabase(compose, join(dir, 'db.dump'));
     await copyFile(join(dir, '.env'), p.env);
     await chmod(p.env, 0o600);
+    // Copied next to the live folder and swapped in only once complete, so a failed copy never
+    // leaves the install without any compose folder at all.
+    const nextCompose = `${p.compose}.restore`;
+    await rm(nextCompose, { recursive: true, force: true });
+    await cp(join(dir, 'compose'), nextCompose, { recursive: true });
     await rm(p.compose, { recursive: true, force: true });
-    await cp(join(dir, 'compose'), p.compose, { recursive: true });
+    await rename(nextCompose, p.compose);
     const version = (await readFile(join(dir, 'version'), 'utf8')).trim();
     await writeState(ctx.dataDir, { ...state, version });
     await compose.check('start', ['up', '-d']);

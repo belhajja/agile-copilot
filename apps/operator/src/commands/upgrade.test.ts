@@ -109,6 +109,7 @@ describe('upgrade', () => {
     const backupLine = out.find((l) => l.startsWith('✓ backup '));
     const backupName = backupLine?.slice('✓ backup '.length) ?? '';
     expect(backupName).not.toBe('');
+    expect(err.detail).toContain(`restore ${backupName}`);
     expect(out.some((l) => l.includes(`restore ${backupName}`))).toBe(true);
     const state = await readState(dataDir);
     expect(docker.commands.some((c) => c.includes('pg_restore'))).toBe(true);
@@ -138,6 +139,25 @@ describe('upgrade', () => {
     expect(docker.commands.some((c) => c.includes('pg_dump'))).toBe(false);
     const state = await readState(dataDir);
     expect(state?.version).toBe('v1.0.0');
+  });
+
+  it('advises install --resume, not restore, when the app cannot be restarted either', async () => {
+    const { ctx } = await from100('v1.1.0', (cmd) => {
+      if (cmd === 'compose stop web worker') return { code: 1, stderr: 'worker busy' };
+      if (cmd === 'compose up -d') return { code: 1, stderr: 'docker daemon down' };
+      return undefined;
+    });
+    let caught: unknown;
+    try {
+      await upgrade(ctx);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(StepError);
+    const err = caught as StepError;
+    expect(err.detail).toContain('install --resume');
+    expect(err.detail).toContain('database was not changed');
+    expect(err.detail).not.toContain('restore');
   });
 
   it('leaves .env and the compose files untouched when a pull fails', async () => {

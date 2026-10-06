@@ -1,4 +1,4 @@
-import { chmod, copyFile, cp, readFile, rm } from 'node:fs/promises';
+import { chmod, copyFile, cp, readFile, rename, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Context } from '../context';
 import {
@@ -61,7 +61,8 @@ async function restartOrFail(compose: Compose, cause: unknown): Promise<never> {
   if (!restarted) {
     throw new StepError(
       'upgrade',
-      `${describeError(cause)}; the app is stopped and did not restart: fix docker, then run \`upgrade\` again, or \`restore latest\` to bring it back up.`,
+      `${describeError(cause)}; the app is stopped and did not restart. The database was not ` +
+        'changed: run `install --resume` to bring it back up, then `upgrade` again once the cause is fixed.',
     );
   }
   throw cause;
@@ -71,8 +72,13 @@ async function restartOrFail(compose: Compose, cause: unknown): Promise<never> {
 async function rollback(ctx: Context, state: InstallState, compose: Compose, backupDir: string) {
   const p = pathsOf(ctx.dataDir);
   await compose.run(['stop', 'web', 'worker', 'migrate']);
+  // Copied next to the live folder and swapped in only once complete, so a failed copy never
+  // leaves the install without any compose folder at all.
+  const nextCompose = `${p.compose}.rollback`;
+  await rm(nextCompose, { recursive: true, force: true });
+  await cp(join(backupDir, 'compose'), nextCompose, { recursive: true });
   await rm(p.compose, { recursive: true, force: true });
-  await cp(join(backupDir, 'compose'), p.compose, { recursive: true });
+  await rename(nextCompose, p.compose);
   await copyFile(join(backupDir, '.env'), p.env);
   await chmod(p.env, 0o600);
   // postgres on the images still on this host, up and healthy before anything is restored to it.
@@ -161,7 +167,8 @@ export async function upgrade(ctx: Context): Promise<void> {
         }
         throw new StepError(
           'rollback',
-          `upgrade: ${describeError(e)}; rollback: ${describeError(rollbackErr)}`,
+          `upgrade: ${describeError(e)}; rollback: ${describeError(rollbackErr)}; ` +
+            `run \`restore ${basename(backupDir)}\``,
         );
       }
       await record(ctx, state, target, 'rolled_back');
