@@ -518,6 +518,20 @@
     "removeErrors": {
       "not_found": "Ce graphique n'a pas pu être retiré. Il a peut-être déjà disparu.",
       "unknown": "Une erreur est survenue lors du retrait du graphique."
+    },
+    "sprintFilter": {
+      "button": "Sprints",
+      "search": "Chercher un sprint…",
+      "none": "Aucun sprint trouvé.",
+      "clear": "Effacer",
+      "limit": "Jusqu’à {max} sprints",
+      "remove": "Retirer {name}",
+      "allSprints": "Chaque widget affiche sa propre période",
+      "states": {
+        "active": "En cours",
+        "closed": "Terminé",
+        "future": "À venir"
+      }
     }
   },
   "agent": {

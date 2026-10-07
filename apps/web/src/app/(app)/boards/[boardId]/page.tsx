@@ -1,10 +1,12 @@
 import { insightsFor } from '@agile/automation';
 import {
+  bySprintDate,
   computeWidget,
   ensureDefaultDashboards,
   listDashboards,
   loadBoardDataset,
   PINNED_DASHBOARD_NAME,
+  parseSprintSelection,
 } from '@agile/dashboards';
 import { getBoard } from '@agile/sync';
 import { RefreshCw } from 'lucide-react';
@@ -14,6 +16,7 @@ import { getFormatter, getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { AgentMarkdown } from '@/components/agent/agent-markdown';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
+import { type SprintOption, SprintPicker } from '@/components/dashboard/sprint-picker';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,11 +41,11 @@ export default async function BoardDashboardPage({
   searchParams,
 }: {
   params: Promise<{ boardId: string }>;
-  searchParams: Promise<{ error?: string | string[] }>;
+  searchParams: Promise<{ error?: string | string[]; sprints?: string | string[] }>;
 }) {
   const actor = await requireActor();
   const { boardId } = await params;
-  const { error } = await searchParams;
+  const { error, sprints: sprintsParam } = await searchParams;
   if (!z.uuid().safeParse(boardId).success) notFound();
   const board = await getBoard(syncDeps(), actor.orgId, boardId);
   if (!board?.selected) notFound();
@@ -91,6 +94,21 @@ export default async function BoardDashboardPage({
     );
   }
 
+  const selected = parseSprintSelection(sprintsParam, dataset.sprints);
+  const scope = selected.length > 0 ? { sprints: selected } : undefined;
+  const range = (s: (typeof dataset.sprints)[number]) =>
+    s.startAt
+      ? format.dateTimeRange(s.startAt, s.completeAt ?? s.endAt ?? now, {
+          day: 'numeric',
+          month: 'short',
+          timeZone: 'UTC',
+        })
+      : null;
+  // Newest first, as list_sprints: future sprints, then by start date descending.
+  const sprintOptions: SprintOption[] = [...dataset.sprints]
+    .sort((a, b) => -bySprintDate(a, b))
+    .map((s) => ({ id: s.id, name: s.name, state: s.state, dates: range(s) }));
+
   const views = dashboards.map((d) => ({
     id: d.id,
     label:
@@ -99,7 +117,7 @@ export default async function BoardDashboardPage({
         : d.name === PINNED_DASHBOARD_NAME
           ? t('kinds.pinned')
           : d.name,
-    widgets: d.widgets.map((spec) => ({ spec, data: computeWidget(spec, dataset, now) })),
+    widgets: d.widgets.map((spec) => ({ spec, data: computeWidget(spec, dataset, now, scope) })),
     // Widgets pinned from the assistant can be removed in one click (on the Pinned dashboard only).
     removal:
       d.kind === 'custom' && d.name === PINNED_DASHBOARD_NAME
@@ -132,6 +150,9 @@ export default async function BoardDashboardPage({
             </Card>
           ))}
         </section>
+      )}
+      {sprintOptions.length > 0 && (
+        <SprintPicker options={sprintOptions} selected={selected.map((s) => s.id)} />
       )}
       <Tabs defaultValue={views[0]?.id}>
         <TabsList>

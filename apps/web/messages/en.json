@@ -518,6 +518,20 @@
     "removeErrors": {
       "not_found": "This chart could not be removed. It may already be gone.",
       "unknown": "Something went wrong removing the chart."
+    },
+    "sprintFilter": {
+      "button": "Sprints",
+      "search": "Find a sprint…",
+      "none": "No sprint found.",
+      "clear": "Clear",
+      "limit": "Up to {max} sprints",
+      "remove": "Remove {name}",
+      "allSprints": "All widgets show their own period",
+      "states": {
+        "active": "Active",
+        "closed": "Closed",
+        "future": "Future"
+      }
     }
   },
   "agent": {
