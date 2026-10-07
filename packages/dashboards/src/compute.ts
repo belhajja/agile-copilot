@@ -64,10 +64,7 @@ export function computeWidget(
   now: Date,
   scope?: SprintScope,
 ): WidgetData {
-  if (scope && scope.sprints.length > 0) {
-    const scoped = computeScoped(spec, ds, now, scope.sprints);
-    if (scoped) return scoped;
-  }
+  if (scope && scope.sprints.length > 0) return computeScoped(spec, ds, now, scope.sprints);
   switch (spec.metric) {
     case 'average_velocity':
     case 'say_do_ratio': {
@@ -133,57 +130,15 @@ export function computeWidget(
       return burnFor(spec.metric, ds, sprint, unitFor(ds, spec.params.unit), now);
     }
     case 'cycle_time':
-    case 'lead_time': {
-      const opts = { windowDays: spec.params.windowDays, now };
-      const stats = spec.metric === 'cycle_time' ? cycleTime(ds, opts) : leadTime(ds, opts);
-      if (stats.count === 0) return empty('no_data');
-      if (spec.chart === 'kpi') {
-        return {
-          kind: 'kpi',
-          value: stats[`p${spec.params.percentile}`],
-          format: 'days',
-          hint: { key: 'finishedIn', values: { count: stats.count, days: spec.params.windowDays } },
-        };
-      }
-      return {
-        kind: 'table',
-        columns: [
-          { key: 'percentile', type: 'text' },
-          { key: 'days', type: 'days' },
-        ],
-        rows: CONFIDENCE.map((p) => [`${p}%`, stats[`p${p}`]]),
-      };
-    }
-    case 'throughput': {
-      const rows = weeklyThroughput(ds, { weeks: spec.params.weeks, now });
-      return {
-        kind: 'series',
-        chart: 'bar',
-        x: 'week',
-        series: [{ key: 'done' }],
-        rows: rows.map((r) => ({ week: r.weekStart, done: r.count })),
-      };
-    }
+    case 'lead_time':
+    case 'flow_efficiency':
+    case 'throughput':
     case 'throughput_rate':
-      return {
-        kind: 'kpi',
-        value: throughputPerWeek(ds, { days: spec.params.days, now }),
-        format: 'per_week',
-        hint: { key: 'lastDays', values: { days: spec.params.days } },
-      };
+    case 'wip_trend':
+    case 'cfd':
+      return flowWidget(spec, ds, ownWindow(spec, now));
     case 'wip':
       return { kind: 'kpi', value: wipNow(ds), format: 'issues' };
-    case 'wip_trend':
-      return {
-        kind: 'series',
-        chart: 'line',
-        x: 'day',
-        series: [{ key: 'wip' }],
-        rows: wipSeries(ds, { days: spec.params.days, now }).map((r) => ({
-          day: r.day,
-          wip: r.wip,
-        })),
-      };
     case 'aging_wip': {
       const items = agingWip(ds, { windowDays: spec.params.windowDays, now });
       if (items.length === 0) return empty('no_data');
@@ -201,28 +156,6 @@ export function computeWidget(
           i.ageDays,
           i.blocked ? 'blocked' : i.overP85 ? 'late' : 'on_track',
         ]),
-      };
-    }
-    case 'cfd':
-      return {
-        kind: 'series',
-        chart: 'area',
-        x: 'day',
-        series: [
-          { key: 'done', stacked: true },
-          { key: 'inProgress', stacked: true },
-          { key: 'todo', stacked: true },
-        ],
-        rows: cumulativeFlow(ds, { days: spec.params.days, now }),
-      };
-    case 'flow_efficiency': {
-      const result = flowEfficiency(ds, { windowDays: spec.params.windowDays, now });
-      if (result.efficiency === null) return empty('no_data');
-      return {
-        kind: 'kpi',
-        value: result.efficiency,
-        format: 'percent',
-        hint: { key: 'blockedDays', values: { days: Math.round(result.blockedDays) } },
       };
     }
     case 'forecast_how_many': {
@@ -307,13 +240,13 @@ const ratio = (completed: number, committed: number) =>
 const breakdownOf = (items: { label: string; value: number | null }[]) =>
   items.length > 1 ? { breakdown: items } : {};
 
-/** Widgets scoped to the selected sprints (chronological); null: not sprint-scoped here. */
+/** Widgets scoped to the selected sprints (chronological). */
 function computeScoped(
   spec: WidgetSpec,
   ds: BoardDataset,
   now: Date,
   sprints: MetricSprint[],
-): WidgetData | null {
+): WidgetData {
   switch (spec.metric) {
     case 'average_velocity':
     case 'say_do_ratio': {
@@ -425,39 +358,83 @@ function computeScoped(
     case 'throughput':
     case 'throughput_rate':
     case 'wip_trend':
-    case 'cfd':
-      return computeForPeriod(spec, ds, now, sprints);
+    case 'cfd': {
+      const w = selectionWindow(sprints, now);
+      return w ? flowWidget(spec, ds, w) : empty('no_data');
+    }
     case 'forecast_how_many':
     case 'forecast_when':
     case 'wip':
     case 'aging_wip':
     case 'hygiene':
       return { ...computeWidget(spec, ds, now), unfiltered: true };
-    default:
-      return null;
+    default: {
+      // A new metric must decide how it follows a sprint selection.
+      const unhandled: never = spec;
+      return unhandled;
+    }
   }
 }
 
-/** Time-based widgets over the selected sprints' period instead of their own trailing window. */
-function computeForPeriod(
-  spec: WidgetSpec,
-  ds: BoardDataset,
-  now: Date,
-  sprints: MetricSprint[],
-): WidgetData {
+type FlowSpec = Extract<
+  WidgetSpec,
+  {
+    metric:
+      | 'cycle_time'
+      | 'lead_time'
+      | 'flow_efficiency'
+      | 'throughput'
+      | 'throughput_rate'
+      | 'wip_trend'
+      | 'cfd';
+  }
+>;
+
+/**
+ * The period a time-based widget looks at, ending at `end`: `windowDays` back for finished items
+ * and the weekly rate, `weeks` weekly buckets, `days` daily rows. `selection`: the number of
+ * selected sprints that shape the period (absent: the widget's own window).
+ */
+interface FlowWindow {
+  end: Date;
+  windowDays: number;
+  weeks: number;
+  days: number;
+  selection?: number;
+}
+
+/** The widget's own trailing window, from its params. */
+function ownWindow(spec: FlowSpec, now: Date): FlowWindow {
+  const p: { windowDays?: number; weeks?: number; days?: number } = spec.params;
+  return {
+    end: now,
+    windowDays: p.windowDays ?? p.days ?? 0,
+    weeks: p.weeks ?? 0,
+    days: p.days ?? 0,
+  };
+}
+
+/** The selected sprints' period; null when none of them has started. */
+function selectionWindow(sprints: MetricSprint[], now: Date): FlowWindow | null {
   const period = selectionPeriod(sprints, now);
-  if (!period) return empty('no_data');
+  if (!period) return null;
   const end = period.to;
   const windowDays = Math.max(1, Math.ceil((end.getTime() - period.from.getTime()) / DAY));
-  const calendarDays = eachUtcDay(period.from, end).length;
+  const days = eachUtcDay(period.from, end).length;
   const weeks =
     Math.round(
       (startOfUtcWeek(end).getTime() - startOfUtcWeek(period.from).getTime()) / (7 * DAY),
     ) + 1;
+  return { end, windowDays, weeks, days, selection: sprints.length };
+}
+
+/** Cycle/lead time, flow efficiency, throughput and the trend charts over a window. */
+function flowWidget(spec: FlowSpec, ds: BoardDataset, w: FlowWindow): WidgetData {
+  const now = w.end;
   switch (spec.metric) {
     case 'cycle_time':
     case 'lead_time': {
-      const opts = { windowDays, now: end };
+      const opts = { windowDays: w.windowDays, now };
       const stats = spec.metric === 'cycle_time' ? cycleTime(ds, opts) : leadTime(ds, opts);
       if (stats.count === 0) return empty('no_data');
       if (spec.chart === 'kpi') {
@@ -465,7 +442,10 @@ function computeForPeriod(
           kind: 'kpi',
           value: stats[`p${spec.params.percentile}`],
           format: 'days',
-          hint: { key: 'finishedInSelection', values: { count: stats.count } },
+          hint:
+            w.selection === undefined
+              ? { key: 'finishedIn', values: { count: stats.count, days: w.windowDays } }
+              : { key: 'finishedInSelection', values: { count: stats.count } },
         };
       }
       return {
@@ -478,7 +458,7 @@ function computeForPeriod(
       };
     }
     case 'flow_efficiency': {
-      const result = flowEfficiency(ds, { windowDays, now: end });
+      const result = flowEfficiency(ds, { windowDays: w.windowDays, now });
       if (result.efficiency === null) return empty('no_data');
       return {
         kind: 'kpi',
@@ -493,7 +473,7 @@ function computeForPeriod(
         chart: 'bar',
         x: 'week',
         series: [{ key: 'done' }],
-        rows: weeklyThroughput(ds, { weeks, now: end }).map((r) => ({
+        rows: weeklyThroughput(ds, { weeks: w.weeks, now }).map((r) => ({
           week: r.weekStart,
           done: r.count,
         })),
@@ -501,9 +481,12 @@ function computeForPeriod(
     case 'throughput_rate':
       return {
         kind: 'kpi',
-        value: throughputPerWeek(ds, { days: windowDays, now: end }),
+        value: throughputPerWeek(ds, { days: w.windowDays, now }),
         format: 'per_week',
-        hint: { key: 'selectedSprints', values: { count: sprints.length } },
+        hint:
+          w.selection === undefined
+            ? { key: 'lastDays', values: { days: w.windowDays } }
+            : { key: 'selectedSprints', values: { count: w.selection } },
       };
     case 'wip_trend':
       return {
@@ -511,10 +494,7 @@ function computeForPeriod(
         chart: 'line',
         x: 'day',
         series: [{ key: 'wip' }],
-        rows: wipSeries(ds, { days: calendarDays, now: end }).map((r) => ({
-          day: r.day,
-          wip: r.wip,
-        })),
+        rows: wipSeries(ds, { days: w.days, now }).map((r) => ({ day: r.day, wip: r.wip })),
       };
     case 'cfd':
       return {
@@ -526,9 +506,7 @@ function computeForPeriod(
           { key: 'inProgress', stacked: true },
           { key: 'todo', stacked: true },
         ],
-        rows: cumulativeFlow(ds, { days: calendarDays, now: end }),
+        rows: cumulativeFlow(ds, { days: w.days, now }),
       };
-    default:
-      return computeWidget(spec, ds, now);
   }
 }
