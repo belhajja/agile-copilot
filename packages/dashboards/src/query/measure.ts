@@ -13,14 +13,20 @@ const cycleDays = (issues: readonly MetricIssue[]) =>
   issues.flatMap((i) => {
     const start = cycleStart(i);
     const done = doneAt(i);
-    return start && done && start.getTime() < done.getTime() ? [(done.getTime() - start.getTime()) / DAY] : [];
+    return start && done && start.getTime() < done.getTime()
+      ? [(done.getTime() - start.getTime()) / DAY]
+      : [];
   });
 
 /**
  * One number for a set of issues. Points are current estimates; cycle time uses the same
  * definition as the cycle_time metric; age is for open issues. null when nothing qualifies.
  */
-export function measureOf(issues: readonly MetricIssue[], measure: Measure, now: Date): number | null {
+export function measureOf(
+  issues: readonly MetricIssue[],
+  measure: Measure,
+  now: Date,
+): number | null {
   switch (measure) {
     case 'count':
       return issues.length;
@@ -37,7 +43,9 @@ export function measureOf(issues: readonly MetricIssue[], measure: Measure, now:
     }
     case 'avg_age':
       return mean(
-        issues.filter((i) => doneAt(i) === null).map((i) => (now.getTime() - i.createdAt.getTime()) / DAY),
+        issues
+          .filter((i) => doneAt(i) === null)
+          .map((i) => (now.getTime() - i.createdAt.getTime()) / DAY),
       );
   }
 }

@@ -27,7 +27,10 @@ export function sprintsByIssue(ds: BoardDataset): Map<string, MetricSprint[]> {
 /** Closed sprints, the most recently completed first. */
 function closedSprints(ds: BoardDataset): (MetricSprint & { completeAt: Date })[] {
   return ds.sprints
-    .filter((s): s is MetricSprint & { completeAt: Date } => s.state === 'closed' && s.completeAt !== null)
+    .filter(
+      (s): s is MetricSprint & { completeAt: Date } =>
+        s.state === 'closed' && s.completeAt !== null,
+    )
     .sort((a, b) => b.completeAt.getTime() - a.completeAt.getTime());
 }
 
@@ -56,7 +59,10 @@ export function resolveSprints(ds: BoardDataset, refs: readonly SprintRef[]): Me
 export function windowStart(ds: BoardDataset, w: QueryWindow, now: Date): Date {
   if ('lastDays' in w) return new Date(now.getTime() - w.lastDays * DAY);
   const started = ds.sprints
-    .filter((s): s is MetricSprint & { startAt: Date } => s.startAt !== null && s.startAt.getTime() <= now.getTime())
+    .filter(
+      (s): s is MetricSprint & { startAt: Date } =>
+        s.startAt !== null && s.startAt.getTime() <= now.getTime(),
+    )
     .sort((a, b) => b.startAt.getTime() - a.startAt.getTime());
   return (started[w.sinceSprintsAgo - 1] ?? started.at(-1))?.startAt ?? now;
 }
@@ -80,7 +86,8 @@ export function selectIssues(
 ): MetricIssue[] {
   const { now } = opts;
   const f: QueryFilter = query.filter ?? {};
-  const set = (values: readonly string[] | undefined) => (values ? new Set(values.map(lower)) : null);
+  const set = (values: readonly string[] | undefined) =>
+    values ? new Set(values.map(lower)) : null;
   const types = set(f.types);
   const statuses = set(f.statuses);
   const labels = set(f.labels);

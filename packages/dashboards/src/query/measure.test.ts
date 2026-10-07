@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
 import { cycleTime } from '@agile/metrics';
+import { d, issue } from '@agile/metrics/testing';
+import { describe, expect, it } from 'vitest';
 import { measureOf } from './measure';
 import { NOW, queryDataset } from './test-data';
-import { d, issue } from '@agile/metrics/testing';
 
 const issues = queryDataset().issues;
 const only = (...keys: string[]) => issues.filter((i) => keys.includes(i.key));
@@ -31,15 +31,24 @@ describe('measureOf', () => {
     // Create issues with edge cases: same time and done before in-progress
     const sameTime = issue('SAME', {
       created: d(0),
-      steps: [[d(5), 'in_progress', false], [d(5), 'done']],
+      steps: [
+        [d(5), 'in_progress', false],
+        [d(5), 'done'],
+      ],
     });
     const doneBefore = issue('BEFORE', {
       created: d(0),
-      steps: [[d(6), 'done'], [d(4), 'in_progress']],
+      steps: [
+        [d(6), 'done'],
+        [d(4), 'in_progress'],
+      ],
     });
     const normal = issue('NORMAL', {
       created: d(0),
-      steps: [[d(2), 'in_progress'], [d(5), 'done']],
+      steps: [
+        [d(2), 'in_progress'],
+        [d(5), 'done'],
+      ],
     });
 
     const ds = { issues: [sameTime, doneBefore, normal], sprints: [], hasEstimates: false };

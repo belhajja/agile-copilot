@@ -4,7 +4,7 @@ import { selectIssues, sprintsByIssue } from './select';
 import { NOW, queryDataset, S2 } from './test-data';
 
 const ds = queryDataset();
-const keys = (filter: object, scope?: typeof S2[]) =>
+const keys = (filter: object, scope?: (typeof S2)[]) =>
   selectIssues(ds, boardQuerySchema.parse({ title: 't', display: 'kpi', filter }), {
     now: NOW,
     scope,
