@@ -42,8 +42,9 @@ export {
   type SprintVelocity,
   scopeChange,
   sprintBurn,
+  sprintVelocity,
   velocity,
   velocitySummary,
 } from './scrum';
 export { percentile } from './stats';
-export { addDays, DAY, isoDay, startOfUtcDay } from './time';
+export { addDays, DAY, eachUtcDay, isoDay, startOfUtcDay, startOfUtcWeek } from './time';
