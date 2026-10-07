@@ -717,6 +717,7 @@
       "unreachable": "Jira est injoignable. Réessayez dans un instant.",
       "approval_required": "Cette modification n’a pas été approuvée : rien n’a été envoyé.",
       "not_executed": "La modification a été approuvée mais pas envoyée. Redemandez-la pour réessayer.",
+      "interrupted": "La réponse s’est arrêtée avant cet appel. Redemandez pour réessayer.",
       "forbidden_role": "Jira en direct n’est pas disponible pour votre rôle. Un administrateur peut vous donner le rôle Manager.",
       "unserializable": "Le résultat n’a pas pu être affiché.",
       "internal_error": "L’outil d’analyse a échoué. Réessayez dans un instant.",

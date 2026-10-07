@@ -21,6 +21,7 @@ const sprint = (
   endAt: d(end),
   completeAt: complete === null ? null : d(complete),
   members: members.map((issueId) => ({ issueId, addedAt: d(start - 1), removedAt: null })),
+  jiraSprintId: 100 + Number(id.slice(1)),
 });
 
 export const S1 = sprint('s1', 'Sprint 1', 'closed', 0, 10, 10, ['A']);

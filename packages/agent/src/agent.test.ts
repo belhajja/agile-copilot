@@ -1098,4 +1098,39 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(contentOf(catalog)).toMatch(/^<data source="skills_catalog">\n/);
     expect(contentOf(question)).toBe('What is our velocity?');
   });
+  it('recovers a conversation whose last reply stopped mid-step (calls without results)', async () => {
+    const id = randomUUID();
+    expect((await h.ask(owner(), id, 'hello')).status).toBe(200);
+    const [stored] = await h.rawDb
+      .select()
+      .from(agentMessages)
+      .where(and(eq(agentMessages.conversationId, id), eq(agentMessages.role, 'assistant')));
+    if (!stored) throw new Error('no reply stored');
+    // What a stream that died on a malformed call leaves behind: a call with no result.
+    await h.rawDb
+      .update(agentMessages)
+      .set({
+        parts: [
+          ...(stored.parts as unknown[]),
+          {
+            type: 'tool-list_boards',
+            toolCallId: 'dangling-1',
+            state: 'input-available',
+            input: {},
+          },
+        ],
+      })
+      .where(and(eq(agentMessages.conversationId, id), eq(agentMessages.seq, stored.seq)));
+    const r = await h.ask(owner(), id, 'continue');
+    expect(r.status).toBe(200);
+    expect(r.chunks.filter((c) => c.type === 'error')).toEqual([]);
+    const convo = await loadConversation(h.db, owner(), id);
+    const closed = convo?.messages
+      .flatMap((m) => m.parts)
+      .find((p) => (p as { toolCallId?: string }).toolCallId === 'dangling-1');
+    expect(closed).toMatchObject({
+      state: 'output-error',
+      errorText: toolErrorText('interrupted'),
+    });
+  });
 });

@@ -60,6 +60,8 @@ export interface MetricSprint {
   startAt: Date | null;
   endAt: Date | null;
   completeAt: Date | null;
+  /** Jira's own sprint number (what Jira and the assistant's tools show). */
+  jiraSprintId?: number;
   members: SprintMember[];
 }
 

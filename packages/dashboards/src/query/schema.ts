@@ -64,7 +64,8 @@ const sprintRef = z.union([
   z.literal('active'),
   z.literal('last_closed'),
   z.strictObject({ lastClosed: z.number().int().min(1).max(20) }),
-  z.strictObject({ id: z.string().min(1).max(64) }),
+  // The app's sprint id, or Jira's sprint number (what list_sprints shows), as text or a number.
+  z.strictObject({ id: z.union([z.string().min(1).max(64), z.number().int().positive()]) }),
 ]);
 const window = z.union([
   z.strictObject({ lastDays: z.number().int().min(1).max(730) }),

@@ -235,6 +235,7 @@ export async function loadBoardDataset(
           startAt: s.startAt,
           endAt: s.endAt,
           completeAt: s.completeAt,
+          jiraSprintId: s.jiraSprintId,
           members: (membersBy.get(s.jiraSprintId) ?? [])
             .filter((m) => ids.has(m.issueId))
             .map((m) => ({ issueId: m.issueId, addedAt: m.addedAt, removedAt: m.removedAt })),

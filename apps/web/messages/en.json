@@ -717,6 +717,7 @@
       "unreachable": "Jira could not be reached. Try again in a moment.",
       "approval_required": "This change was not approved, so nothing was sent.",
       "not_executed": "The change was approved but not sent. Ask again to retry.",
+      "interrupted": "The reply stopped before this call ran. Ask again to retry.",
       "forbidden_role": "Live Jira is not available for your role. An admin can give you the Manager role.",
       "unserializable": "The result could not be shown.",
       "internal_error": "The analytics tool failed. Try again in a moment.",
