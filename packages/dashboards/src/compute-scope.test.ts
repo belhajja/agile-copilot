@@ -5,7 +5,7 @@ import {
   weeklyThroughput,
   wipSeries,
 } from '@agile/metrics';
-import { d, scrumFixture } from '@agile/metrics/testing';
+import { d, issue, scrumFixture } from '@agile/metrics/testing';
 import { describe, expect, it } from 'vitest';
 import { computeWidget } from './compute';
 import { widgetSpecSchema } from './widget-spec';
@@ -185,6 +185,77 @@ describe('computeWidget with a sprint selection', () => {
       format: 'days',
       hint: { key: 'finishedInSelection', values: { count: 3 } },
     });
+  });
+
+  it('uses the exact period, not whole days: nothing finished before the first start', () => {
+    // Monday 09:00 → the next week's Wednesday 17:00: 10 days 8 hours.
+    const sprint: MetricSprint = {
+      ...s1,
+      id: 'p',
+      startAt: d(0, 9),
+      endAt: d(10, 17),
+      completeAt: d(10, 17),
+    };
+    const done = (key: string, start: Date, end: Date) =>
+      issue(key, {
+        created: d(-5),
+        steps: [
+          [start, 'in_progress'],
+          [end, 'done'],
+        ],
+      });
+    const exact: BoardDataset = {
+      ...ds,
+      // P is done 4 hours before the sprint starts; Q and R inside it.
+      issues: [done('P', d(-2), d(0, 5)), done('Q', d(1), d(3)), done('R', d(4), d(10, 12))],
+      sprints: [sprint, future],
+    };
+    const span = 10 + 8 / 24;
+    const cycle = computeWidget(
+      spec({ id: 'c', metric: 'cycle_time', chart: 'kpi' }),
+      exact,
+      NOW,
+      scope(sprint, future),
+    );
+    expect(cycle).toEqual({
+      kind: 'kpi',
+      value: cycleTime(exact, { windowDays: span, now: d(10, 17) }).p85,
+      format: 'days',
+      hint: { key: 'finishedInSelection', values: { count: 2 } },
+    });
+    // 2 items over 10⅓ days; the future sprint does not shape the period nor count.
+    expect(
+      computeWidget(
+        spec({ id: 'r', metric: 'throughput_rate', chart: 'kpi' }),
+        exact,
+        NOW,
+        scope(sprint, future),
+      ),
+    ).toEqual({
+      kind: 'kpi',
+      value: 1.4,
+      format: 'per_week',
+      hint: { key: 'selectedSprints', values: { count: 1 } },
+    });
+  });
+
+  it('a period of no length has no data', () => {
+    const started: MetricSprint = {
+      ...s1,
+      id: 'n',
+      state: 'active',
+      startAt: NOW,
+      endAt: d(54),
+      completeAt: null,
+    };
+    expect(
+      computeWidget(
+        spec({ id: 'r', metric: 'throughput_rate', chart: 'kpi' }),
+        { ...ds, sprints: [started] },
+        NOW,
+        scope(started),
+      ),
+    ).toEqual({ kind: 'empty', reason: 'no_data' });
   });
 
   it('uses the whole selection period', () => {

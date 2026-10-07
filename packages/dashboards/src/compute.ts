@@ -414,18 +414,23 @@ function ownWindow(spec: FlowSpec, now: Date): FlowWindow {
   };
 }
 
-/** The selected sprints' period; null when none of them has started. */
+/**
+ * The selected sprints' period; null when none of them has started or it is empty. The trailing
+ * window is the exact span (fractional days), so nothing finished before the first start counts.
+ */
 function selectionWindow(sprints: MetricSprint[], now: Date): FlowWindow | null {
   const period = selectionPeriod(sprints, now);
   if (!period) return null;
   const end = period.to;
-  const windowDays = Math.max(1, Math.ceil((end.getTime() - period.from.getTime()) / DAY));
+  const windowDays = (end.getTime() - period.from.getTime()) / DAY;
+  if (windowDays <= 0) return null;
   const days = eachUtcDay(period.from, end).length;
   const weeks =
     Math.round(
       (startOfUtcWeek(end).getTime() - startOfUtcWeek(period.from).getTime()) / (7 * DAY),
     ) + 1;
-  return { end, windowDays, weeks, days, selection: sprints.length };
+  const selection = sprints.filter((s) => s.startAt !== null).length;
+  return { end, windowDays, weeks, days, selection };
 }
 
 /** Cycle/lead time, flow efficiency, throughput and the trend charts over a window. */
