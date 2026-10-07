@@ -6,6 +6,10 @@ import { DASHBOARD_EMPTY_REASONS, DASHBOARD_HINTS, DASHBOARD_METRICS } from './m
 import { RemoveWidget, type WidgetRemoval } from './remove-widget';
 import type { RenderedWidget } from './types';
 
+/** Sprint names can repeat: keys carry the position too. */
+const keyed = <T extends { label: string }>(items: T[]) =>
+  items.map((item, i) => ({ ...item, key: `${i}-${item.label}` }));
+
 /** KPI row, adapted from the shadcn dashboard-01 block's SectionCards. */
 export async function KpiCards({
   widgets,
@@ -60,8 +64,8 @@ export async function KpiCards({
             <div className="text-muted-foreground">{hint(w)}</div>
             {w.data.kind === 'kpi' && w.data.breakdown && (
               <ul className="grid w-full gap-0.5 text-xs" data-breakdown>
-                {w.data.breakdown.map((b) => (
-                  <li key={b.label} className="flex justify-between gap-3">
+                {keyed(w.data.breakdown).map((b) => (
+                  <li key={b.key} className="flex justify-between gap-3">
                     <span className="truncate text-muted-foreground">{b.label}</span>
                     <span className="tabular-nums">
                       {formatted(
