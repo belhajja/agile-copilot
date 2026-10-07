@@ -67,7 +67,7 @@ export function SprintPicker({
             <ChevronsUpDown className="opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-80">
+        <PopoverContent className="w-[26rem] max-w-[calc(100vw-2rem)]">
           <Command>
             <CommandInput placeholder={t('search')} />
             <CommandList>
