@@ -7,7 +7,9 @@ import {
   cumulativeFlow,
   currentSprint,
   cycleTime,
+  DAY,
   dailyThroughputSamples,
+  eachUtcDay,
   flowEfficiency,
   forecastHowMany,
   forecastWhen,
@@ -20,6 +22,7 @@ import {
   sprintBurn,
   sprintVelocity,
   startOfUtcDay,
+  startOfUtcWeek,
   throughputPerWeek,
   type Unit,
   velocity,
@@ -29,6 +32,7 @@ import {
   wipSeries,
 } from '@agile/metrics';
 import type { SprintScope } from './sprint-scope';
+import { selectionPeriod } from './sprint-scope';
 import type { WidgetData } from './widget-data';
 import type { WidgetSpec } from './widget-spec';
 
@@ -415,7 +419,116 @@ function computeScoped(
         })),
       };
     }
+    case 'cycle_time':
+    case 'lead_time':
+    case 'flow_efficiency':
+    case 'throughput':
+    case 'throughput_rate':
+    case 'wip_trend':
+    case 'cfd':
+      return computeForPeriod(spec, ds, now, sprints);
+    case 'forecast_how_many':
+    case 'forecast_when':
+    case 'wip':
+    case 'aging_wip':
+    case 'hygiene':
+      return { ...computeWidget(spec, ds, now), unfiltered: true };
     default:
       return null;
+  }
+}
+
+/** Time-based widgets over the selected sprints' period instead of their own trailing window. */
+function computeForPeriod(
+  spec: WidgetSpec,
+  ds: BoardDataset,
+  now: Date,
+  sprints: MetricSprint[],
+): WidgetData {
+  const period = selectionPeriod(sprints, now);
+  if (!period) return empty('no_data');
+  const end = period.to;
+  const windowDays = Math.max(1, Math.ceil((end.getTime() - period.from.getTime()) / DAY));
+  const calendarDays = eachUtcDay(period.from, end).length;
+  const weeks =
+    Math.round(
+      (startOfUtcWeek(end).getTime() - startOfUtcWeek(period.from).getTime()) / (7 * DAY),
+    ) + 1;
+  switch (spec.metric) {
+    case 'cycle_time':
+    case 'lead_time': {
+      const opts = { windowDays, now: end };
+      const stats = spec.metric === 'cycle_time' ? cycleTime(ds, opts) : leadTime(ds, opts);
+      if (stats.count === 0) return empty('no_data');
+      if (spec.chart === 'kpi') {
+        return {
+          kind: 'kpi',
+          value: stats[`p${spec.params.percentile}`],
+          format: 'days',
+          hint: { key: 'finishedInSelection', values: { count: stats.count } },
+        };
+      }
+      return {
+        kind: 'table',
+        columns: [
+          { key: 'percentile', type: 'text' },
+          { key: 'days', type: 'days' },
+        ],
+        rows: CONFIDENCE.map((p) => [`${p}%`, stats[`p${p}`]]),
+      };
+    }
+    case 'flow_efficiency': {
+      const result = flowEfficiency(ds, { windowDays, now: end });
+      if (result.efficiency === null) return empty('no_data');
+      return {
+        kind: 'kpi',
+        value: result.efficiency,
+        format: 'percent',
+        hint: { key: 'blockedDays', values: { days: Math.round(result.blockedDays) } },
+      };
+    }
+    case 'throughput':
+      return {
+        kind: 'series',
+        chart: 'bar',
+        x: 'week',
+        series: [{ key: 'done' }],
+        rows: weeklyThroughput(ds, { weeks, now: end }).map((r) => ({
+          week: r.weekStart,
+          done: r.count,
+        })),
+      };
+    case 'throughput_rate':
+      return {
+        kind: 'kpi',
+        value: throughputPerWeek(ds, { days: windowDays, now: end }),
+        format: 'per_week',
+        hint: { key: 'selectedSprints', values: { count: sprints.length } },
+      };
+    case 'wip_trend':
+      return {
+        kind: 'series',
+        chart: 'line',
+        x: 'day',
+        series: [{ key: 'wip' }],
+        rows: wipSeries(ds, { days: calendarDays, now: end }).map((r) => ({
+          day: r.day,
+          wip: r.wip,
+        })),
+      };
+    case 'cfd':
+      return {
+        kind: 'series',
+        chart: 'area',
+        x: 'day',
+        series: [
+          { key: 'done', stacked: true },
+          { key: 'inProgress', stacked: true },
+          { key: 'todo', stacked: true },
+        ],
+        rows: cumulativeFlow(ds, { days: calendarDays, now: end }),
+      };
+    default:
+      return computeWidget(spec, ds, now);
   }
 }

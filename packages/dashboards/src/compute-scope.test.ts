@@ -1,4 +1,10 @@
-import type { BoardDataset, MetricSprint } from '@agile/metrics';
+import {
+  type BoardDataset,
+  cycleTime,
+  type MetricSprint,
+  weeklyThroughput,
+  wipSeries,
+} from '@agile/metrics';
 import { d, scrumFixture } from '@agile/metrics/testing';
 import { describe, expect, it } from 'vitest';
 import { computeWidget } from './compute';
@@ -162,6 +168,80 @@ describe('computeWidget with a sprint selection', () => {
       expect(computeWidget(spec(w), all, NOW, { sprints: [] })).toEqual(
         computeWidget(spec(w), all, NOW),
       );
+    }
+  });
+
+  it("cycle time over the selected sprint's period", () => {
+    // Sprint 1: d0 09:00 → d10 09:00. Done inside: A (d3), E (d6), B (d8).
+    const data = computeWidget(
+      spec({ id: 'c', metric: 'cycle_time', chart: 'kpi' }),
+      all,
+      NOW,
+      scope(s1),
+    );
+    const expected = cycleTime(all, { windowDays: 10, now: d(10, 9) });
+    expect(expected.count).toBe(3);
+    expect(data).toEqual({
+      kind: 'kpi',
+      value: expected.p85,
+      format: 'days',
+      hint: { key: 'finishedInSelection', values: { count: 3 } },
+    });
+  });
+
+  it('uses the whole selection period', () => {
+    const late: MetricSprint = {
+      ...s1,
+      id: 's9',
+      name: 'Sprint 9',
+      startAt: d(60),
+      endAt: d(74),
+      completeAt: d(74),
+    };
+    const wide: BoardDataset = { ...ds, sprints: [s1, late] };
+    const data = computeWidget(
+      spec({ id: 'w', metric: 'wip_trend', chart: 'line' }),
+      wide,
+      d(90),
+      scope(s1, late),
+    );
+    if (data.kind !== 'series') throw new Error('series');
+    // d0 → d74 inclusive: 75 UTC days, far beyond the widget's own 30.
+    expect(data.rows).toHaveLength(75);
+    expect(data.rows).toEqual(
+      wipSeries(wide, { days: 75, now: d(74) }).map((r) => ({ day: r.day, wip: r.wip })),
+    );
+    const weeks = computeWidget(
+      spec({ id: 't', metric: 'throughput', chart: 'bar' }),
+      wide,
+      d(90),
+      scope(s1, late),
+    );
+    if (weeks.kind !== 'series') throw new Error('series');
+    expect(weeks.rows.map((r) => r.week)).toEqual(
+      weeklyThroughput(wide, { weeks: 11, now: d(74) }).map((r) => r.weekStart),
+    );
+  });
+
+  it('a selection without dates: time-based widgets have no data', () => {
+    expect(
+      computeWidget(spec({ id: 'c', metric: 'cycle_time', chart: 'kpi' }), all, NOW, scope(future)),
+    ).toEqual({
+      kind: 'empty',
+      reason: 'no_data',
+    });
+  });
+
+  it('forecasts and current-state widgets are computed as today and flagged', () => {
+    for (const w of [
+      { id: 'f', metric: 'forecast_how_many', chart: 'table' },
+      { id: 'w', metric: 'wip', chart: 'kpi' },
+      { id: 'h', metric: 'hygiene', chart: 'table' },
+    ]) {
+      expect(computeWidget(spec(w), all, NOW, scope(s1))).toEqual({
+        ...computeWidget(spec(w), all, NOW),
+        unfiltered: true,
+      });
     }
   });
 });
