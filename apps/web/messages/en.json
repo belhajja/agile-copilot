@@ -499,7 +499,9 @@
       "carriedFrom": "Not finished in {sprint}",
       "finishedIn": "{count} finished in the last {days} days",
       "lastDays": "Last {days} days",
-      "blockedDays": "{days} days blocked or waiting"
+      "blockedDays": "{days} days blocked or waiting",
+      "selectedSprints": "{count, plural, one {Selected sprint} other {# selected sprints}}",
+      "finishedInSelection": "{count} finished in the selected sprints"
     },
     "empty": {
       "no_sprint": "No sprint to show yet.",
@@ -507,6 +509,7 @@
       "no_estimates": "This board has no estimates."
     },
     "notEnoughData": "Not enough data yet",
+    "notSprintFiltered": "Not filtered by sprint",
     "cappedDays": "≥ {days} days",
     "truncated": "{shown} of {total}",
     "removeWidget": "Remove from this dashboard",

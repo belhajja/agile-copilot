@@ -35,7 +35,9 @@ export async function WidgetCard({
         {data.kind === 'series' && (
           <WidgetChart
             data={data}
-            labels={Object.fromEntries(data.series.map((s) => [s.key, seriesLabel(s.key)]))}
+            labels={Object.fromEntries(
+              data.series.map((s) => [s.key, s.label ?? seriesLabel(s.key)]),
+            )}
           />
         )}
         {data.kind === 'table' && <WidgetTable data={data} />}
@@ -45,6 +47,11 @@ export async function WidgetCard({
           </p>
         )}
       </CardContent>
+      {data.unfiltered && (
+        <p className="px-6 pb-4 text-xs text-muted-foreground" data-unfiltered>
+          {t('notSprintFiltered')}
+        </p>
+      )}
     </Card>
   );
 }

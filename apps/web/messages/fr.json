@@ -499,7 +499,9 @@
       "carriedFrom": "Non terminé dans {sprint}",
       "finishedIn": "{count} terminés ces {days} derniers jours",
       "lastDays": "{days} derniers jours",
-      "blockedDays": "{days} jours bloqués ou en attente"
+      "blockedDays": "{days} jours bloqués ou en attente",
+      "selectedSprints": "{count, plural, one {Sprint sélectionné} other {# sprints sélectionnés}}",
+      "finishedInSelection": "{count} terminés dans les sprints sélectionnés"
     },
     "empty": {
       "no_sprint": "Aucun sprint à afficher.",
@@ -507,6 +509,7 @@
       "no_estimates": "Ce tableau n'a pas d'estimations."
     },
     "notEnoughData": "Pas encore assez de données",
+    "notSprintFiltered": "Non filtré par sprint",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}",
     "removeWidget": "Retirer de ce tableau de bord",

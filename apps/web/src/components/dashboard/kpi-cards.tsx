@@ -1,3 +1,4 @@
+import type { KpiFormat } from '@agile/dashboards';
 import { getFormatter, getTranslations } from 'next-intl/server';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { allowedCode } from '@/lib/error-code';
@@ -20,16 +21,18 @@ export async function KpiCards({
     const metric = allowedCode(spec.metric, DASHBOARD_METRICS);
     return spec.title ?? (metric ? t(`metrics.${metric}.title`, spec.params) : spec.metric);
   };
-  const value = ({ data }: RenderedWidget): string => {
-    if (data.kind !== 'kpi' || data.value === null) return '—';
-    if (data.format === 'percent') {
-      return format.number(data.value, { style: 'percent', maximumFractionDigits: 0 });
+  const formatted = (kpiFormat: KpiFormat, v: number | null): string => {
+    if (v === null) return '—';
+    if (kpiFormat === 'percent') {
+      return format.number(v, { style: 'percent', maximumFractionDigits: 0 });
     }
-    return t(`units.${data.format}`, {
-      count: data.value,
-      value: format.number(data.value, { maximumFractionDigits: 1 }),
+    return t(`units.${kpiFormat}`, {
+      count: v,
+      value: format.number(v, { maximumFractionDigits: 1 }),
     });
   };
+  const value = ({ data }: RenderedWidget): string =>
+    data.kind === 'kpi' ? formatted(data.format, data.value) : '—';
   const hint = ({ data }: RenderedWidget): string | null => {
     if (data.kind === 'empty') {
       const reason = allowedCode(data.reason, DASHBOARD_EMPTY_REASONS);
@@ -55,6 +58,26 @@ export async function KpiCards({
           </CardHeader>
           <CardFooter className="flex-col items-start gap-1.5 text-sm">
             <div className="text-muted-foreground">{hint(w)}</div>
+            {w.data.kind === 'kpi' && w.data.breakdown && (
+              <ul className="grid w-full gap-0.5 text-xs" data-breakdown>
+                {w.data.breakdown.map((b) => (
+                  <li key={b.label} className="flex justify-between gap-3">
+                    <span className="truncate text-muted-foreground">{b.label}</span>
+                    <span className="tabular-nums">
+                      {formatted(
+                        (w.data as Extract<typeof w.data, { kind: 'kpi' }>).format,
+                        b.value,
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {w.data.unfiltered && (
+              <div className="text-xs text-muted-foreground" data-unfiltered>
+                {t('notSprintFiltered')}
+              </div>
+            )}
           </CardFooter>
         </Card>
       ))}
