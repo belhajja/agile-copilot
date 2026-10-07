@@ -37,7 +37,7 @@ export function WidgetChart({
 }) {
   const format = useFormatter();
   // Series are told apart by more than colour: every second bar/area series is hatched, and
-  // reference lines (ideal, scope) are dashed.
+  // reference lines (ideal, scope) are dashed, as are lines past the palette (compared sprints).
   const uid = useId().replace(/:/g, '');
   const hatchId = (key: string) => `hatch-${uid}-${key}`;
   const hatched = (s: SeriesData['series'][number], i: number) => s.dashed === true || i % 2 === 1;
@@ -117,14 +117,14 @@ export function WidgetChart({
       ) : data.chart === 'line' ? (
         <LineChart data={data.rows}>
           {axes}
-          {data.series.map((s) => (
+          {data.series.map((s, i) => (
             <Line
               key={s.key}
               dataKey={s.key}
               type="monotone"
               stroke={`var(--color-${s.key})`}
               strokeWidth={2}
-              strokeDasharray={s.dashed ? '4 4' : undefined}
+              strokeDasharray={s.dashed || i >= PALETTE.length ? '4 4' : undefined}
               dot={false}
             />
           ))}
