@@ -40,6 +40,7 @@ import { jiraSitesData, systemPrompt } from './prompt';
 import { CHAT_MAX_STEPS, lastStepWithoutTools } from './steps';
 import { AgentToolError } from './tool-errors';
 import { buildAgentTools, canProposeJiraChanges } from './tools';
+import { closeUnansweredToolCalls } from './unanswered';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**
@@ -151,6 +152,8 @@ export async function handleAgentRequest(
       // An approved change an earlier turn never ran (or never stored the result of) gets one
       // now: a tool call without a result would make every later model request fail (P3-R26).
       messages = await settleApprovedParts(tx, actor, conversationId, messages);
+      // A reply that stopped mid-step left calls without results: the model APIs refuse them.
+      messages = closeUnansweredToolCalls(messages);
       if (req.approvals) {
         // A user no longer allowed to change Jira (demoted since the proposal) can only deny it.
         const decisions = canProposeJiraChanges(actor)
@@ -313,7 +316,9 @@ export async function handleAgentRequest(
             await endTurn(tx, actor, conversationId, turnId);
             // An approved change the stream did not run (it failed first, or the SDK refused the
             // input) is closed with a result before the reply is stored (P3-R26).
-            const settled = await settleApprovedParts(tx, actor, conversationId, messages);
+            const settled = closeUnansweredToolCalls(
+              await settleApprovedParts(tx, actor, conversationId, messages),
+            );
             await saveConversation(tx, actor, conversationId, settled);
             await recordApprovalRequests(tx, actor, conversationId, settled);
           });

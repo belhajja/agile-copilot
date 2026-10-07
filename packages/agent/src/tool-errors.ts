@@ -39,6 +39,8 @@ const AGENT = [
   'approval_required',
   /** Approved, but the turn failed before it was sent (P3-R26). */
   'not_executed',
+  /** Called, but the reply stopped (a malformed call, a provider error) before it ran. */
+  'interrupted',
   /** The user's role no longer allows Jira tools. */
   'forbidden_role',
   /** A tool result that cannot be framed as JSON. */
@@ -92,6 +94,7 @@ export type AnalyticsErrorCode = (typeof ANALYTICS_ERROR_CODES)[number];
 /** Codes whose sentence tells the user what to do instead of naming the failure. */
 const PLAIN: Partial<Record<ToolErrorCode, string>> = {
   not_executed: 'The change was approved but not sent. Ask again to retry.',
+  interrupted: 'The reply stopped before this call ran. Ask again to retry.',
   unknown_outcome: 'The change may or may not have reached Jira. Check Jira before asking again.',
   approval_required: 'This Jira change was not approved by the user (approval_required).',
 };
