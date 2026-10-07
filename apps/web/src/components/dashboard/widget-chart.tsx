@@ -1,6 +1,6 @@
 'use client';
 
-import { useFormatter } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { useId } from 'react';
 import {
   Area,
@@ -26,6 +26,8 @@ import type { SeriesData } from './types';
 // Theme chart colours (distinct hues in light and dark themes).
 const PALETTE = [1, 2, 3, 4, 5];
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** Day of sprint on compared burn charts (`d1`, `d2`…). */
+const SPRINT_DAY = /^d(\d+)$/;
 
 /** Bar/line/area chart for a series widget, adapted from the dashboard-01 interactive area chart. */
 export function WidgetChart({
@@ -36,8 +38,9 @@ export function WidgetChart({
   labels: Record<string, string>;
 }) {
   const format = useFormatter();
+  const t = useTranslations('dashboards');
   // Series are told apart by more than colour: every second bar/area series is hatched, and
-  // reference lines (ideal, scope) are dashed.
+  // reference lines (ideal, scope) are dashed, as are lines past the palette (compared sprints).
   const uid = useId().replace(/:/g, '');
   const hatchId = (key: string) => `hatch-${uid}-${key}`;
   const hatched = (s: SeriesData['series'][number], i: number) => s.dashed === true || i % 2 === 1;
@@ -68,6 +71,8 @@ export function WidgetChart({
   ) satisfies ChartConfig;
   const tick = (value: unknown) => {
     const text = String(value);
+    const sprintDay = data.x === 'day' ? SPRINT_DAY.exec(text) : null;
+    if (sprintDay) return t('sprintDay', { day: Number(sprintDay[1]) });
     return DAY.test(text)
       ? format.dateTime(new Date(`${text}T00:00:00Z`), {
           month: 'short',
@@ -117,14 +122,14 @@ export function WidgetChart({
       ) : data.chart === 'line' ? (
         <LineChart data={data.rows}>
           {axes}
-          {data.series.map((s) => (
+          {data.series.map((s, i) => (
             <Line
               key={s.key}
               dataKey={s.key}
               type="monotone"
               stroke={`var(--color-${s.key})`}
               strokeWidth={2}
-              strokeDasharray={s.dashed ? '4 4' : undefined}
+              strokeDasharray={s.dashed || i >= PALETTE.length ? '4 4' : undefined}
               dot={false}
             />
           ))}

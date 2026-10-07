@@ -10,6 +10,13 @@ export {
   type WidgetOwner,
 } from './pin';
 export {
+  bySprintDate,
+  MAX_SELECTED_SPRINTS,
+  parseSprintSelection,
+  type SprintScope,
+  selectionPeriod,
+} from './sprint-scope';
+export {
   type DashboardView,
   ensureDefaultDashboards,
   listDashboards,

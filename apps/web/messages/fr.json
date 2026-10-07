@@ -499,7 +499,9 @@
       "carriedFrom": "Non terminé dans {sprint}",
       "finishedIn": "{count} terminés ces {days} derniers jours",
       "lastDays": "{days} derniers jours",
-      "blockedDays": "{days} jours bloqués ou en attente"
+      "blockedDays": "{days} jours bloqués ou en attente",
+      "selectedSprints": "{count, plural, one {Sprint sélectionné} other {# sprints sélectionnés}}",
+      "finishedInSelection": "{count, plural, one {# terminé} other {# terminés}} sur la sélection"
     },
     "empty": {
       "no_sprint": "Aucun sprint à afficher.",
@@ -507,6 +509,8 @@
       "no_estimates": "Ce tableau n'a pas d'estimations."
     },
     "notEnoughData": "Pas encore assez de données",
+    "notSprintFiltered": "Non filtré par sprint",
+    "sprintDay": "J{day}",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}",
     "removeWidget": "Retirer de ce tableau de bord",
@@ -515,6 +519,20 @@
     "removeErrors": {
       "not_found": "Ce graphique n'a pas pu être retiré. Il a peut-être déjà disparu.",
       "unknown": "Une erreur est survenue lors du retrait du graphique."
+    },
+    "sprintFilter": {
+      "button": "Sprints",
+      "search": "Chercher un sprint…",
+      "none": "Aucun sprint trouvé.",
+      "clear": "Effacer",
+      "limit": "Jusqu’à {max} sprints",
+      "remove": "Retirer {name}",
+      "allSprints": "Chaque widget affiche sa propre période",
+      "states": {
+        "active": "En cours",
+        "closed": "Terminé",
+        "future": "À venir"
+      }
     }
   },
   "agent": {

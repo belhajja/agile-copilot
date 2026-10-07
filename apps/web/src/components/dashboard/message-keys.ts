@@ -63,6 +63,8 @@ export const DASHBOARD_HINTS = [
   'finishedIn',
   'lastDays',
   'blockedDays',
+  'selectedSprints',
+  'finishedInSelection',
 ] as const;
 
 /** `dashboards.series.*`: chart series labels. */

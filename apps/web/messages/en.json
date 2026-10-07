@@ -499,7 +499,9 @@
       "carriedFrom": "Not finished in {sprint}",
       "finishedIn": "{count} finished in the last {days} days",
       "lastDays": "Last {days} days",
-      "blockedDays": "{days} days blocked or waiting"
+      "blockedDays": "{days} days blocked or waiting",
+      "selectedSprints": "{count, plural, one {Selected sprint} other {# selected sprints}}",
+      "finishedInSelection": "{count} finished in the selection"
     },
     "empty": {
       "no_sprint": "No sprint to show yet.",
@@ -507,6 +509,8 @@
       "no_estimates": "This board has no estimates."
     },
     "notEnoughData": "Not enough data yet",
+    "notSprintFiltered": "Not filtered by sprint",
+    "sprintDay": "Day {day}",
     "cappedDays": "≥ {days} days",
     "truncated": "{shown} of {total}",
     "removeWidget": "Remove from this dashboard",
@@ -515,6 +519,20 @@
     "removeErrors": {
       "not_found": "This chart could not be removed. It may already be gone.",
       "unknown": "Something went wrong removing the chart."
+    },
+    "sprintFilter": {
+      "button": "Sprints",
+      "search": "Find a sprint…",
+      "none": "No sprint found.",
+      "clear": "Clear",
+      "limit": "Up to {max} sprints",
+      "remove": "Remove {name}",
+      "allSprints": "All widgets show their own period",
+      "states": {
+        "active": "Active",
+        "closed": "Closed",
+        "future": "Future"
+      }
     }
   },
   "agent": {

@@ -90,26 +90,46 @@ export function velocity(
   ds: BoardDataset,
   opts: { sprints?: number; unit?: Unit } = {},
 ): SprintVelocity[] {
-  const unit = opts.unit ?? 'points';
-  const byId = indexIssues(ds.issues);
   const requested = opts.sprints ?? 6;
   const count = Number.isFinite(requested) ? Math.max(1, Math.floor(requested)) : 6;
   return closedSprints(ds)
     .slice(-count)
-    .map((s) => {
-      const committed = committedIssues(s, byId);
-      const done = closeMembers(s, byId).filter(
-        (i) => categoryAt(i, s.completeAt) === 'done' && categoryAt(i, s.startAt) !== 'done',
-      );
-      return {
-        sprintId: s.id,
-        name: s.name,
-        committed: total(committed.map((i) => valueAt(i, s.startAt, unit))),
-        completed: total(done.map((i) => valueAt(i, s.completeAt, unit))),
-        committedCount: committed.length,
-        completedCount: done.length,
-      };
+    .flatMap((s) => {
+      const row = sprintVelocity(ds, s, { unit: opts.unit, now: s.completeAt });
+      return row ? [row] : [];
     });
+}
+
+/**
+ * Committed vs completed for one sprint. Closed: completed at close (as velocity()). Active:
+ * completed so far, among the issues in the sprint at `now`. Future or never started: null.
+ */
+export function sprintVelocity(
+  ds: BoardDataset,
+  sprint: MetricSprint,
+  opts: { unit?: Unit; now: Date },
+): SprintVelocity | null {
+  if (!sprint.startAt || sprint.state === 'future') return null;
+  if (sprint.state === 'closed' && !sprint.completeAt) return null;
+  const unit = opts.unit ?? 'points';
+  const byId = indexIssues(ds.issues);
+  const start = sprint.startAt;
+  const end = sprint.completeAt ?? opts.now;
+  const committed = committedIssues({ ...sprint, startAt: start }, byId);
+  const members = sprint.completeAt
+    ? closeMembers({ ...sprint, completeAt: sprint.completeAt }, byId)
+    : pick(membersAt(sprint, end), byId);
+  const done = members.filter(
+    (i) => categoryAt(i, end) === 'done' && categoryAt(i, start) !== 'done',
+  );
+  return {
+    sprintId: sprint.id,
+    name: sprint.name,
+    committed: total(committed.map((i) => valueAt(i, start, unit))),
+    completed: total(done.map((i) => valueAt(i, end, unit))),
+    committedCount: committed.length,
+    completedCount: done.length,
+  };
 }
 
 /** Mean completed per sprint and completed / committed ("say/do") over the given sprints. */

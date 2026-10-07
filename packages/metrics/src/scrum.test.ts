@@ -6,6 +6,7 @@ import {
   currentSprint,
   scopeChange,
   sprintBurn,
+  sprintVelocity,
   velocity,
   velocitySummary,
 } from './scrum';
@@ -31,6 +32,28 @@ describe('scrum metrics (golden: scrumFixture)', () => {
     ]);
     expect(velocity(ds, { unit: 'issues' })[0]).toMatchObject({ committed: 4, completed: 3 });
     expect(velocitySummary(velocity(ds))).toEqual({ average: 9, sayDoRatio: 0.5294 });
+  });
+
+  it('sprintVelocity: a closed sprint gives the same row as velocity()', () => {
+    expect(sprintVelocity(ds, sprint, { now: d(20) })).toEqual(velocity(ds)[0]);
+  });
+
+  it('active sprint: completed so far', () => {
+    // At d5 only A (5 pts) is done; committed is still A5 + B2 + C8 + D2 = 17.
+    const active = { ...sprint, state: 'active' as const, completeAt: null };
+    expect(sprintVelocity(ds, active, { now: d(5) })).toEqual({
+      sprintId: 's1',
+      name: 'Sprint 1',
+      committed: 17,
+      completed: 5,
+      committedCount: 4,
+      completedCount: 1,
+    });
+  });
+
+  it('future sprint or no start date: no velocity', () => {
+    const future = { ...sprint, state: 'future' as const, startAt: null, completeAt: null };
+    expect(sprintVelocity(ds, future, { now: d(20) })).toBeNull();
   });
 
   it('ignores sprints that are not closed', () => {
