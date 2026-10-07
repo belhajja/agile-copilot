@@ -13,7 +13,7 @@ const cycleDays = (issues: readonly MetricIssue[]) =>
   issues.flatMap((i) => {
     const start = cycleStart(i);
     const done = doneAt(i);
-    return start && done ? [(done.getTime() - start.getTime()) / DAY] : [];
+    return start && done && start.getTime() < done.getTime() ? [(done.getTime() - start.getTime()) / DAY] : [];
   });
 
 /**
