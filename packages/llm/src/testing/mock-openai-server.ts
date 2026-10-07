@@ -85,6 +85,7 @@ const runSkillOf = (text: string) =>
  * - "velocity" → list_boards → get_metric(average_velocity) on "DEMO Scrum" → states the number;
  * - "comment on KEY-1: text" → jira_add_comment (needs approval) → reports approved or rejected;
  * - "pin … cycle time" → list_boards → pin_widget(cycle_time kpi) on "DEMO Scrum";
+ * - "per assignee" → list_boards → query_board(open bugs per assignee) on "DEMO Scrum" → one sentence;
  * - "stand-up" (when load_skill is offered) → load_skill(daily-standup-brief) → a short brief;
  * - a skill run ("Run this skill now" + `<skill name>`) → list_boards → "Report for <name>…";
  *   when the skill's text names `jira_search` (and it is offered), a live read first
@@ -94,6 +95,13 @@ const runSkillOf = (text: string) =>
  * - anything else → a short text answer.
  * Text answers end with "(preferences: a, b)" when standing preferences were sent.
  */
+const OPEN_BUGS_QUERY = {
+  title: 'Open bugs per assignee',
+  filter: { types: ['Bug'], statusCategory: ['todo', 'in_progress'] },
+  groupBy: ['assignee'],
+  display: 'bar',
+};
+
 export const agentDemoScript: MockScript = ({ messages, tools }) => {
   const prefs = preferencesOf(messages);
   const say = (text: string): MockTurn => ({
@@ -135,6 +143,11 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
       }
       const board = boards?.boards?.find((b) => b.name === 'DEMO Scrum') ?? boards?.boards?.[0];
       if (!board) return say('I could not find any synced board.');
+      if (/per assignee/i.test(ask) && tools.includes('query_board')) {
+        return {
+          toolCalls: [{ name: 'query_board', args: { boardId: board.id, query: OPEN_BUGS_QUERY } }],
+        };
+      }
       if (/\bpin\b/i.test(ask) && tools.includes('pin_widget')) {
         return {
           toolCalls: [
@@ -157,6 +170,7 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
         `The average velocity of DEMO Scrum is ${metric?.data?.value ?? 'unknown'} points per sprint.`,
       );
     }
+    if (name === 'query_board') return say('Here are the open bugs per assignee.');
     if (name === 'jira_search' && run) return { toolCalls: [{ name: 'list_boards', args: {} }] };
     if (name === 'pin_widget') {
       return /"pinned":true/.test(content)
@@ -186,7 +200,9 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
       : say(`Report for ${run}: no tools.`);
   }
   if (
-    (/velocity/i.test(ask) || (/\bpin\b/i.test(ask) && tools.includes('pin_widget'))) &&
+    (/velocity/i.test(ask) ||
+      (/\bpin\b/i.test(ask) && tools.includes('pin_widget')) ||
+      /per assignee/i.test(ask)) &&
     tools.includes('list_boards')
   ) {
     return { toolCalls: [{ name: 'list_boards', args: {} }] };

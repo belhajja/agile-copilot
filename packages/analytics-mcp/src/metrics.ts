@@ -1,7 +1,7 @@
 import {
+  CATALOG_METRIC_KEYS,
+  type CatalogMetricKey,
   computeWidget,
-  METRIC_KEYS,
-  type MetricKey,
   type WidgetData,
   type WidgetSpec,
   widgetSpecSchema,
@@ -9,7 +9,7 @@ import {
 import type { BoardDataset } from '@agile/metrics';
 
 /** What each metric means, for list_metrics and explain_metric (English; the model translates). */
-export const METRIC_GUIDE: Record<MetricKey, { summary: string; how: string }> = {
+export const METRIC_GUIDE: Record<CatalogMetricKey, { summary: string; how: string }> = {
   average_velocity: {
     summary: 'Average completed work per sprint over the last closed sprints.',
     how: 'Mean of the work completed in each of the last N closed sprints (story points, or issue count when the board does not estimate).',
@@ -89,18 +89,18 @@ export const METRIC_GUIDE: Record<MetricKey, { summary: string; how: string }> =
   },
 };
 
-const optionFor = (metric: MetricKey) =>
+const optionFor = (metric: CatalogMetricKey) =>
   widgetSpecSchema.options.find((o) => o.shape.metric.value === metric);
 
 /** The richest view of a metric: a table when the catalog allows one (all percentiles), else its chart. */
-function chartFor(metric: MetricKey): string {
+function chartFor(metric: CatalogMetricKey): string {
   const charts = (optionFor(metric)?.shape.chart.options ?? []) as readonly string[];
   return charts.includes('table') ? 'table' : (charts[0] ?? 'kpi');
 }
 
 /** Validates params through the widget catalog (same bounds and defaults as dashboards). */
 export function metricSpec(
-  metric: MetricKey,
+  metric: CatalogMetricKey,
   params: Record<string, unknown> | undefined,
 ): { ok: true; spec: WidgetSpec } | { ok: false; issues: string[] } {
   const parsed = widgetSpecSchema.safeParse({
@@ -121,9 +121,8 @@ export const MAX_TABLE_ROWS = 50;
 
 export type MetricData = WidgetData | (WidgetData & { totalRows: number; truncated: true });
 
-/** computeWidget, with tables capped at MAX_TABLE_ROWS rows for the model (dashboards are not). */
-export function computeMetric(spec: WidgetSpec, dataset: BoardDataset, now: Date): MetricData {
-  const data = computeWidget(spec, dataset, now);
+/** Tables capped at MAX_TABLE_ROWS rows for the model (dashboards are not). */
+export function capRows(data: WidgetData): MetricData {
   if (data.kind !== 'table' || data.rows.length <= MAX_TABLE_ROWS) return data;
   return {
     ...data,
@@ -133,9 +132,14 @@ export function computeMetric(spec: WidgetSpec, dataset: BoardDataset, now: Date
   };
 }
 
+/** computeWidget, with tables capped at MAX_TABLE_ROWS rows for the model (dashboards are not). */
+export function computeMetric(spec: WidgetSpec, dataset: BoardDataset, now: Date): MetricData {
+  return capRows(computeWidget(spec, dataset, now));
+}
+
 /** Every metric with its summary and default parameters. */
 export function metricCatalog() {
-  return METRIC_KEYS.map((metric) => {
+  return CATALOG_METRIC_KEYS.map((metric) => {
     const spec = metricSpec(metric, {});
     return {
       metric,

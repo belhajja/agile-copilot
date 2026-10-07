@@ -1,16 +1,26 @@
-import { METRIC_KEYS } from '@agile/dashboards';
+import {
+  boardQuerySchema,
+  CATALOG_METRIC_KEYS,
+  type CatalogMetricKey,
+  runQuery,
+} from '@agile/dashboards';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { type AnalyticsContext, listBoardSummaries, openBoard, UnknownBoardError } from './boards';
 import { findIssues, findIssuesInput } from './issues';
-import { computeMetric, METRIC_GUIDE, metricCatalog, metricSpec } from './metrics';
+import { capRows, computeMetric, METRIC_GUIDE, metricCatalog, metricSpec } from './metrics';
+import { QUERY_GUIDE } from './query';
 import { listSprints } from './sprints';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
 });
 /** What a failed tool reports: a fixed `error` sentence (the model may act on it) and its `code`. */
-export type AnalyticsFailureCode = 'internal_error' | 'unknown_board' | 'invalid_params';
+export type AnalyticsFailureCode =
+  | 'internal_error'
+  | 'unknown_board'
+  | 'invalid_params'
+  | 'invalid_query';
 
 const failure = (code: AnalyticsFailureCode, message: string) => ({
   content: [{ type: 'text' as const, text: JSON.stringify({ error: message, code }) }],
@@ -51,7 +61,7 @@ async function guarded(
   }
 }
 
-const metricEnum = z.enum(METRIC_KEYS as [string, ...string[]]);
+const metricEnum = z.enum(CATALOG_METRIC_KEYS as [string, ...string[]]);
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
 
 /**
@@ -103,14 +113,47 @@ export function createAnalyticsMcpServer(
     },
     async ({ boardId, metric, params }) =>
       guarded(options, async () => {
-        const spec = metricSpec(metric as (typeof METRIC_KEYS)[number], params);
+        const spec = metricSpec(metric as CatalogMetricKey, params);
         if (!spec.ok) return failure('invalid_params', `Invalid params: ${spec.issues.join('; ')}`);
         const { board, dataset } = await openBoard(ctx, boardId);
+        const now = ctx.now();
         return result({
           board: { id: board.id, name: board.name },
           metric,
           params: spec.spec.params,
-          data: computeMetric(spec.spec, dataset, ctx.now()),
+          data: computeMetric(spec.spec, dataset, now),
+          chart: spec.spec.chart,
+          computedAt: now.toISOString(),
+        });
+      }),
+  );
+
+  server.registerTool(
+    'query_board',
+    {
+      description: QUERY_GUIDE,
+      inputSchema: {
+        boardId: z.string().describe('Board id from list_boards'),
+        query: z.record(z.string(), z.unknown()).describe('The query object (see the description)'),
+      },
+      annotations: readOnly,
+    },
+    async ({ boardId, query }) =>
+      guarded(options, async () => {
+        const parsed = boardQuerySchema.safeParse(query);
+        if (!parsed.success) {
+          const issues = parsed.error.issues.map(
+            (i) => `${i.path.join('.') || 'query'}: ${i.message}`,
+          );
+          return failure('invalid_query', `Invalid query: ${issues.join('; ')}`);
+        }
+        const { board, dataset } = await openBoard(ctx, boardId);
+        const now = ctx.now();
+        return result({
+          board: { id: board.id, name: board.name },
+          query: parsed.data,
+          data: capRows(runQuery(dataset, parsed.data, { now })),
+          computedAt: now.toISOString(),
         });
       }),
   );
@@ -199,7 +242,7 @@ export function createAnalyticsMcpServer(
     },
     async ({ metric }) =>
       guarded(options, async () => {
-        const key = metric as (typeof METRIC_KEYS)[number];
+        const key = metric as CatalogMetricKey;
         const spec = metricSpec(key, {});
         return result({
           metric,
