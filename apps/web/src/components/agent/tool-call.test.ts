@@ -5,6 +5,9 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+// ResultCard pulls in the server action module; this test never renders it, but the import must
+// not blow up on the server-only guard.
+vi.mock('@/app/(app)/agent/actions', () => ({ pinResultAction: async () => ({ ok: true }) }));
 
 const { ToolCall } = await import('./tool-call');
 

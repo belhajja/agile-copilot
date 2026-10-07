@@ -2,6 +2,7 @@ import { asUntrustedData } from '@agile/agent/untrusted';
 import { describe, expect, it } from 'vitest';
 import {
   assignedTo,
+  pinnableResultOf,
   pinnedBoardId,
   readableOutput,
   readToolError,
@@ -145,5 +146,53 @@ describe('skillSuggestionOf', () => {
       skillSuggestionOf('<data source="skill_suggestion">\n{not json\n</data>'),
     ).toBeUndefined();
     expect(skillSuggestionOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('pinnableResultOf', () => {
+  const board = { id: '7d1f1e80-0000-4000-8000-000000000001', name: 'DEMO Scrum' };
+  const data = { kind: 'kpi', value: 3, format: 'issues' };
+
+  it('reads a query_board result as a query widget', () => {
+    const query = { title: 'Open bugs', measure: 'count', display: 'kpi' };
+    const output = asUntrustedData('query_board', {
+      board,
+      query,
+      data,
+      computedAt: '2026-10-07T10:00:00.000Z',
+    });
+    expect(pinnableResultOf('query_board', output)).toEqual({
+      board,
+      computedAt: '2026-10-07T10:00:00.000Z',
+      data,
+      widget: { metric: 'query', chart: 'kpi', title: 'Open bugs', params: query },
+    });
+  });
+
+  it('reads a get_metric result as its metric widget', () => {
+    const output = asUntrustedData('get_metric', {
+      board,
+      metric: 'wip',
+      chart: 'kpi',
+      params: {},
+      data,
+      computedAt: '2026-10-07T10:00:00.000Z',
+    });
+    expect(pinnableResultOf('get_metric', output)).toMatchObject({
+      widget: { metric: 'wip', chart: 'kpi', params: {} },
+    });
+  });
+
+  it('ignores other tools and malformed payloads', () => {
+    expect(
+      pinnableResultOf('list_boards', asUntrustedData('list_boards', { boards: [] })),
+    ).toBeUndefined();
+    expect(
+      pinnableResultOf(
+        'query_board',
+        asUntrustedData('query_board', { board: { id: 'x', name: 'y' }, data }),
+      ),
+    ).toBeUndefined();
+    expect(pinnableResultOf('query_board', 'plain text')).toBeUndefined();
   });
 });

@@ -617,7 +617,18 @@
     "approved": "Approuvé",
     "rejected": "Refusé",
     "input": "Requête",
-    "result": "Résultat",
+    "resultLabel": "Résultat",
+    "result": {
+      "pin": "Épingler au tableau de bord",
+      "pinned": "Épinglé",
+      "asOf": "{board} · au {time}",
+      "pinErrors": {
+        "invalid_widget": "Ce résultat ne peut pas être épinglé.",
+        "unknown_board": "Ce tableau n’est plus disponible.",
+        "dashboard_full": "Le tableau de bord est plein (40 widgets).",
+        "unknown": "L’épinglage a échoué. Réessayez."
+      }
+    },
     "status": {
       "running": "En cours",
       "done": "Terminé",

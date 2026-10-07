@@ -617,7 +617,18 @@
     "approved": "Approved",
     "rejected": "Rejected",
     "input": "Request",
-    "result": "Result",
+    "resultLabel": "Result",
+    "result": {
+      "pin": "Pin to dashboard",
+      "pinned": "Pinned",
+      "asOf": "{board} · as of {time}",
+      "pinErrors": {
+        "invalid_widget": "This result can’t be pinned.",
+        "unknown_board": "This board is no longer available.",
+        "dashboard_full": "The dashboard is full (40 widgets).",
+        "unknown": "Pinning failed. Try again."
+      }
+    },
     "status": {
       "running": "Running",
       "done": "Done",
