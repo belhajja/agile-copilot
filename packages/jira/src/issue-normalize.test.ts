@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIssueJql,
   deriveSprintMembership,
+  findEpicLinkField,
   issueFieldList,
   normalizeIssue,
   parseJiraDate,
@@ -216,6 +217,11 @@ describe('normalizeIssue', () => {
       'created',
       'updated',
       'resolutiondate',
+      'labels',
+      'priority',
+      'components',
+      'fixVersions',
+      'parent',
       'customfield_10016',
       'customfield_10020',
     ]);
@@ -306,5 +312,115 @@ describe('normalizeIssue keys for persistence', () => {
     const a = normalizeIssue(raw, histories(), ctx);
     const b = normalizeIssue(raw, [...histories()].reverse(), ctx);
     expect(b).toEqual(a);
+  });
+});
+
+describe('query fields', () => {
+  const base = {
+    summary: 'S',
+    issuetype: { name: 'Story', subtask: false },
+    status: { id: '1' },
+    created: '2026-10-01T10:00:00.000+0000',
+    updated: '2026-10-02T10:00:00.000+0000',
+  };
+  const raw = (fields: Record<string, unknown>) => ({
+    id: '10',
+    key: 'A-1',
+    fields: { ...base, ...fields },
+  });
+  const ctx = { estimationFieldId: null, estimationFieldName: null, sprintFieldId: null };
+
+  it('reads labels, components, fix versions and priority, distinct and trimmed', () => {
+    const issue = normalizeIssue(
+      raw({
+        labels: ['ui', ' ui ', 'api', ''],
+        components: [{ name: 'Web' }, { name: 'Web' }],
+        fixVersions: [{ name: '1.0' }],
+        priority: { name: 'High' },
+      }),
+      [],
+      ctx,
+    );
+    expect(issue).toMatchObject({
+      labels: ['ui', 'api'],
+      components: ['Web'],
+      fixVersions: ['1.0'],
+      priority: 'High',
+      epicKey: null,
+      epicName: null,
+    });
+  });
+
+  it('takes the epic from the Data Center Epic Link field', () => {
+    const issue = normalizeIssue(raw({ customfield_10014: 'EPIC-1' }), [], {
+      ...ctx,
+      epicLinkFieldId: 'customfield_10014',
+    });
+    expect(issue).toMatchObject({ epicKey: 'EPIC-1', epicName: null });
+  });
+
+  it('takes the epic from a Cloud parent that is an epic, not from other parents', () => {
+    const epicParent = raw({
+      parent: { key: 'EP-7', fields: { summary: 'Checkout', issuetype: { name: 'Epic' } } },
+    });
+    expect(normalizeIssue(epicParent, [], ctx)).toMatchObject({
+      epicKey: 'EP-7',
+      epicName: 'Checkout',
+    });
+    const levelOne = raw({
+      parent: {
+        key: 'EP-8',
+        fields: { summary: 'Feature', issuetype: { name: 'Feature', hierarchyLevel: 1 } },
+      },
+    });
+    expect(normalizeIssue(levelOne, [], ctx)).toMatchObject({
+      epicKey: 'EP-8',
+      epicName: 'Feature',
+    });
+    const storyParent = raw({
+      parent: {
+        key: 'ST-1',
+        fields: { summary: 'Story', issuetype: { name: 'Story', hierarchyLevel: 0 } },
+      },
+    });
+    expect(normalizeIssue(storyParent, [], ctx)).toMatchObject({ epicKey: null, epicName: null });
+  });
+
+  it('never fails on malformed values', () => {
+    const issue = normalizeIssue(
+      raw({ labels: 'ui', components: [{ id: 1 }], priority: 'High', parent: 42 }),
+      [],
+      { ...ctx, epicLinkFieldId: 'customfield_10014' },
+    );
+    expect(issue).toMatchObject({
+      labels: [],
+      components: [],
+      fixVersions: [],
+      priority: null,
+      epicKey: null,
+    });
+  });
+
+  it('finds the Epic Link field and requests the new fields', () => {
+    expect(
+      findEpicLinkField([
+        {
+          id: 'customfield_10014',
+          name: 'Epic Link',
+          custom: 'com.pyxis.greenhopper.jira:gh-epic-link',
+        },
+      ] as never),
+    ).toBe('customfield_10014');
+    expect(findEpicLinkField([])).toBeNull();
+    expect(issueFieldList({ ...ctx, epicLinkFieldId: 'customfield_10014' })).toEqual(
+      expect.arrayContaining([
+        'labels',
+        'priority',
+        'components',
+        'fixVersions',
+        'parent',
+        'customfield_10014',
+      ]),
+    );
   });
 });

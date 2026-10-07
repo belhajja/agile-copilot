@@ -98,6 +98,7 @@ export interface MockJiraDataset {
 
 export const DEMO_STORY_POINTS = 'customfield_10016';
 export const DEMO_SPRINT_FIELD = 'customfield_10020';
+export const DEMO_EPIC_LINK = 'customfield_10014';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -159,6 +160,7 @@ export function demoDataset(anchor: Date): MockJiraDataset {
 
   function add(spec: IssueSpec) {
     counters[spec.project]++;
+    const n = counters[spec.project];
     const histories: MockIssue['histories'] = [];
     const events: { at: Date; item: MockChangelogItem }[] = [];
     let sprintsNow = spec.initialSprints ?? [];
@@ -211,6 +213,12 @@ export function demoDataset(anchor: Date): MockJiraDataset {
         created: jiraTime(spec.created),
         updated: jiraTime(last),
         resolutiondate: doneAt ? jiraTime(doneAt) : null,
+        labels:
+          spec.type === 'Bug' ? ['quality'] : n % 3 === 0 ? ['feature', 'customer'] : ['feature'],
+        priority: { name: spec.type === 'Bug' ? 'High' : 'Medium' },
+        components: [{ name: n % 2 === 0 ? 'API' : 'Web' }],
+        fixVersions: spec.project === 'DEMO' ? [{ name: '1.0' }] : [],
+        [DEMO_EPIC_LINK]: spec.project === 'DEMO' ? (n % 2 === 0 ? 'EPIC-2' : 'EPIC-1') : null,
         [DEMO_STORY_POINTS]: spec.estimate ?? null,
         [DEMO_SPRINT_FIELD]: sprintsNow.length
           ? sprintsNow.map((id) => ({
@@ -392,6 +400,28 @@ export function demoDataset(anchor: Date): MockJiraDataset {
       timeSpentSeconds: 14400,
     };
   }
+  // On no board (`filterIds: []`): only the key search finds them.
+  for (const [key, summary] of [
+    ['EPIC-1', 'Checkout revamp'],
+    ['EPIC-2', 'Platform health'],
+  ] as const) {
+    issues.push({
+      id: String(nextIssueId++),
+      key,
+      filterIds: [],
+      fields: {
+        summary,
+        issuetype: { name: 'Epic', subtask: false },
+        status: { id: STATUS.todo, name: STATUS_NAME[STATUS.todo] },
+        assignee: null,
+        created: jiraTime(at(-60, 9)),
+        updated: jiraTime(at(-60, 9)),
+        resolutiondate: null,
+      },
+      histories: [],
+    });
+  }
+
   const person = (p: { accountId: string; name: string; displayName: string }) => ({
     accountId: p.accountId,
     name: p.name,
@@ -451,6 +481,12 @@ export function demoDataset(anchor: Date): MockJiraDataset {
         name: 'Sprint',
         custom: true,
         schemaCustom: 'com.pyxis.greenhopper.jira:gh-sprint',
+      },
+      {
+        id: DEMO_EPIC_LINK,
+        name: 'Epic Link',
+        custom: true,
+        schemaCustom: 'com.pyxis.greenhopper.jira:gh-epic-link',
       },
     ],
     sprints,

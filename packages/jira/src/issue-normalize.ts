@@ -82,6 +82,11 @@ const userSchema = z
   })
   .nullish();
 
+const named = z
+  .array(z.looseObject({ name: z.string() }))
+  .nullish()
+  .catch(null);
+
 const fieldsSchema = z.looseObject({
   summary: z.string().nullish(),
   issuetype: z.looseObject({ name: z.string(), subtask: z.boolean().optional() }).nullish(),
@@ -90,6 +95,24 @@ const fieldsSchema = z.looseObject({
   created: z.string(),
   updated: z.string(),
   resolutiondate: z.string().nullish(),
+  labels: z.array(z.string()).nullish().catch(null),
+  priority: z.looseObject({ name: z.string() }).nullish().catch(null),
+  components: named,
+  fixVersions: named,
+  parent: z
+    .looseObject({
+      key: z.string(),
+      fields: z
+        .looseObject({
+          summary: z.string().nullish(),
+          issuetype: z
+            .looseObject({ name: z.string().nullish(), hierarchyLevel: z.number().nullish() })
+            .nullish(),
+        })
+        .nullish(),
+    })
+    .nullish()
+    .catch(null),
 });
 
 const isStatus = (i: RawChangelogItem) => i.fieldId === 'status' || i.field === 'status';
@@ -103,6 +126,29 @@ function toNumber(value: unknown): number | null {
     return Number(value);
   }
   return null;
+}
+
+/** Distinct, trimmed, non-empty values, in Jira's order. */
+const distinct = (values: readonly (string | null | undefined)[] | null | undefined): string[] => [
+  ...new Set((values ?? []).map((v) => v?.trim() ?? '').filter((v) => v !== '')),
+];
+
+type ParentField = z.infer<typeof fieldsSchema>['parent'];
+
+/** The issue's epic: Data Center's Epic Link (a key), else a Cloud parent that is an epic. */
+function epicOf(
+  raw: RawIssue,
+  parent: ParentField,
+  epicLinkFieldId: string | null | undefined,
+): { epicKey: string | null; epicName: string | null } {
+  const link = epicLinkFieldId ? raw.fields[epicLinkFieldId] : null;
+  if (typeof link === 'string' && link.trim() !== '')
+    return { epicKey: link.trim(), epicName: null };
+  const type = parent?.fields?.issuetype;
+  if (parent && (type?.name === 'Epic' || type?.hierarchyLevel === 1)) {
+    return { epicKey: parent.key, epicName: parent.fields?.summary?.trim() || null };
+  }
+  return { epicKey: null, epicName: null };
 }
 
 /** Oldest first; ties keep Jira's id order. */
@@ -174,6 +220,11 @@ export function normalizeIssue(
     createdAt,
     updatedAt,
     resolvedAt: parseJiraDate(f.resolutiondate),
+    labels: distinct(f.labels),
+    components: distinct(f.components?.map((c) => c.name)),
+    fixVersions: distinct(f.fixVersions?.map((v) => v.name)),
+    priority: f.priority?.name.trim() || null,
+    ...epicOf(raw, f.parent, ctx.epicLinkFieldId),
     transitions,
     changes,
     sprintMembership: deriveSprintMembership(
@@ -188,6 +239,10 @@ export function normalizeIssue(
 export const findSprintField = (fields: JiraFieldInfo[]): string | null =>
   fields.find((f) => f.custom === 'com.pyxis.greenhopper.jira:gh-sprint')?.id ?? null;
 
+/** Data Center's Epic Link custom field (Jira Software), if the site has one. */
+export const findEpicLinkField = (fields: JiraFieldInfo[]): string | null =>
+  fields.find((f) => f.custom === 'com.pyxis.greenhopper.jira:gh-epic-link')?.id ?? null;
+
 /** Fields to request from search so normalizeIssue has everything it reads. */
 export const issueFieldList = (ctx: IssueFieldContext): string[] =>
   [
@@ -198,8 +253,14 @@ export const issueFieldList = (ctx: IssueFieldContext): string[] =>
     'created',
     'updated',
     'resolutiondate',
+    'labels',
+    'priority',
+    'components',
+    'fixVersions',
+    'parent',
     ctx.estimationFieldId,
     ctx.sprintFieldId,
+    ctx.epicLinkFieldId,
   ].filter((f): f is string => Boolean(f));
 
 const BLOCKED_NAME = /block|imped|on hold|waiting/i;

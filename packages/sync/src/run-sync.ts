@@ -11,6 +11,7 @@ import {
   buildIssueJql,
   completeHistories,
   errorStatus,
+  findEpicLinkField,
   findSprintField,
   issueFieldList,
   type JiraBoardConfig,
@@ -25,10 +26,12 @@ import { and, eq, gt, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { codeOf, failureOf } from './boards';
 import { openDataSource } from './credentials';
 import { CONNECTION_WIDE_CODES, type SyncDeps, SyncError, type SyncFailure } from './deps';
+import { epicNames } from './epics';
 import {
   ensureStatusMappings,
   pruneBoardIssues,
   saveBoardConfig,
+  saveEpicNames,
   saveIssues,
   saveSprints,
 } from './persist';
@@ -210,7 +213,9 @@ export async function runSync(deps: SyncDeps, job: SyncJob): Promise<SyncOutcome
     );
     if (boards.length === 0) throw new SyncError('no_boards');
     const source = await openDataSource(run, job.orgId, job.connectionId);
-    const sprintFieldId = findSprintField(await source.listFields());
+    const fields = await source.listFields();
+    const sprintFieldId = findSprintField(fields);
+    const epicLinkFieldId = findEpicLinkField(fields);
     const statuses = new Map((await source.listStatuses()).map((s) => [s.id, s]));
     const failures: unknown[] = [];
     for (const board of boards) {
@@ -227,6 +232,7 @@ export async function runSync(deps: SyncDeps, job: SyncJob): Promise<SyncOutcome
           mode: complete ? 'full' : 'incremental',
           now,
           sprintFieldId,
+          epicLinkFieldId,
           statuses,
         });
         boardsSynced++;
@@ -335,6 +341,7 @@ interface BoardJob {
   clock: () => Date;
   mode: 'full' | 'incremental';
   sprintFieldId: string | null;
+  epicLinkFieldId: string | null;
   statuses: Map<string, JiraStatusInfo>;
 }
 
@@ -367,8 +374,10 @@ async function syncBoard(deps: SyncDeps, source: JiraDataSource, j: BoardJob): P
       estimationFieldId: config.estimationFieldId,
       estimationFieldName: config.estimationFieldName,
       sprintFieldId: j.sprintFieldId,
+      epicLinkFieldId: j.epicLinkFieldId,
     };
     const statusIds = new Set<string>();
+    const epicKeys = new Set<string>();
     let lastBeat = Date.now();
     const pages = boardQuery(() =>
       source.searchIssues(
@@ -389,6 +398,7 @@ async function syncBoard(deps: SyncDeps, source: JiraDataSource, j: BoardJob): P
         const issue = normalizeIssue(raw, await completeHistories(source, raw), ctx);
         issues.push(issue);
         statusIds.add(issue.statusId);
+        if (issue.epicKey && !issue.epicName) epicKeys.add(issue.epicKey);
         for (const t of issue.transitions) {
           statusIds.add(t.toStatusId);
           if (t.fromStatusId) statusIds.add(t.fromStatusId);
@@ -407,6 +417,15 @@ async function syncBoard(deps: SyncDeps, source: JiraDataSource, j: BoardJob): P
       await fence(tx, j.connectionId, j.runId);
       await ensureStatusMappings(tx, j.orgId, j.board.id, statusIds, j.statuses);
     });
+    if (epicKeys.size > 0) {
+      const names = await epicNames(source, [...epicKeys]);
+      if (names.size > 0) {
+        await withOrg(deps.db, j.orgId, async (tx) => {
+          await fence(tx, j.connectionId, j.runId);
+          await saveEpicNames(tx, j.connectionId, names);
+        });
+      }
+    }
   }
   await withOrg(deps.db, j.orgId, async (tx) => {
     await fence(tx, j.connectionId, j.runId);
