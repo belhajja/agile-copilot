@@ -12,6 +12,7 @@ query = {
   list?: { columns: key, summary, type, status, assignee, points, priority, epic, labels, created, resolved, age; sort?: {by: column, dir: asc|desc}; limit?: ≤ 50 } (display list only),
   top?: n ≤ 20 (keep the largest groups, the rest as "Other"; categories only)
 }
+When grouping by createdWeek/createdMonth or resolvedWeek/resolvedMonth, always set the matching created or resolved window (e.g. {"lastDays":90}); without one only the most recent 26 weeks or 24 months are kept.
 Examples: open bugs per assignee = {"title":"Open bugs per assignee","filter":{"types":["Bug"],"statusCategory":["todo","in_progress"]},"groupBy":["assignee"],"display":"bar"};
 points per sprint by type = {"title":"Points per sprint by type","filter":{"sprints":[{"lastClosed":6}]},"groupBy":["sprint","type"],"measure":"points","display":"stacked_bar"};
 unassigned work in progress = {"title":"Unassigned in progress","filter":{"assignees":[null],"statusCategory":["in_progress"]},"display":"list","list":{"columns":["key","summary","status"]}}.`;

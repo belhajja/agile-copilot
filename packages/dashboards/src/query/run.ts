@@ -23,6 +23,9 @@ import { resolveSprints, selectIssues, sprintsByIssue, windowStart } from './sel
 const MAX_GROUPS = 20;
 /** Most series of a second dimension (the rest folds into Other). */
 const MAX_SERIES = 8;
+/** Most recent time buckets kept when no created/resolved window bounds the dimension. */
+const MAX_WEEKS = 26;
+const MAX_MONTHS = 24;
 
 const NEW_FIELD_FILTERS = ['labels', 'epics', 'priorities', 'components', 'fixVersions'] as const;
 const NEW_FIELD_DIMENSIONS: ReadonlySet<Dimension> = new Set<Dimension>([
@@ -93,8 +96,8 @@ function minMax(values: readonly number[]): [number, number] {
 
 /**
  * Groups of one dimension, ordered and capped. `second`: this is the second dimension of a
- * pivot, so a time dimension is capped to `limits.max` buckets (the first dimension's time
- * buckets stay uncapped, matching the measure's natural window).
+ * pivot, so a time dimension is capped to `limits.max` buckets. A first time dimension follows
+ * its created/resolved window, or keeps the most recent 26 weeks / 24 months without one.
  */
 function groupsFor(
   issues: readonly MetricIssue[],
@@ -118,9 +121,16 @@ function groupsFor(
       label,
       issues: buckets.get(label) ?? [],
     }));
-    if (!limits.second || groups.length <= limits.max) return groups;
-    ctx.notes.push({ key: 'capped', values: { shown: limits.max, total: groups.length } });
-    return groups.slice(-limits.max);
+    const max = limits.second
+      ? limits.max
+      : window
+        ? Number.POSITIVE_INFINITY
+        : dim.endsWith('Week')
+          ? MAX_WEEKS
+          : MAX_MONTHS;
+    if (groups.length <= max) return groups;
+    ctx.notes.push({ key: 'capped', values: { shown: max, total: groups.length } });
+    return groups.slice(-max);
   }
   const groups = [...buckets].map(([label, list]) => ({ label, issues: list }));
   if (dim === 'sprint') {

@@ -106,6 +106,30 @@ describe('runQuery', () => {
     });
   });
 
+  it('without a window, time dimensions keep the most recent 26 weeks or 24 months', () => {
+    const old: BoardDataset = {
+      ...ds,
+      issues: [issue('OLD', { created: d(-273) }), issue('NEW', { created: d(0) })],
+    };
+    const weeks = run({ display: 'bar', groupBy: ['createdWeek'] }, { ds: old });
+    if (weeks.kind !== 'series') throw new Error('series');
+    expect(weeks.rows).toHaveLength(26);
+    expect(weeks.rows[0]).toEqual({ createdWeek: '2025-07-14', count: 0 });
+    expect(weeks.rows.at(-1)).toEqual({ createdWeek: '2026-01-05', count: 1 });
+    expect(weeks.notes).toEqual([{ key: 'capped', values: { shown: 26, total: 40 } }]);
+
+    const older: BoardDataset = {
+      ...ds,
+      issues: [issue('OLD', { created: d(-1000) }), issue('NEW', { created: d(0) })],
+    };
+    const months = run({ display: 'bar', groupBy: ['createdMonth'] }, { ds: older });
+    if (months.kind !== 'series') throw new Error('series');
+    expect(months.rows).toHaveLength(24);
+    expect(months.rows[0]).toEqual({ createdMonth: '2024-02', count: 0 });
+    expect(months.rows.at(-1)).toEqual({ createdMonth: '2026-01', count: 1 });
+    expect(months.notes).toEqual([{ key: 'capped', values: { shown: 24, total: 34 } }]);
+  });
+
   it('cycle time by type over a completion window', () => {
     expect(
       run({
