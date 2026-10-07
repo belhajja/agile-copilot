@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { kanbanLayout, scrumLayout } from './layouts';
-import { CATALOG_METRIC_KEYS, METRIC_KEYS, parseWidgets, widgetSpecSchema } from './widget-spec';
+import {
+  CATALOG_METRIC_KEYS,
+  METRIC_KEYS,
+  parseWidgets,
+  widgetListSchema,
+  widgetSpecSchema,
+} from './widget-spec';
 
 describe('widget specs', () => {
   it('fills parameter defaults', () => {
@@ -122,5 +128,22 @@ describe('query widgets', () => {
     expect(METRIC_KEYS).toContain('query');
     expect(CATALOG_METRIC_KEYS).not.toContain('query');
     expect(CATALOG_METRIC_KEYS).toHaveLength(METRIC_KEYS.length - 1);
+  });
+
+  it("refuses a stored query widget whose chart isn't its display, but accepts an unavailable one", () => {
+    const mismatched = widgetListSchema.safeParse([
+      { id: 'q', metric: 'query', chart: 'pie', params: query },
+    ]);
+    expect(mismatched.success).toBe(false);
+    if (!mismatched.success) {
+      expect(mismatched.error.issues).toContainEqual(
+        expect.objectContaining({ path: [0, 'chart'], message: 'chart must be the query display' }),
+      );
+    }
+    expect(
+      widgetListSchema.safeParse([
+        { id: 'q', metric: 'query', chart: 'pie', params: { unavailable: true } },
+      ]).success,
+    ).toBe(true);
   });
 });

@@ -100,6 +100,13 @@ export const widgetListSchema = storedWidgetSpecSchema
       if (seen.has(w.id))
         ctx.addIssue({ code: 'custom', path: [index, 'id'], message: 'duplicate id' });
       seen.add(w.id);
+      if (w.metric === 'query' && !('unavailable' in w.params) && w.chart !== w.params.display) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index, 'chart'],
+          message: 'chart must be the query display',
+        });
+      }
     }
   });
 
