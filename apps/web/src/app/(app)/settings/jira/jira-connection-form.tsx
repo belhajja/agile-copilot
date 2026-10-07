@@ -81,29 +81,31 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
                 </FieldSeparator>
               </>
             )}
-            <Field>
-              <FieldLabel htmlFor="name">{t('name')}</FieldLabel>
-              <Input id="name" name="name" required maxLength={80} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="baseUrl">{t('url')}</FieldLabel>
-              <Input
-                id="baseUrl"
-                name="baseUrl"
-                required
-                placeholder="https://your-company.atlassian.net"
-                onBlur={(e) => {
-                  if (e.currentTarget.value) {
-                    setKind(
-                      inferDeployment(e.currentTarget.value) === 'cloud'
-                        ? 'cloud_basic'
-                        : 'datacenter_pat',
-                    );
-                  }
-                }}
-              />
-              <FieldDescription>{t('urlHint')}</FieldDescription>
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="name">{t('name')}</FieldLabel>
+                <Input id="name" name="name" required maxLength={80} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="baseUrl">{t('url')}</FieldLabel>
+                <Input
+                  id="baseUrl"
+                  name="baseUrl"
+                  required
+                  placeholder="https://your-company.atlassian.net"
+                  onBlur={(e) => {
+                    if (e.currentTarget.value) {
+                      setKind(
+                        inferDeployment(e.currentTarget.value) === 'cloud'
+                          ? 'cloud_basic'
+                          : 'datacenter_pat',
+                      );
+                    }
+                  }}
+                />
+                <FieldDescription>{t('urlHint')}</FieldDescription>
+              </Field>
+            </div>
             <FieldSet>
               <FieldLegend variant="label">{t('type')}</FieldLegend>
               <RadioGroup name="kind" value={kind} onValueChange={(v) => setKind(v as Kind)}>
@@ -118,7 +120,7 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
               </RadioGroup>
             </FieldSet>
             {kind === 'cloud_basic' ? (
-              <>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="email">{t('email')}</FieldLabel>
                   <Input id="email" name="email" type="email" required autoComplete="off" />
@@ -134,7 +136,7 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
                   />
                   <FieldDescription>{t('apiTokenHint')}</FieldDescription>
                 </Field>
-              </>
+              </div>
             ) : (
               <Field>
                 <FieldLabel htmlFor="token">{t('pat')}</FieldLabel>
@@ -143,11 +145,11 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
               </Field>
             )}
             {errorText && <FieldError>{errorText}</FieldError>}
-            <Field>
+            <div>
               <Button type="submit" disabled={pending}>
                 {t('submit')}
               </Button>
-            </Field>
+            </div>
           </FieldGroup>
         </form>
       </CardContent>

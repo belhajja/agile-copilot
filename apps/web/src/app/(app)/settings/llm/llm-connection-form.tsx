@@ -123,28 +123,30 @@ export function LlmConnectionForm() {
           }}
         >
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="provider">{t('provider')}</FieldLabel>
-              <NativeSelect
-                id="provider"
-                name="provider"
-                value={provider}
-                onChange={(e) => {
-                  setProvider(e.target.value as LlmProvider);
-                  resetModels();
-                }}
-              >
-                {LLM_PROVIDERS.map((p) => (
-                  <NativeSelectOption key={p} value={p}>
-                    {t(`providers.${p}`)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="label">{t('label')}</FieldLabel>
-              <Input id="label" name="label" required maxLength={80} />
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="provider">{t('provider')}</FieldLabel>
+                <NativeSelect
+                  id="provider"
+                  name="provider"
+                  value={provider}
+                  onChange={(e) => {
+                    setProvider(e.target.value as LlmProvider);
+                    resetModels();
+                  }}
+                >
+                  {LLM_PROVIDERS.map((p) => (
+                    <NativeSelectOption key={p} value={p}>
+                      {t(`providers.${p}`)}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="label">{t('label')}</FieldLabel>
+                <Input id="label" name="label" required maxLength={80} />
+              </Field>
+            </div>
             {provider === 'azure' && (
               <Field>
                 <FieldLabel htmlFor="resourceName">{t('resourceName')}</FieldLabel>
@@ -184,62 +186,63 @@ export function LlmConnectionForm() {
             </Field>
             <Field>
               <FieldLabel htmlFor="model">{t('model')}</FieldLabel>
-              {showModelList ? (
-                <NativeSelect
-                  id="model"
-                  name="model"
-                  value={modelValue}
-                  onChange={(e) => {
-                    if (e.target.value === OTHER_MODEL) {
-                      setModelMode('other');
-                      setModelValue('');
-                    } else {
-                      setModelValue(e.target.value);
-                    }
-                  }}
-                >
-                  {modelsState.status === 'loaded' &&
-                    modelsState.models.map((m) => (
-                      <NativeSelectOption key={m} value={m}>
-                        {m}
-                      </NativeSelectOption>
-                    ))}
-                  <NativeSelectOption value={OTHER_MODEL}>{t('other')}</NativeSelectOption>
-                </NativeSelect>
-              ) : (
-                <Input
-                  id="model"
-                  name="model"
-                  required
-                  defaultValue={modelValue}
-                  placeholder={provider === 'anthropic' ? 'claude-sonnet-5-5' : ''}
-                />
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <FieldDescription>
-                  {showModelList ? t('modelsHint') : t('modelHint')}
-                </FieldDescription>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  {showModelList ? (
+                    <NativeSelect
+                      id="model"
+                      name="model"
+                      value={modelValue}
+                      onChange={(e) => {
+                        if (e.target.value === OTHER_MODEL) {
+                          setModelMode('other');
+                          setModelValue('');
+                        } else {
+                          setModelValue(e.target.value);
+                        }
+                      }}
+                    >
+                      {modelsState.status === 'loaded' &&
+                        modelsState.models.map((m) => (
+                          <NativeSelectOption key={m} value={m}>
+                            {m}
+                          </NativeSelectOption>
+                        ))}
+                      <NativeSelectOption value={OTHER_MODEL}>{t('other')}</NativeSelectOption>
+                    </NativeSelect>
+                  ) : (
+                    <Input
+                      id="model"
+                      name="model"
+                      required
+                      defaultValue={modelValue}
+                      placeholder={provider === 'anthropic' ? 'claude-sonnet-5-5' : ''}
+                    />
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
                   disabled={!canLoadModels || modelsState.status === 'loading'}
                   onClick={loadModels}
                 >
                   {t('loadModels')}
                 </Button>
               </div>
+              <FieldDescription>
+                {showModelList ? t('modelsHint') : t('modelHint')}
+              </FieldDescription>
               {modelsState.status === 'loaded' && modelsState.models.length === 0 && (
                 <FieldDescription>{t('noModelsFound')}</FieldDescription>
               )}
               {modelsErrorText && <FieldError>{modelsErrorText}</FieldError>}
             </Field>
             {errorText && <FieldError>{errorText}</FieldError>}
-            <Field>
+            <div>
               <Button type="submit" disabled={pending}>
                 {t('submit')}
               </Button>
-            </Field>
+            </div>
           </FieldGroup>
         </form>
       </CardContent>

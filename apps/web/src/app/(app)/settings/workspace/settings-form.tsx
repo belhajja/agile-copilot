@@ -44,6 +44,7 @@ export function SettingsForm({
         defaultValue={settings[name]}
         disabled={!canEdit}
         required
+        className="sm:max-w-40"
       />
       <FieldDescription>
         {t(`${name}Hint`, { min: bounds[name].min, max: bounds[name].max })}
