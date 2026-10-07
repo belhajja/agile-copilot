@@ -29,6 +29,7 @@ export function LlmPriceForm({
   );
   const inputId = useId();
   const outputId = useId();
+  // The section above already says what the prices are for: only outcomes are shown here.
   const message =
     state.status === 'ok'
       ? t('pricesSaved')
@@ -38,33 +39,38 @@ export function LlmPriceForm({
           : state.code === 'forbidden_role' || state.code === 'not_found'
             ? t(`errors.${state.code}`)
             : t('errors.unknown')
-        : t('pricesHint');
+        : null;
   return (
-    <form action={action} className="flex flex-wrap items-end gap-2" data-prices={id}>
-      <Field className="w-36">
-        <FieldLabel htmlFor={inputId}>{t('inputPrice')}</FieldLabel>
-        <Input
-          id={inputId}
-          name="input"
-          inputMode="decimal"
-          defaultValue={fromMicros(inputMicros)}
-          placeholder={decimal(3)}
-        />
-      </Field>
-      <Field className="w-36">
-        <FieldLabel htmlFor={outputId}>{t('outputPrice')}</FieldLabel>
-        <Input
-          id={outputId}
-          name="output"
-          inputMode="decimal"
-          defaultValue={fromMicros(outputMicros)}
-          placeholder={decimal(15)}
-        />
-      </Field>
-      <Button type="submit" variant="outline" size="sm" disabled={pending}>
-        {t('savePrices')}
-      </Button>
-      <p role="status" className="basis-full text-sm text-muted-foreground">
+    <form action={action} className="grid gap-2" data-prices={id}>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field className="w-full sm:w-44">
+          <FieldLabel htmlFor={inputId}>{t('inputPrice')}</FieldLabel>
+          <Input
+            id={inputId}
+            name="input"
+            inputMode="decimal"
+            defaultValue={fromMicros(inputMicros)}
+            placeholder={decimal(3)}
+          />
+        </Field>
+        <Field className="w-full sm:w-44">
+          <FieldLabel htmlFor={outputId}>{t('outputPrice')}</FieldLabel>
+          <Input
+            id={outputId}
+            name="output"
+            inputMode="decimal"
+            defaultValue={fromMicros(outputMicros)}
+            placeholder={decimal(15)}
+          />
+        </Field>
+        <Button type="submit" variant="outline" disabled={pending}>
+          {t('savePrices')}
+        </Button>
+      </div>
+      <p
+        role="status"
+        className={state.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}
+      >
         {message}
       </p>
     </form>

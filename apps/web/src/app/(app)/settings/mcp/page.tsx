@@ -1,6 +1,7 @@
 import { can, listWorkspaceMembers } from '@agile/auth';
 import { listMcpTokens, mcpAccessProblem } from '@agile/mcp-gateway';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -36,15 +37,16 @@ export default async function McpPage() {
   const endpoint = mcpEndpoint(env.BETTER_AUTH_URL);
   const now = new Date();
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground wrap-anywhere">
+    <SettingsPage
+      title={t('title')}
+      description={
+        <span className="wrap-anywhere">
           {t('intro', {
             endpoint: endpoint ?? new URL('/api/mcp', env.BETTER_AUTH_URL).toString(),
           })}
-        </p>
-      </div>
+        </span>
+      }
+    >
       {problem ? (
         <Alert data-mcp-unavailable={problem}>
           <AlertDescription>{t(`errors.${pickCode(problem, MCP_ERROR_CODES)}`)}</AlertDescription>
@@ -102,6 +104,6 @@ export default async function McpPage() {
           </TableBody>
         </Table>
       )}
-    </div>
+    </SettingsPage>
   );
 }

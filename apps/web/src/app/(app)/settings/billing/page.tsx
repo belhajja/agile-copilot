@@ -2,6 +2,7 @@ import { can, seatsInUse } from '@agile/auth';
 import { billingView, PLANS } from '@agile/billing';
 import { notFound } from 'next/navigation';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { allowedCode } from '@/lib/error-code';
@@ -32,11 +33,7 @@ export default async function BillingPage({
   const status = allowedCode(view.status, BILLING_STATUSES);
   const limit = (n: number | null) => (n === null ? t('unlimited') : format.number(n));
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">{t('intro')}</p>
-      </div>
+    <SettingsPage title={t('title')} description={t('intro')}>
       {checkout === 'done' && <p className="text-sm">{t('checkoutDone')}</p>}
       <Card>
         <CardHeader>
@@ -84,6 +81,6 @@ export default async function BillingPage({
           )}
         </CardContent>
       </Card>
-    </div>
+    </SettingsPage>
   );
 }

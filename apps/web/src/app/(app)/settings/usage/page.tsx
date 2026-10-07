@@ -1,6 +1,7 @@
 import { usageSummary } from '@agile/agent';
 import { can } from '@agile/auth';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -120,15 +121,16 @@ export default async function UsagePage() {
   ]);
 
   return (
-    <div className="grid gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground" data-usage-scope={allUsers ? 'all' : 'own'}>
+    <SettingsPage
+      title={t('title')}
+      description={
+        <span data-usage-scope={allUsers ? 'all' : 'own'}>
           {t(allUsers ? 'introAll' : 'introOwn', {
             month: format.dateTime(since, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
           })}
-        </p>
-      </div>
+        </span>
+      }
+    >
       <UsageSection rows={chat} source="chat" title={t('chatSection')} />
       <UsageSection
         rows={skills}
@@ -137,6 +139,6 @@ export default async function UsagePage() {
         hint={t('skillsHint')}
       />
       <p className="text-sm text-muted-foreground">{t('pricesHint')}</p>
-    </div>
+    </SettingsPage>
   );
 }

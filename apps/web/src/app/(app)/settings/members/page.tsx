@@ -1,5 +1,6 @@
 import { can, listPendingInvitations, listWorkspaceMembers, primaryRole, ROLES } from '@agile/auth';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -30,11 +31,7 @@ export default async function MembersPage() {
     manage ? listPendingInvitations(db, actor.orgId) : Promise.resolve([]),
   ]);
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">{t('intro')}</p>
-      </div>
+    <SettingsPage title={t('title')} description={t('intro')}>
       <Table>
         <TableHeader>
           <TableRow>
@@ -98,6 +95,6 @@ export default async function MembersPage() {
       ) : (
         <p className="text-sm text-muted-foreground">{t('readOnlyNotice')}</p>
       )}
-    </div>
+    </SettingsPage>
   );
 }

@@ -1,6 +1,7 @@
 import { can, workspaceName } from '@agile/auth';
 import { getWorkspaceSettings, RETENTION_BOUNDS } from '@agile/privacy';
 import { getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { entitlements } from '@/server/billing';
 import { requireActor, services } from '@/server/context';
 import { DeleteWorkspace } from './delete-workspace';
@@ -18,11 +19,7 @@ export default async function WorkspaceSettingsPage() {
   ]);
   const canEdit = can(actor.roles, 'workspace.settings');
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">{canEdit ? t('intro') : t('readOnlyNotice')}</p>
-      </div>
+    <SettingsPage title={t('title')} description={canEdit ? t('intro') : t('readOnlyNotice')}>
       <SettingsForm
         settings={settings}
         bounds={RETENTION_BOUNDS}
@@ -32,6 +29,6 @@ export default async function WorkspaceSettingsPage() {
       {can(actor.roles, 'workspace.delete') && name && (
         <DeleteWorkspace orgId={actor.orgId} name={name} />
       )}
-    </div>
+    </SettingsPage>
   );
 }
