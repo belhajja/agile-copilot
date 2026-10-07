@@ -100,7 +100,15 @@ describe('toMetricIssue', () => {
 
   it('carries the query fields and the current status name', () => {
     const m = toMetricIssue(
-      { ...issue, labels: ['ui'], components: ['Web'], fixVersions: ['1.0'], priority: 'High', epicKey: 'E-1', epicName: 'Checkout' },
+      {
+        ...issue,
+        labels: ['ui'],
+        components: ['Web'],
+        fixVersions: ['1.0'],
+        priority: 'High',
+        epicKey: 'E-1',
+        epicName: 'Checkout',
+      },
       [],
       [],
       new Map<string, StatusMapping>([['4', { category: 'done', blocked: false, name: 'Done' }]]),

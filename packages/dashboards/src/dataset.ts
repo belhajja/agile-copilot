@@ -131,7 +131,10 @@ export async function loadBoardDataset(
     const mappings = new Map(
       (
         await tx.select().from(jiraStatusMappings).where(eq(jiraStatusMappings.boardId, boardId))
-      ).map((m) => [m.jiraStatusId, { category: m.category, blocked: m.blocked, name: m.statusName }]),
+      ).map((m) => [
+        m.jiraStatusId,
+        { category: m.category, blocked: m.blocked, name: m.statusName },
+      ]),
     );
     const onBoard = (issueCol: typeof jiraIssues.id | typeof jiraIssueTransitions.issueId) =>
       and(eq(jiraBoardIssues.boardId, boardId), eq(jiraBoardIssues.issueId, issueCol));
