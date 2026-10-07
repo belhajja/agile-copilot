@@ -25,6 +25,7 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 import { useGroupLabel } from './group-label';
+import { MONTH_FORMAT, monthStart } from './month-label';
 import type { SeriesData } from './types';
 
 // Theme chart colours (distinct hues in light and dark themes).
@@ -79,6 +80,8 @@ export function WidgetChart({
     const sprintDay = data.x === 'day' ? SPRINT_DAY.exec(text) : null;
     if (sprintDay) return t('sprintDay', { day: Number(sprintDay[1]) });
     if (text.startsWith('@')) return groupLabel(text);
+    const month = monthStart(data.x, text);
+    if (month) return format.dateTime(month, MONTH_FORMAT);
     return DAY.test(text)
       ? format.dateTime(new Date(`${text}T00:00:00Z`), {
           month: 'short',

@@ -11,6 +11,7 @@ import {
 import { allowedCode } from '@/lib/error-code';
 import { useGroupLabel } from './group-label';
 import { DASHBOARD_CODES, DASHBOARD_COLUMNS } from './message-keys';
+import { MONTH_FORMAT, monthStart } from './month-label';
 import type { TableData } from './types';
 import { visibleRows } from './visible-rows';
 
@@ -35,8 +36,9 @@ export function WidgetTable({ data }: { data: TableData }) {
   const cappedDate = data.capped
     ? (data.rows.at(-1)?.[data.columns.findIndex((c) => c.type === 'date')] ?? null)
     : null;
-  const cell = (value: string | number | null, type: TableData['columns'][number]['type']) => {
+  const cell = (value: string | number | null, column: TableData['columns'][number]) => {
     if (value === null) return '—';
+    const { type } = column;
     switch (type) {
       case 'days':
         return t('units.days', {
@@ -57,8 +59,10 @@ export function WidgetTable({ data }: { data: TableData }) {
         return code(String(value));
       case 'codes':
         return String(value).split(',').map(code).join(', ');
-      default:
-        return groupLabel(String(value));
+      default: {
+        const month = monthStart(column.key, String(value));
+        return month ? format.dateTime(month, MONTH_FORMAT) : groupLabel(String(value));
+      }
     }
   };
   const { rows, truncated } = visibleRows(data.rows);
@@ -87,7 +91,7 @@ export function WidgetTable({ data }: { data: TableData }) {
                 key={c.key}
                 className={c.key === 'summary' ? 'max-w-40 truncate sm:max-w-64' : undefined}
               >
-                {cell(row[j] ?? null, c.type)}
+                {cell(row[j] ?? null, c)}
               </TableCell>
             ))}
           </TableRow>
