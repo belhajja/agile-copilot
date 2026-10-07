@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kanbanLayout, scrumLayout } from './layouts';
-import { METRIC_KEYS, parseWidgets, widgetSpecSchema } from './widget-spec';
+import { CATALOG_METRIC_KEYS, METRIC_KEYS, parseWidgets, widgetSpecSchema } from './widget-spec';
 
 describe('widget specs', () => {
   it('fills parameter defaults', () => {
@@ -80,6 +80,47 @@ describe('widget specs', () => {
     for (const layout of [scrumLayout(), kanbanLayout()]) {
       expect(new Set(layout.map((w) => w.id)).size).toBe(layout.length);
     }
-    expect(METRIC_KEYS).toHaveLength(19);
+    expect(METRIC_KEYS).toHaveLength(20);
+  });
+});
+
+describe('query widgets', () => {
+  const query = {
+    title: 'Bugs by assignee',
+    groupBy: ['assignee'],
+    display: 'bar',
+    filter: { types: ['Bug'] },
+  };
+
+  it('validates the query and its chart', () => {
+    expect(
+      widgetSpecSchema.safeParse({ id: 'q', metric: 'query', chart: 'bar', params: query }).success,
+    ).toBe(true);
+    expect(
+      widgetSpecSchema.safeParse({
+        id: 'q',
+        metric: 'query',
+        chart: 'bar',
+        params: { ...query, groupBy: ['nope'] },
+      }).success,
+    ).toBe(false);
+    expect(
+      widgetSpecSchema.safeParse({ id: 'q', metric: 'query', chart: 'area', params: query })
+        .success,
+    ).toBe(false);
+  });
+
+  it('keeps a stored query that no longer validates, marked unavailable', () => {
+    expect(
+      parseWidgets([
+        { id: 'q1', metric: 'query', chart: 'bar', params: { ...query, groupBy: ['nope'] } },
+      ]),
+    ).toEqual([{ id: 'q1', metric: 'query', chart: 'bar', params: { unavailable: true } }]);
+  });
+
+  it('lists query among the metrics but not in the catalog', () => {
+    expect(METRIC_KEYS).toContain('query');
+    expect(CATALOG_METRIC_KEYS).not.toContain('query');
+    expect(CATALOG_METRIC_KEYS).toHaveLength(METRIC_KEYS.length - 1);
   });
 });

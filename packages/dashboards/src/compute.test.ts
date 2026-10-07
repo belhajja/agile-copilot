@@ -1,7 +1,10 @@
 import type { BoardDataset } from '@agile/metrics';
 import { describe, expect, it } from 'vitest';
 import { computeWidget } from './compute';
-import { widgetSpecSchema } from './widget-spec';
+import { runQuery } from './query/run';
+import { boardQuerySchema } from './query/schema';
+import { NOW as QUERY_NOW, queryDataset, S2 } from './query/test-data';
+import { parseWidgets, widgetSpecSchema } from './widget-spec';
 
 const NOW = new Date('2026-10-04T08:00:00Z');
 const spec = (w: object) => widgetSpecSchema.parse(w);
@@ -46,5 +49,25 @@ describe('computeWidget on a board without history', () => {
     ]) {
       expect(computeWidget(spec(w), emptyDs, NOW)).toEqual({ kind: 'empty', reason: 'no_data' });
     }
+  });
+});
+
+describe('query widgets', () => {
+  it('compute through runQuery, and show unavailable queries as such', () => {
+    const ds = queryDataset();
+    const params = { title: 'By type', groupBy: ['type'], display: 'table' };
+    const querySpec = widgetSpecSchema.parse({ id: 'q', metric: 'query', chart: 'table', params });
+    expect(computeWidget(querySpec, ds, QUERY_NOW)).toEqual(
+      runQuery(ds, boardQuerySchema.parse(params), { now: QUERY_NOW }),
+    );
+    const [stored] = parseWidgets([
+      { id: 'q', metric: 'query', chart: 'table', params: { title: 'x' } },
+    ]);
+    if (!stored) throw new Error('kept');
+    expect(computeWidget(stored, ds, QUERY_NOW)).toEqual({ kind: 'empty', reason: 'unavailable' });
+    expect(computeWidget(stored, ds, QUERY_NOW, { sprints: [S2] })).toEqual({
+      kind: 'empty',
+      reason: 'unavailable',
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boardQuerySchema, DISPLAYS } from './query/schema';
 
 // The fixed widget catalog. A widget is data, never code: { metric, params, chart, title }. Phase 4's
 // agent creates widgets by emitting these specs, which are validated here before they are stored.
@@ -53,30 +54,44 @@ const widget = <M extends string, C extends readonly [string, ...string[]], P ex
     params,
   });
 
-export const widgetSpecSchema = z.discriminatedUnion('metric', [
-  widget('average_velocity', ['kpi'], p.sprints),
-  widget('say_do_ratio', ['kpi'], p.sprints),
-  widget('velocity', ['bar'], p.sprints),
-  widget('scope_change', ['kpi'], p.sprint),
-  widget('carry_over', ['kpi'], p.none),
-  widget('sprint_burndown', ['line'], p.sprint),
-  widget('sprint_burnup', ['line'], p.sprint),
-  widget('cycle_time', ['kpi', 'table'], p.percentile),
-  widget('lead_time', ['kpi', 'table'], p.percentile),
-  widget('throughput', ['bar'], p.weeks),
-  widget('throughput_rate', ['kpi'], p.rate),
-  widget('wip', ['kpi'], p.none),
-  widget('wip_trend', ['line'], p.trend),
-  widget('aging_wip', ['table'], p.window),
-  widget('cfd', ['area'], p.trend),
-  widget('flow_efficiency', ['kpi'], p.window),
-  widget('forecast_how_many', ['table'], p.howMany),
-  widget('forecast_when', ['table'], p.when),
-  widget('hygiene', ['table'], p.hygiene),
-]);
+/** What a stored query widget holds once its query no longer validates (shown as unavailable). */
+export const UNAVAILABLE_QUERY = { unavailable: true } as const;
+const storedQuery = z
+  .union([boardQuerySchema, z.strictObject({ unavailable: z.literal(true) })])
+  .catch(UNAVAILABLE_QUERY);
+
+const catalog = <Q extends z.ZodType>(query: Q) =>
+  z.discriminatedUnion('metric', [
+    widget('average_velocity', ['kpi'], p.sprints),
+    widget('say_do_ratio', ['kpi'], p.sprints),
+    widget('velocity', ['bar'], p.sprints),
+    widget('scope_change', ['kpi'], p.sprint),
+    widget('carry_over', ['kpi'], p.none),
+    widget('sprint_burndown', ['line'], p.sprint),
+    widget('sprint_burnup', ['line'], p.sprint),
+    widget('cycle_time', ['kpi', 'table'], p.percentile),
+    widget('lead_time', ['kpi', 'table'], p.percentile),
+    widget('throughput', ['bar'], p.weeks),
+    widget('throughput_rate', ['kpi'], p.rate),
+    widget('wip', ['kpi'], p.none),
+    widget('wip_trend', ['line'], p.trend),
+    widget('aging_wip', ['table'], p.window),
+    widget('cfd', ['area'], p.trend),
+    widget('flow_efficiency', ['kpi'], p.window),
+    widget('forecast_how_many', ['table'], p.howMany),
+    widget('forecast_when', ['table'], p.when),
+    widget('hygiene', ['table'], p.hygiene),
+    /** A board query from the assistant; its chart is the query's display. */
+    widget('query', DISPLAYS, query),
+  ]);
+
+/** What the assistant and the Pin button may store: a query must be valid. */
+export const widgetSpecSchema = catalog(boardQuerySchema);
+/** Stored widgets: a query that no longer validates is kept, marked unavailable. */
+const storedWidgetSpecSchema = catalog(storedQuery);
 
 /** A dashboard's widgets: at most 40, unique ids (the UI keys widgets by id). */
-export const widgetListSchema = widgetSpecSchema
+export const widgetListSchema = storedWidgetSpecSchema
   .array()
   .max(40)
   .superRefine((list, ctx) => {
@@ -88,16 +103,21 @@ export const widgetListSchema = widgetSpecSchema
     }
   });
 
-export type WidgetSpec = z.infer<typeof widgetSpecSchema>;
+export type WidgetSpec = z.infer<typeof storedWidgetSpecSchema>;
 export type WidgetSpecInput = z.input<typeof widgetSpecSchema>;
 export type MetricKey = WidgetSpec['metric'];
 export const METRIC_KEYS: MetricKey[] = widgetSpecSchema.options.map((o) => o.shape.metric.value);
+/** The fixed metrics (everything but assistant queries): what get_metric and list_metrics offer. */
+export type CatalogMetricKey = Exclude<MetricKey, 'query'>;
+export const CATALOG_METRIC_KEYS: CatalogMetricKey[] = METRIC_KEYS.filter(
+  (m): m is CatalogMetricKey => m !== 'query',
+);
 
 /** Parses stored widgets, dropping (not failing on) any that no longer validate. */
 export function parseWidgets(value: unknown): WidgetSpec[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((w) => {
-    const parsed = widgetSpecSchema.safeParse(w);
+    const parsed = storedWidgetSpecSchema.safeParse(w);
     return parsed.success ? [parsed.data] : [];
   });
 }
