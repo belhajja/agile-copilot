@@ -7,12 +7,16 @@ export function toggleSprint(selected: readonly string[], id: string, max = MAX_
   return selected.length >= max ? [...selected] : [...selected, id];
 }
 
-/** The dashboard URL for a selection: `sprints` set (or removed when empty), others kept. */
+/**
+ * The dashboard URL for a selection: `sprints` set (or removed when empty), others kept.
+ * `sprints` is appended by hand so the ids stay comma-separated (`a,b`), not `a%2Cb`.
+ */
 export function sprintsHref(pathname: string, search: string, selected: readonly string[]): string {
   const params = new URLSearchParams(search);
   params.delete('error');
-  if (selected.length > 0) params.set('sprints', selected.join(','));
-  else params.delete('sprints');
-  const query = params.toString();
+  params.delete('sprints');
+  const rest = params.toString();
+  const sprints = selected.length > 0 ? `sprints=${selected.join(',')}` : '';
+  const query = [rest, sprints].filter(Boolean).join('&');
   return query ? `${pathname}?${query}` : pathname;
 }

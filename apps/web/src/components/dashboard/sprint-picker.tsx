@@ -26,6 +26,12 @@ export interface SprintOption {
   dates: string | null;
 }
 
+const STATE_VARIANT = {
+  active: 'default',
+  closed: 'secondary',
+  future: 'outline',
+} as const;
+
 /**
  * Picks the sprints the whole dashboard is scoped to. The choice lives in the URL (`sprints`), so
  * the page re-renders on the server and the link can be shared.
@@ -78,9 +84,12 @@ export function SprintPicker({
                     >
                       <Check className={cn('size-4', on ? 'opacity-100' : 'opacity-0')} />
                       <span className="min-w-0 flex-1 truncate">{o.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {o.dates ?? t(`states.${o.state}`)}
-                      </span>
+                      <Badge variant={STATE_VARIANT[o.state]} className="shrink-0">
+                        {t(`states.${o.state}`)}
+                      </Badge>
+                      {o.dates && (
+                        <span className="shrink-0 text-xs text-muted-foreground">{o.dates}</span>
+                      )}
                     </CommandItem>
                   );
                 })}

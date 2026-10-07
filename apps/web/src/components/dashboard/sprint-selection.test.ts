@@ -9,7 +9,7 @@ describe('sprint selection URL', () => {
   });
 
   it('writes the sprints parameter and keeps the others', () => {
-    expect(sprintsHref('/boards/x', '?tab=1', ['a', 'b'])).toBe('/boards/x?tab=1&sprints=a%2Cb');
+    expect(sprintsHref('/boards/x', '?tab=1', ['a', 'b'])).toBe('/boards/x?tab=1&sprints=a,b');
   });
 
   it('clearing removes the parameter', () => {
