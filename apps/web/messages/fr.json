@@ -501,7 +501,7 @@
       "lastDays": "{days} derniers jours",
       "blockedDays": "{days} jours bloqués ou en attente",
       "selectedSprints": "{count, plural, one {Sprint sélectionné} other {# sprints sélectionnés}}",
-      "finishedInSelection": "{count} terminés dans les sprints sélectionnés"
+      "finishedInSelection": "{count, plural, one {# terminé} other {# terminés}} sur la sélection"
     },
     "empty": {
       "no_sprint": "Aucun sprint à afficher.",

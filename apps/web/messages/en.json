@@ -501,7 +501,7 @@
       "lastDays": "Last {days} days",
       "blockedDays": "{days} days blocked or waiting",
       "selectedSprints": "{count, plural, one {Selected sprint} other {# selected sprints}}",
-      "finishedInSelection": "{count} finished in the selected sprints"
+      "finishedInSelection": "{count} finished in the selection"
     },
     "empty": {
       "no_sprint": "No sprint to show yet.",
