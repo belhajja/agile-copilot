@@ -22,7 +22,7 @@ export {
   listDashboards,
   saveDashboardWidgets,
 } from './store';
-export type { KpiFormat, WidgetData } from './widget-data';
+export type { KpiFormat, WidgetData, WidgetNote } from './widget-data';
 export {
   METRIC_KEYS,
   type MetricKey,
