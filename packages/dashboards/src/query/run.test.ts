@@ -259,6 +259,68 @@ describe('runQuery', () => {
     ]);
   });
 
+  it('a second time dimension keeps only the 8 most recent buckets, with a note', () => {
+    expect(
+      run({
+        display: 'stacked_bar',
+        groupBy: ['type', 'createdWeek'],
+        filter: { created: { lastDays: 730 } },
+      }),
+    ).toEqual({
+      kind: 'series',
+      chart: 'bar',
+      x: 'type',
+      series: [
+        { key: 's0', label: '2025-12-15', stacked: true },
+        { key: 's1', label: '2025-12-22', stacked: true },
+        { key: 's2', label: '2025-12-29', stacked: true },
+        { key: 's3', label: '2026-01-05', stacked: true },
+        { key: 's4', label: '2026-01-12', stacked: true },
+        { key: 's5', label: '2026-01-19', stacked: true },
+        { key: 's6', label: '2026-01-26', stacked: true },
+        { key: 's7', label: '2026-02-02', stacked: true },
+      ],
+      rows: [
+        { type: 'Bug', s0: 0, s1: 0, s2: 1, s3: 1, s4: 0, s5: 0, s6: 0, s7: 1 },
+        { type: 'Story', s0: 0, s1: 0, s2: 0, s3: 1, s4: 0, s5: 0, s6: 1, s7: 0 },
+      ],
+      notes: [{ key: 'capped', values: { shown: 8, total: 105 } }],
+    });
+  });
+
+  it('capping sprints keeps the most recent started ones, not planned (future) ones', () => {
+    const started = Array.from({ length: 22 }, (_, i) => ({
+      ...S1,
+      id: `s${i}`,
+      name: `S${i}`,
+      startAt: d(i),
+      members: [{ issueId: 'A', addedAt: d(i), removedAt: null }],
+    }));
+    const future = Array.from({ length: 3 }, (_, i) => ({
+      ...S1,
+      id: `f${i}`,
+      name: `F${i}`,
+      state: 'future' as const,
+      startAt: null,
+      endAt: null,
+      members: [{ issueId: 'A', addedAt: d(0), removedAt: null }],
+    }));
+    const [a] = ds.issues;
+    if (!a) throw new Error('fixture');
+    const data = run(
+      { display: 'bar', groupBy: ['sprint'] },
+      { ds: { ...ds, sprints: [...started, ...future], issues: [a] } },
+    );
+    if (data.kind !== 'series') throw new Error('series');
+    expect(data.rows.map((r) => r.sprint)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `S${i + 2}`),
+    );
+    expect(data.notes).toEqual([
+      { key: 'multiValued' },
+      { key: 'capped', values: { shown: 20, total: 25 } },
+    ]);
+  });
+
   it('points fall back to counts on a board without estimates', () => {
     expect(
       run({ display: 'kpi', measure: 'points' }, { ds: { ...ds, hasEstimates: false } }),

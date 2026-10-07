@@ -82,12 +82,25 @@ const unique = (groups: readonly Group[]): MetricIssue[] => [
 
 const byLabel = (a: Group, b: Group) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
 
-/** Groups of one dimension, ordered and capped. */
+/** Smallest and largest of a non-empty list, without spreading it onto `Math.min`/`Math.max`. */
+function minMax(values: readonly number[]): [number, number] {
+  const first = values[0] ?? 0;
+  return values.reduce(
+    ([min, max], v): [number, number] => [Math.min(min, v), Math.max(max, v)],
+    [first, first],
+  );
+}
+
+/**
+ * Groups of one dimension, ordered and capped. `second`: this is the second dimension of a
+ * pivot, so a time dimension is capped to `limits.max` buckets (the first dimension's time
+ * buckets stay uncapped, matching the measure's natural window).
+ */
 function groupsFor(
   issues: readonly MetricIssue[],
   dim: Dimension,
   ctx: Ctx,
-  limits: { max: number; top?: number },
+  limits: { max: number; top?: number; second?: boolean },
 ): Group[] {
   const buckets = bucketIssues(issues, dim, ctx);
   if (TIME_DIMENSIONS.has(dim)) {
@@ -98,20 +111,37 @@ function groupsFor(
       return at ? [at.getTime()] : [];
     });
     if (!window && dates.length === 0) return [];
-    const from = window ? windowStart(ctx.ds, window, ctx.now) : new Date(Math.min(...dates));
-    const to = window ? ctx.now : new Date(Math.max(...dates));
-    return timeKeys(dim, from, to).map((label) => ({ label, issues: buckets.get(label) ?? [] }));
+    const [minDate, maxDate] = minMax(dates);
+    const from = window ? windowStart(ctx.ds, window, ctx.now) : new Date(minDate);
+    const to = window ? ctx.now : new Date(maxDate);
+    const groups = timeKeys(dim, from, to).map((label) => ({
+      label,
+      issues: buckets.get(label) ?? [],
+    }));
+    if (!limits.second || groups.length <= limits.max) return groups;
+    ctx.notes.push({ key: 'capped', values: { shown: limits.max, total: groups.length } });
+    return groups.slice(-limits.max);
   }
   const groups = [...buckets].map(([label, list]) => ({ label, issues: list }));
   if (dim === 'sprint') {
-    const order = [...ctx.ds.sprints].sort(bySprintDate).map((s) => s.name);
+    // Future sprints (no startAt) rank after every started sprint, so capping keeps the most
+    // recent STARTED sprints first and only fills remaining room with future ones, rather than
+    // letting planned sprints crowd out ones that actually ran.
+    const started = [...ctx.ds.sprints].filter((s) => s.startAt !== null).sort(bySprintDate);
+    const unstarted = [...ctx.ds.sprints].filter((s) => s.startAt === null).sort(bySprintDate);
+    const order = [...started, ...unstarted].map((s) => s.name);
+    const startedNames = new Set(started.map((s) => s.name));
     const rank = (g: Group) =>
       g.label === NONE ? Number.POSITIVE_INFINITY : order.indexOf(g.label);
     const named = groups.filter((g) => g.label !== NONE).sort((a, b) => rank(a) - rank(b));
     const none = groups.filter((g) => g.label === NONE);
-    if (named.length <= MAX_GROUPS) return [...named, ...none];
-    ctx.notes.push({ key: 'capped', values: { shown: MAX_GROUPS, total: named.length } });
-    return [...named.slice(-MAX_GROUPS), ...none];
+    if (named.length <= limits.max) return [...named, ...none];
+    ctx.notes.push({ key: 'capped', values: { shown: limits.max, total: named.length } });
+    const namedStarted = named.filter((g) => startedNames.has(g.label));
+    const namedUnstarted = named.filter((g) => !startedNames.has(g.label));
+    const keptStarted = namedStarted.slice(-limits.max);
+    const keptUnstarted = namedUnstarted.slice(0, limits.max - keptStarted.length);
+    return [...keptStarted, ...keptUnstarted, ...none];
   }
   const value = new Map(groups.map((g) => [g, measureOf(g.issues, ctx.measure, ctx.now)]));
   const sorted = groups.sort((a, b) => {
@@ -271,7 +301,7 @@ export function runQuery(
     });
   }
 
-  const columns = groupsFor(issues, second, ctx, { max: MAX_SERIES });
+  const columns = groupsFor(issues, second, ctx, { max: MAX_SERIES, second: true });
   const cell = (row: Group, column: Group) => {
     const ids = new Set(column.issues.map((i) => i.id));
     return measureOf(
