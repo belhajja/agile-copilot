@@ -33,11 +33,13 @@ export function WidgetNotes({ data }: { data: WidgetData }) {
     const key = allowedCode(n.key, DASHBOARD_NOTES);
     return key ? [{ key, values: n.values ?? {} }] : [];
   });
-  if (notes.length === 0) return null;
+  // A pivot can carry the same note twice (one `capped` per dimension).
+  const keyed = notes.map((n, i) => ({ ...n, id: `${n.key}-${i}` }));
+  if (keyed.length === 0) return null;
   return (
     <ul className="grid gap-0.5 text-xs text-muted-foreground" data-notes>
-      {notes.map((n) => (
-        <li key={n.key}>{t(n.key, n.values)}</li>
+      {keyed.map((n) => (
+        <li key={n.id}>{t(n.key, n.values)}</li>
       ))}
     </ul>
   );
