@@ -510,6 +510,7 @@
     },
     "notEnoughData": "Pas encore assez de données",
     "notSprintFiltered": "Non filtré par sprint",
+    "sprintDay": "J{day}",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}",
     "removeWidget": "Retirer de ce tableau de bord",

@@ -510,6 +510,7 @@
     },
     "notEnoughData": "Not enough data yet",
     "notSprintFiltered": "Not filtered by sprint",
+    "sprintDay": "Day {day}",
     "cappedDays": "≥ {days} days",
     "truncated": "{shown} of {total}",
     "removeWidget": "Remove from this dashboard",
