@@ -1,7 +1,12 @@
 import type { MetricSprint } from '@agile/metrics';
 import { d } from '@agile/metrics/testing';
 import { describe, expect, it } from 'vitest';
-import { MAX_SELECTED_SPRINTS, parseSprintSelection, selectionPeriod } from './sprint-scope';
+import {
+  bySprintDate,
+  MAX_SELECTED_SPRINTS,
+  parseSprintSelection,
+  selectionPeriod,
+} from './sprint-scope';
 
 const sprint = (id: string, over: Partial<MetricSprint> = {}): MetricSprint => ({
   id,
@@ -42,6 +47,25 @@ describe('parseSprintSelection', () => {
       '76',
       '77',
       '78',
+    ]);
+  });
+});
+
+describe('bySprintDate', () => {
+  it('breaks ties on the start date by name, numbers in order', () => {
+    const sprints = [
+      sprint('a', { name: 'Sprint 10', startAt: d(0) }),
+      sprint('b', { name: 'Sprint 9', startAt: d(0) }),
+      sprint('c', { name: 'Sprint 2', startAt: null }),
+      sprint('d', { name: 'Sprint 1', startAt: null }),
+      sprint('e', { name: 'Sprint 11', startAt: d(-14) }),
+    ];
+    expect([...sprints].sort(bySprintDate).map((s) => s.name)).toEqual([
+      'Sprint 11',
+      'Sprint 9',
+      'Sprint 10',
+      'Sprint 1',
+      'Sprint 2',
     ]);
   });
 });
