@@ -193,7 +193,13 @@ export async function saveEpicNames(
     await tx
       .update(jiraIssues)
       .set({ epicName: name })
-      .where(and(eq(jiraIssues.connectionId, connectionId), eq(jiraIssues.epicKey, key)));
+      .where(
+        and(
+          eq(jiraIssues.connectionId, connectionId),
+          eq(jiraIssues.epicKey, key),
+          sql`${jiraIssues.epicName} is distinct from ${name}`,
+        ),
+      );
   }
 }
 
