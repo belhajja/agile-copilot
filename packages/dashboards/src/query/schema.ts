@@ -154,7 +154,7 @@ export const boardQuerySchema = z
     ) {
       refuse(['top'], 'top is for categories');
     }
-    if (JSON.stringify(q).length > MAX_QUERY_BYTES) {
+    if (new TextEncoder().encode(JSON.stringify(q)).length > MAX_QUERY_BYTES) {
       refuse([], `query larger than ${MAX_QUERY_BYTES} bytes`);
     }
   });

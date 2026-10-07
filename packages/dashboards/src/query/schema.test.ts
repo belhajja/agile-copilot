@@ -116,4 +116,24 @@ describe('boardQuerySchema', () => {
       }),
     ).toEqual(['']);
   });
+
+  it('counts UTF-8 bytes, not UTF-16 code units', () => {
+    // Each value: ~50 'é' characters (2 bytes each in UTF-8) + index suffix
+    // 5 arrays * 10 values * ~100 UTF-8 bytes ≈ 5000 bytes > 4096
+    // But UTF-16 length is much smaller: 5 * 10 * ~50 code units ≈ 2500 < 4096
+    const accentedLong = Array.from({ length: 10 }, (_, i) => `${'é'.repeat(50)}${i}`);
+    expect(
+      paths({
+        title: 't',
+        display: 'kpi',
+        filter: {
+          labels: accentedLong,
+          components: accentedLong,
+          fixVersions: accentedLong,
+          priorities: accentedLong,
+          types: accentedLong,
+        },
+      }),
+    ).toEqual(['']);
+  });
 });
