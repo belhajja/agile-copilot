@@ -97,6 +97,20 @@ describe('runSync', () => {
     });
   });
 
+  it('stores labels, components, versions, priority and the epic name', async () => {
+    const [first] = await h.rawDb.select().from(jiraIssues).where(eq(jiraIssues.key, 'DEMO-1'));
+    expect(first).toMatchObject({
+      labels: ['feature'],
+      components: ['Web'],
+      fixVersions: ['1.0'],
+      priority: 'Medium',
+      epicKey: 'EPIC-1',
+      epicName: 'Checkout revamp',
+    });
+    // The epics themselves are on no board.
+    expect(await h.rawDb.select().from(jiraIssues).where(eq(jiraIssues.key, 'EPIC-1'))).toEqual([]);
+  });
+
   it('next sync is incremental with a relative, overlapping JQL window', async () => {
     const later = new Date(NOW.getTime() + 30 * 60_000);
     h.mock.requests.length = 0;

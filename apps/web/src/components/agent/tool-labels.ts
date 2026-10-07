@@ -10,6 +10,7 @@ export const TOOL_LABELS = [
   'list_metrics',
   'list_sprints',
   'get_metric',
+  'query_board',
   'forecast',
   'find_issues',
   'explain_metric',

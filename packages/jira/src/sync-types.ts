@@ -79,6 +79,15 @@ export interface NormalizedIssue {
   createdAt: Date;
   updatedAt: Date;
   resolvedAt: Date | null;
+  /** Distinct, trimmed; [] when Jira has none. */
+  labels: string[];
+  components: string[];
+  fixVersions: string[];
+  priority: string | null;
+  /** Data Center: the Epic Link value; Cloud: the parent when it is an epic. */
+  epicKey: string | null;
+  /** Cloud: the parent's summary; Data Center: filled after the sync looks the epics up. */
+  epicName: string | null;
   transitions: { seq: number; at: Date; fromStatusId: string | null; toStatusId: string }[];
   changes: {
     seq: number;
@@ -95,4 +104,6 @@ export interface IssueFieldContext {
   estimationFieldId: string | null;
   estimationFieldName: string | null;
   sprintFieldId: string | null;
+  /** Data Center's Epic Link custom field, when the site has one. */
+  epicLinkFieldId?: string | null;
 }

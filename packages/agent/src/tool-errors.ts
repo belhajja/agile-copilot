@@ -55,7 +55,12 @@ const SKILL = ['unknown_skill', 'skill_suggestion_invalid'] as const;
 const DASHBOARD = ['invalid_widget', 'dashboard_full', 'dashboard_unavailable'] as const;
 
 /** The analytics MCP server's failures (`@agile/analytics-mcp`). */
-export const ANALYTICS_ERROR_CODES = ['internal_error', 'unknown_board', 'invalid_params'] as const;
+export const ANALYTICS_ERROR_CODES = [
+  'internal_error',
+  'unknown_board',
+  'invalid_params',
+  'invalid_query',
+] as const;
 
 export const TOOL_ERROR_CODES = Object.freeze([
   ...new Set([

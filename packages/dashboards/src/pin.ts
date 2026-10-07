@@ -47,7 +47,13 @@ export async function pinWidget(
     };
   }
   if (!isUuid(input.boardId)) return { ok: false, code: 'unknown_board' };
-  const widget = parsed.data;
+  let widget = parsed.data;
+  if (widget.metric === 'query') {
+    // The query decides the display; a chart that says otherwise is a mistake, not a choice.
+    if (widget.chart !== widget.params.display)
+      return { ok: false, code: 'invalid_widget', issues: ['chart'] };
+    widget = { ...widget, title: widget.title ?? widget.params.title };
+  }
   return withOrg(db, owner.orgId, async (tx) => {
     // A foreign key check ignores RLS: confirm the board is this workspace's, and synced.
     const [board] = await tx

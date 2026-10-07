@@ -135,11 +135,16 @@ const time = (v: unknown) => parseJiraDate(v)?.getTime() ?? 0;
 /**
  * Issues matching `filter = N [AND updated >= "-Mm"]` or `sprint = N` (how mcp-atlassian lists a
  * sprint's issues), oldest first; `project = "KEY" [AND issuetype = Epic] ORDER BY updated DESC`
- * (how it looks up a project's epics and its cross-project links), newest first; null for
- * unsupported JQL. A bare, unquoted `project = KEY` is not supported (only the quoted form
- * mcp-atlassian itself sends).
+ * (how it looks up a project's epics and its cross-project links), newest first;
+ * `key in (A-1, B-2)` (epic names); null for unsupported JQL. A bare, unquoted `project = KEY` is
+ * not supported (only the quoted form mcp-atlassian itself sends).
  */
 function runJql(dataset: MockJiraDataset, jql: string, now: Date): MockIssue[] | null {
+  const keys = /^\s*key\s+in\s*\(([^)]*)\)\s*$/i.exec(jql);
+  if (keys) {
+    const wanted = new Set((keys[1] ?? '').split(',').map((k) => k.trim()));
+    return dataset.issues.filter((i) => wanted.has(i.key));
+  }
   const sprint = /^\s*sprint\s*=\s*(\d+)\s*$/i.exec(jql);
   if (sprint) return sprintMemberIssues(dataset, Number(sprint[1]));
   const project =

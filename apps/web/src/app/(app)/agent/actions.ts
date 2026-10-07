@@ -12,6 +12,7 @@ import {
   setConversationModel,
   TITLE_MAX_LENGTH,
 } from '@agile/agent';
+import { pinWidget } from '@agile/dashboards';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
@@ -126,4 +127,32 @@ export async function deleteGroupAction(groupId: unknown): Promise<ConversationA
   if (!parsed.success) return notFound;
   const actor = await requireActor();
   return done(await deleteGroup(services().db, actor, parsed.data));
+}
+
+export type PinResultActionResult =
+  | { ok: true; boardId: string }
+  | { ok: false; code: 'invalid_widget' | 'unknown_board' | 'dashboard_full' | 'unknown' };
+
+const pinInput = z.object({ boardId: z.uuid(), widget: z.record(z.string(), z.unknown()) });
+
+/** Pins a chat result to the user's "Pinned" dashboard of its board (same checks as the assistant's). */
+export async function pinResultAction(input: {
+  boardId: string;
+  widget: unknown;
+}): Promise<PinResultActionResult> {
+  const actor = await requireActor();
+  const parsed = pinInput.safeParse(input);
+  if (!parsed.success) return { ok: false, code: 'invalid_widget' };
+  try {
+    const result = await pinWidget(
+      services().db,
+      { orgId: actor.orgId, userId: actor.userId },
+      { boardId: parsed.data.boardId, widget: parsed.data.widget, via: 'user' },
+    );
+    if (!result.ok) return { ok: false, code: result.code };
+    revalidatePath(`/boards/${parsed.data.boardId}`);
+    return { ok: true, boardId: parsed.data.boardId };
+  } catch {
+    return { ok: false, code: 'unknown' };
+  }
 }

@@ -1,4 +1,4 @@
-import { METRIC_KEYS } from '@agile/dashboards';
+import { CATALOG_METRIC_KEYS } from '@agile/dashboards';
 import type { Db } from '@agile/db';
 import { discoverBoards, listBoards, runSync, setBoardSelection } from '@agile/sync';
 import { NOW, owner, startSyncHarness } from '@agile/sync/testing';
@@ -59,6 +59,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       'list_boards',
       'list_metrics',
       'list_sprints',
+      'query_board',
     ]);
     expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
     // No tool lets the model pick a workspace, a connection, a user or a tenant.
@@ -105,7 +106,7 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
     expect(sprint.body.total).toBeGreaterThan(0);
     const text = await mcp.call('find_issues', { boardId: scrumId, text: 'release pipeline' });
     expect(text.body.issues.map((i: { key: string }) => i.key)).toEqual(['DEMO-1']);
-    expect((await mcp.call('list_metrics')).body.metrics).toHaveLength(METRIC_KEYS.length);
+    expect((await mcp.call('list_metrics')).body.metrics).toHaveLength(CATALOG_METRIC_KEYS.length);
     expect((await mcp.call('explain_metric', { metric: 'say_do_ratio' })).body.how).toMatch(
       /committed/,
     );
@@ -173,6 +174,41 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
       await setBoardSelection(h.deps, owner(), connectionId, [scrumId, kanbanId]);
       await mcp.close();
     }
+  });
+
+  it('runs board queries on synced data', async () => {
+    const mcp = await connect('org_a');
+    const ok = await mcp.call('query_board', {
+      boardId: scrumId,
+      query: { title: 'Issues by type', groupBy: ['type'], display: 'table' },
+    });
+    expect(ok.isError).toBe(false);
+    expect(ok.body).toMatchObject({
+      board: { id: scrumId, name: 'DEMO Scrum' },
+      query: { title: 'Issues by type', measure: 'count', display: 'table' },
+      data: {
+        kind: 'table',
+        columns: [
+          { key: 'type', type: 'text' },
+          { key: 'count', type: 'number' },
+        ],
+      },
+      computedAt: NOW.toISOString(),
+    });
+    const bad = await mcp.call('query_board', {
+      boardId: scrumId,
+      query: { title: 'x', display: 'pie', groupBy: ['type', 'assignee'] },
+    });
+    expect(bad).toMatchObject({
+      isError: true,
+      body: { code: 'invalid_query', error: 'Invalid query: groupBy: pie needs 1 dimension' },
+    });
+    const foreign = await mcp.call('query_board', {
+      boardId: '00000000-0000-4000-8000-000000000000',
+      query: { title: 'x', display: 'kpi' },
+    });
+    expect(foreign).toMatchObject({ isError: true, body: { code: 'unknown_board' } });
+    await mcp.close();
   });
 
   it('turns any other failure into a fixed error without driver text', async () => {

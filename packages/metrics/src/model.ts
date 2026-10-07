@@ -37,6 +37,14 @@ export interface MetricIssue {
   statusPeriods: StatusPeriod[];
   /** Times the issue was flagged (Jira "Impediment"). */
   flagged: Interval[];
+  /** Current Jira status name. Optional fields: older fixtures and boards without them. */
+  status?: string;
+  labels?: string[];
+  components?: string[];
+  fixVersions?: string[];
+  priority?: string | null;
+  epicKey?: string | null;
+  epicName?: string | null;
 }
 
 export interface SprintMember {
@@ -60,6 +68,8 @@ export interface BoardDataset {
   sprints: MetricSprint[];
   /** The board has an estimation field (story points); false for count-based boards. */
   hasEstimates: boolean;
+  /** False until the board's first full sync since labels, epics… were added to the sync. */
+  fieldsSynced?: boolean;
 }
 
 export type Unit = 'points' | 'issues';

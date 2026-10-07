@@ -139,6 +139,40 @@ describe('pinned widgets (prompt-driven dashboard)', () => {
       { action: 'dashboard.widget_removed', metadata: { widgetId: widget.id } },
     ]);
   });
+
+  it('pins a query: its title by default, its chart must be its display', async () => {
+    const query = {
+      title: 'Bugs by assignee',
+      groupBy: ['assignee'],
+      display: 'bar',
+      filter: { types: ['Bug'] },
+    };
+    const pinned = await pinWidget(h.db, me, {
+      boardId,
+      widget: { metric: 'query', chart: 'bar', params: query },
+      via: 'user',
+    });
+    if (!pinned.ok) throw new Error('pin failed');
+    expect(pinned.widget).toMatchObject({
+      metric: 'query',
+      chart: 'bar',
+      title: 'Bugs by assignee',
+    });
+    expect(
+      await pinWidget(h.db, me, {
+        boardId,
+        widget: { metric: 'query', chart: 'pie', params: query },
+        via: 'user',
+      }),
+    ).toEqual({ ok: false, code: 'invalid_widget', issues: ['chart'] });
+    expect(
+      await pinWidget(h.db, me, {
+        boardId,
+        widget: { metric: 'query', chart: 'bar', params: { ...query, jql: 'x' } },
+        via: 'user',
+      }),
+    ).toMatchObject({ ok: false, code: 'invalid_widget' });
+  });
 });
 
 describe('pinned widgets: concurrency and stored data', () => {

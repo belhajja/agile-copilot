@@ -160,6 +160,7 @@ describe('computeWidget with a sprint selection', () => {
 
   it('no selection: the same output as today, for every metric', () => {
     for (const option of widgetSpecSchema.options) {
+      if (option.shape.metric.value === 'query') continue;
       for (const chart of option.shape.chart.options) {
         const w = spec({ id: 'x', metric: option.shape.metric.value, chart });
         const today = computeWidget(w, all, NOW);

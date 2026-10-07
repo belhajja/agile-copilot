@@ -1,5 +1,6 @@
 import { type ToolErrorCode, toolErrorCodeOf } from '@agile/agent/tool-errors';
 import { parseUntrustedData } from '@agile/agent/untrusted';
+import type { WidgetData } from '@agile/dashboards';
 import { SKILL_OUTPUTS, SKILL_TRIGGERS } from '@agile/skills/codes';
 import { z } from 'zod';
 
@@ -88,4 +89,64 @@ export function suggestionHref(
 ): string | undefined {
   if (busy) return undefined;
   return `/skills/new?from=${encodeURIComponent(conversationId)}&suggestion=${encodeURIComponent(toolCallId)}`;
+}
+
+const boardRef = z.object({ id: z.uuid(), name: z.string().max(300) });
+const widgetData = z.looseObject({ kind: z.enum(['kpi', 'series', 'table', 'empty']) });
+const queryResult = z.object({
+  board: boardRef,
+  query: z.looseObject({ title: z.string(), display: z.string() }),
+  data: widgetData,
+  computedAt: z.string(),
+});
+const metricResult = z.object({
+  board: boardRef,
+  metric: z.string(),
+  chart: z.string(),
+  params: z.record(z.string(), z.unknown()),
+  data: widgetData,
+  computedAt: z.string().optional(),
+});
+
+/** A tool result the chat can show as a widget and pin: what it shows and the widget to store. */
+export interface PinnableResult {
+  board: { id: string; name: string };
+  computedAt: string | null;
+  data: WidgetData;
+  widget: { metric: string; chart: string; title?: string; params: Record<string, unknown> };
+}
+
+/**
+ * A `query_board` or `get_metric` result, or undefined for anything else. The widget is
+ * re-validated by the server when pinned; here the shape only has to be renderable.
+ */
+export function pinnableResultOf(toolName: string, output: unknown): PinnableResult | undefined {
+  if (typeof output !== 'string') return undefined;
+  const value = parseUntrustedData(output)?.value;
+  if (toolName === 'query_board') {
+    const r = queryResult.safeParse(value);
+    if (!r.success) return undefined;
+    return {
+      board: r.data.board,
+      computedAt: r.data.computedAt,
+      data: r.data.data as WidgetData,
+      widget: {
+        metric: 'query',
+        chart: r.data.query.display,
+        title: r.data.query.title,
+        params: r.data.query,
+      },
+    };
+  }
+  if (toolName === 'get_metric') {
+    const r = metricResult.safeParse(value);
+    if (!r.success) return undefined;
+    return {
+      board: r.data.board,
+      computedAt: r.data.computedAt ?? null,
+      data: r.data.data as WidgetData,
+      widget: { metric: r.data.metric, chart: r.data.chart, params: r.data.params },
+    };
+  }
+  return undefined;
 }

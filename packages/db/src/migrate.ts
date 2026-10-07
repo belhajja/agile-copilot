@@ -8,10 +8,10 @@ import postgres from 'postgres';
 // transpiles this package) treat that URL form as an asset import and fail to resolve a directory.
 export const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
 
-export async function runMigrations(ownerUrl: string): Promise<void> {
+export async function runMigrations(ownerUrl: string, folder = migrationsFolder): Promise<void> {
   const client = postgres(ownerUrl, { max: 1 });
   try {
-    await migrate(drizzle(client), { migrationsFolder });
+    await migrate(drizzle(client), { migrationsFolder: folder });
   } finally {
     await client.end();
   }

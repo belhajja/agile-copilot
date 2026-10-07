@@ -9,8 +9,10 @@ import { Tool, ToolContent } from '@/components/ai-elements/tool';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ResultCard } from './result-card';
 import { toolLabel } from './tool-labels';
 import {
+  pinnableResultOf,
   pinnedBoardId,
   readableOutput,
   readToolError,
@@ -60,9 +62,14 @@ export function ToolCall({
     const href = suggestionHref(conversationId, part.toolCallId, busy);
     return <SkillSuggestionCard suggestion={suggestion} href={href} />;
   }
+  const result =
+    done && (toolName === 'query_board' || toolName === 'get_metric')
+      ? pinnableResultOf(toolName, part.output)
+      : undefined;
   return (
     <>
       <ToolDetails part={part} toolName={toolName} running={running} />
+      {result && <ResultCard result={result} />}
       {pinnedTo && (
         <Link href={`/boards/${pinnedTo}`} className="text-sm underline" data-pinned-board>
           {t('openDashboard')}
@@ -144,7 +151,9 @@ function ToolDetails({
           <CodeBlock code={JSON.stringify(part.input ?? {}, null, 2)} language="json" />
           {part.state === 'output-available' && (
             <>
-              <p className="text-xs font-medium uppercase text-muted-foreground">{t('result')}</p>
+              <p className="text-xs font-medium uppercase text-muted-foreground">
+                {t('resultLabel')}
+              </p>
               <CodeBlock code={readableOutput(part.output)} language="json" />
             </>
           )}

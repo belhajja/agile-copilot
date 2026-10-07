@@ -80,7 +80,7 @@ export function preferencesMessage(set: SkillSet, use: 'chat' | 'run'): ModelMes
   };
 }
 
-const CHARTS = ['kpi', 'bar', 'line', 'area', 'table'] as const;
+const CHARTS = ['kpi', 'bar', 'line', 'area', 'table', 'stacked_bar', 'pie', 'list'] as const;
 
 /**
  * `load_skill` (progressive disclosure: the full text of one catalog skill, by name), `pin_widget`
@@ -106,7 +106,7 @@ export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): T
   }
   tools.pin_widget = tool({
     description:
-      'Add a chart to the user\'s dashboard of a board (their "Pinned" tab). Only when the user asks to pin or add a chart. Use a board id from list_boards and a metric with one of its charts from list_metrics.',
+      'Add a chart to the user\'s dashboard of a board (their "Pinned" tab). Only when the user asks to pin or add a chart. Use a board id from list_boards and a metric with one of its charts from list_metrics; for a query_board result use metric "query", chart = the query\'s display and params = the query.',
     inputSchema: z.object({
       boardId: z.string().describe('Board id from list_boards'),
       metric: z.enum(METRIC_KEYS as [string, ...string[]]),
@@ -116,7 +116,7 @@ export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): T
         .record(z.string(), z.unknown())
         .refine((p) => Object.keys(p).length <= 10, 'at most 10 params')
         .optional()
-        .describe('Metric parameters (see list_metrics)'),
+        .describe('Metric parameters (see list_metrics), or the query'),
     }),
     execute: async ({ boardId, metric, chart, title, params }) => {
       let result: Awaited<ReturnType<typeof pinWidget>>;

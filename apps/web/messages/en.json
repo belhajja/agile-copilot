@@ -451,6 +451,10 @@
       "hygiene": {
         "title": "Needs attention",
         "description": "Stale, unestimated, unassigned or oversized open issues."
+      },
+      "query": {
+        "title": "Board query",
+        "description": "Built with the assistant."
       }
     },
     "series": {
@@ -462,7 +466,12 @@
       "done": "Done",
       "wip": "In progress",
       "todo": "To do",
-      "inProgress": "In progress"
+      "inProgress": "In progress",
+      "count": "Issues",
+      "points": "Points",
+      "avg_cycle_time": "Avg cycle time",
+      "p85_cycle_time": "Cycle time (85th)",
+      "avg_age": "Avg age"
     },
     "columns": {
       "percentile": "Percentile",
@@ -474,7 +483,28 @@
       "confidence": "Confidence",
       "items": "At least",
       "date": "By",
-      "problems": "Problems"
+      "problems": "Problems",
+      "type": "Type",
+      "assignee": "Assignee",
+      "points": "Points",
+      "priority": "Priority",
+      "epic": "Epic",
+      "labels": "Labels",
+      "created": "Created",
+      "resolved": "Done",
+      "statusCategory": "Category",
+      "label": "Label",
+      "component": "Component",
+      "fixVersion": "Fix version",
+      "sprint": "Sprint",
+      "createdWeek": "Week created",
+      "createdMonth": "Month created",
+      "resolvedWeek": "Week done",
+      "resolvedMonth": "Month done",
+      "count": "Issues",
+      "avg_cycle_time": "Avg cycle time",
+      "p85_cycle_time": "Cycle time (85th)",
+      "avg_age": "Avg age"
     },
     "codes": {
       "blocked": "Blocked",
@@ -506,7 +536,24 @@
     "empty": {
       "no_sprint": "No sprint to show yet.",
       "no_data": "Not enough data yet.",
-      "no_estimates": "This board has no estimates."
+      "no_estimates": "This board has no estimates.",
+      "no_match": "No issue matches.",
+      "unavailable": "This widget can’t be shown anymore. Ask the assistant for a new one."
+    },
+    "query": {
+      "groups": {
+        "none": "None",
+        "other": "Other",
+        "todo": "To do",
+        "in_progress": "In progress",
+        "done": "Done"
+      },
+      "notes": {
+        "pointsAsCount": "This board has no estimates: issues are counted.",
+        "fieldsSyncing": "Some fields are still syncing; results may be incomplete.",
+        "multiValued": "Issues with several values count in each group.",
+        "capped": "Showing {shown} of {total}."
+      }
     },
     "notEnoughData": "Not enough data yet",
     "notSprintFiltered": "Not filtered by sprint",
@@ -570,7 +617,18 @@
     "approved": "Approved",
     "rejected": "Rejected",
     "input": "Request",
-    "result": "Result",
+    "resultLabel": "Result",
+    "result": {
+      "pin": "Pin to dashboard",
+      "pinned": "Pinned",
+      "asOf": "{board} · as of {time}",
+      "pinErrors": {
+        "invalid_widget": "This result can’t be pinned.",
+        "unknown_board": "This board is no longer available.",
+        "dashboard_full": "The dashboard is full (40 widgets).",
+        "unknown": "Pinning failed. Try again."
+      }
+    },
     "status": {
       "running": "Running",
       "done": "Done",
@@ -594,6 +652,7 @@
       "list_metrics": "List metrics",
       "list_sprints": "List sprints",
       "get_metric": "Compute a metric",
+      "query_board": "Query the board",
       "forecast": "Forecast",
       "find_issues": "Find issues",
       "explain_metric": "Explain a metric",
@@ -663,6 +722,7 @@
       "internal_error": "The analytics tool failed. Try again in a moment.",
       "unknown_board": "This board is not synced in this workspace.",
       "invalid_params": "The metric settings were not valid.",
+      "invalid_query": "The query was not valid.",
       "candidates": "People found: {names}.",
       "unknown_skill": "This skill is no longer in your skills.",
       "skill_suggestion_invalid": "The assistant could not draft this skill. Describe it in the skill builder instead.",

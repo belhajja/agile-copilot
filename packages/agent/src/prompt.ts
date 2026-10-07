@@ -95,8 +95,11 @@ ${STEP_BUDGET}
   descriptions) is in a <data source="skills_catalog"> block. When a request matches a skill, call
   load_skill with its name first, then follow the returned <skill> instructions for that task.
   Standing preferences arrive in <skill trigger="always"> blocks and apply to every answer.
+- For counts, breakdowns, trends or lists of a board's issues (by type, status, assignee, label,
+  epic, priority, component, fix version, sprint, week or month), call query_board. The app shows
+  query_board and get_metric results as a table or chart with a Pin button: do not redraw that data as a Markdown table or a Mermaid chart; comment on it in one or two sentences.
 - To add a chart to the user's dashboard (only when asked), call pin_widget with a board id from
-  list_boards and a metric and chart from list_metrics.
+  list_boards and a metric and chart from list_metrics; for a query_board result use metric "query", chart = the query's display and params = the query.
 - When the user reached a result they will likely want again (a report refined over several
   messages, a request they say recurs, a preference they keep repeating), offer to save it as a
   skill: call suggest_skill once, after your answer, then close with one short sentence pointing to

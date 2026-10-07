@@ -31,6 +31,7 @@ import {
   wipNow,
   wipSeries,
 } from '@agile/metrics';
+import { runQuery } from './query/run';
 import type { SprintScope } from './sprint-scope';
 import { selectionPeriod } from './sprint-scope';
 import type { WidgetData } from './widget-data';
@@ -204,6 +205,10 @@ export function computeWidget(
         rows: findings.map((f) => [f.key, f.summary, f.problems.join(',')]),
       };
     }
+    case 'query':
+      return 'unavailable' in spec.params
+        ? empty('unavailable')
+        : runQuery(ds, spec.params, { now });
   }
 }
 
@@ -368,6 +373,10 @@ function computeScoped(
     case 'aging_wip':
     case 'hygiene':
       return { ...computeWidget(spec, ds, now), unfiltered: true };
+    case 'query':
+      return 'unavailable' in spec.params
+        ? empty('unavailable')
+        : runQuery(ds, spec.params, { now, scope: sprints });
     default: {
       // A new metric must decide how it follows a sprint selection.
       const unhandled: never = spec;

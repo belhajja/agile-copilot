@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   doublePrecision,
@@ -160,6 +161,12 @@ export const jiraIssues = pgTable(
     jiraCreatedAt: ts('jira_created_at').notNull(),
     jiraUpdatedAt: ts('jira_updated_at').notNull(),
     resolvedAt: ts('resolved_at'),
+    labels: text('labels').array().notNull().default(sql`'{}'::text[]`),
+    components: text('components').array().notNull().default(sql`'{}'::text[]`),
+    fixVersions: text('fix_versions').array().notNull().default(sql`'{}'::text[]`),
+    priority: text('priority'),
+    epicKey: text('epic_key'),
+    epicName: text('epic_name'),
     syncedAt: ts('synced_at').notNull().defaultNow(),
   },
   (t) => [

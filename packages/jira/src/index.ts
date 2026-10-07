@@ -9,6 +9,7 @@ export { mapJiraError } from './errors';
 export { usesPointEstimates } from './estimation';
 export {
   buildIssueJql,
+  findEpicLinkField,
   findSprintField,
   issueFieldList,
   normalizeIssue,

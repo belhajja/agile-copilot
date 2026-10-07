@@ -17,7 +17,9 @@ import {
   DASHBOARD_EMPTY_REASONS,
   DASHBOARD_HINTS,
   DASHBOARD_METRICS,
+  DASHBOARD_NOTES,
   DASHBOARD_SERIES,
+  QUERY_GROUPS,
 } from '../components/dashboard/message-keys';
 import { AUTH_ERROR_CODES } from './auth-error';
 import { allowedCode, BLOCKED_REASONS } from './error-code';
@@ -55,6 +57,8 @@ describe('allowlisted message keys', () => {
     expect([...DASHBOARD_EMPTY_REASONS].sort()).toEqual(sentences(m.dashboards.empty));
     expect([...DASHBOARD_HINTS].sort()).toEqual(sentences(m.dashboards.hints));
     expect([...DASHBOARD_SERIES].sort()).toEqual(sentences(m.dashboards.series));
+    expect([...QUERY_GROUPS].sort()).toEqual(sentences(m.dashboards.query.groups));
+    expect([...DASHBOARD_NOTES].sort()).toEqual(sentences(m.dashboards.query.notes));
     // Each metric has a title and a description.
     expect([...DASHBOARD_METRICS].sort()).toEqual(Object.keys(m.dashboards.metrics).sort());
     for (const metric of Object.values(m.dashboards.metrics)) {

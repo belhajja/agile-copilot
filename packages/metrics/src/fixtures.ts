@@ -19,13 +19,21 @@ export function issue(
     flagged?: Interval[];
     assignee?: string | null;
     updated?: Date;
+    type?: string;
+    status?: string;
+    labels?: string[];
+    components?: string[];
+    fixVersions?: string[];
+    priority?: string | null;
+    epicKey?: string | null;
+    epicName?: string | null;
   },
 ): MetricIssue {
   return {
     id: key,
     key,
     summary: `Summary of ${key}`,
-    type: 'Story',
+    type: opts.type ?? 'Story',
     createdAt: opts.created,
     updatedAt: opts.updated ?? opts.created,
     assignee: opts.assignee === undefined ? 'pat' : opts.assignee,
@@ -40,6 +48,13 @@ export function issue(
       })),
     ],
     flagged: opts.flagged ?? [],
+    status: opts.status,
+    labels: opts.labels,
+    components: opts.components,
+    fixVersions: opts.fixVersions,
+    priority: opts.priority,
+    epicKey: opts.epicKey,
+    epicName: opts.epicName,
   };
 }
 

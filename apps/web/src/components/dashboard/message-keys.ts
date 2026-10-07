@@ -25,6 +25,7 @@ export const DASHBOARD_METRICS = [
   'forecast_how_many',
   'forecast_when',
   'hygiene',
+  'query',
 ] as const;
 
 /** `dashboards.codes.*`: table cell codes (hygiene problems, forecast confidence). */
@@ -50,10 +51,37 @@ export const DASHBOARD_COLUMNS = [
   'items',
   'date',
   'problems',
+  'type',
+  'assignee',
+  'points',
+  'priority',
+  'epic',
+  'labels',
+  'created',
+  'resolved',
+  'statusCategory',
+  'label',
+  'component',
+  'fixVersion',
+  'sprint',
+  'createdWeek',
+  'createdMonth',
+  'resolvedWeek',
+  'resolvedMonth',
+  'count',
+  'avg_cycle_time',
+  'p85_cycle_time',
+  'avg_age',
 ] as const;
 
 /** `dashboards.empty.*`: why a widget has nothing to show. */
-export const DASHBOARD_EMPTY_REASONS = ['no_sprint', 'no_data', 'no_estimates'] as const;
+export const DASHBOARD_EMPTY_REASONS = [
+  'no_sprint',
+  'no_data',
+  'no_estimates',
+  'no_match',
+  'unavailable',
+] as const;
 
 /** `dashboards.hints.*`: the line under a KPI value. */
 export const DASHBOARD_HINTS = [
@@ -78,4 +106,15 @@ export const DASHBOARD_SERIES = [
   'wip',
   'todo',
   'inProgress',
+  'count',
+  'points',
+  'avg_cycle_time',
+  'p85_cycle_time',
+  'avg_age',
 ] as const;
+
+/** `dashboards.query.groups.*`: group tokens in query results (`@none` → `none`). */
+export const QUERY_GROUPS = ['none', 'other', 'todo', 'in_progress', 'done'] as const;
+
+/** `dashboards.query.notes.*`: footnotes under a widget. */
+export const DASHBOARD_NOTES = ['pointsAsCount', 'fieldsSyncing', 'multiValued', 'capped'] as const;

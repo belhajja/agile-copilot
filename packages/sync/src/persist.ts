@@ -120,6 +120,12 @@ export async function saveIssues(
         jiraCreatedAt: i.createdAt,
         jiraUpdatedAt: i.updatedAt,
         resolvedAt: i.resolvedAt,
+        labels: i.labels,
+        components: i.components,
+        fixVersions: i.fixVersions,
+        priority: i.priority,
+        epicKey: i.epicKey,
+        epicName: i.epicName,
         syncedAt,
       })),
     )
@@ -137,6 +143,12 @@ export async function saveIssues(
         jiraCreatedAt: excluded('jira_created_at'),
         jiraUpdatedAt: excluded('jira_updated_at'),
         resolvedAt: excluded('resolved_at'),
+        labels: excluded('labels'),
+        components: excluded('components'),
+        fixVersions: excluded('fix_versions'),
+        priority: excluded('priority'),
+        epicKey: excluded('epic_key'),
+        epicName: sql`coalesce(excluded.epic_name, case when excluded.epic_key is not distinct from ${jiraIssues.epicKey} then ${jiraIssues.epicName} end)`,
         syncedAt: excluded('synced_at'),
       },
     })
@@ -169,6 +181,26 @@ export async function saveIssues(
   if (changes.length > 0) await tx.insert(jiraIssueChanges).values(changes);
   if (membership.length > 0) await tx.insert(jiraSprintIssues).values(membership);
   return ids;
+}
+
+/** Epic names looked up after a board's issues are saved (Data Center keeps only the key). */
+export async function saveEpicNames(
+  tx: Tx,
+  connectionId: string,
+  names: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [key, name] of names) {
+    await tx
+      .update(jiraIssues)
+      .set({ epicName: name })
+      .where(
+        and(
+          eq(jiraIssues.connectionId, connectionId),
+          eq(jiraIssues.epicKey, key),
+          sql`${jiraIssues.epicName} is distinct from ${name}`,
+        ),
+      );
+  }
 }
 
 /** After a full read of a board: unlink issues that no longer match its filter. */

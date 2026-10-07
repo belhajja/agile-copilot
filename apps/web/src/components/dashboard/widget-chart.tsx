@@ -8,8 +8,11 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -21,6 +24,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
+import { useGroupLabel } from './group-label';
+import { MONTH_FORMAT, monthStart } from './month-label';
 import type { SeriesData } from './types';
 
 // Theme chart colours (distinct hues in light and dark themes).
@@ -39,6 +44,7 @@ export function WidgetChart({
 }) {
   const format = useFormatter();
   const t = useTranslations('dashboards');
+  const groupLabel = useGroupLabel();
   // Series are told apart by more than colour: every second bar/area series is hatched, and
   // reference lines (ideal, scope) are dashed, as are lines past the palette (compared sprints).
   const uid = useId().replace(/:/g, '');
@@ -73,6 +79,9 @@ export function WidgetChart({
     const text = String(value);
     const sprintDay = data.x === 'day' ? SPRINT_DAY.exec(text) : null;
     if (sprintDay) return t('sprintDay', { day: Number(sprintDay[1]) });
+    if (text.startsWith('@')) return groupLabel(text);
+    const month = monthStart(data.x, text);
+    if (month) return format.dateTime(month, MONTH_FORMAT);
     return DAY.test(text)
       ? format.dateTime(new Date(`${text}T00:00:00Z`), {
           month: 'short',
@@ -101,6 +110,37 @@ export function WidgetChart({
     />,
     <ChartLegend key="legend" content={<ChartLegendContent />} />,
   ];
+
+  if (data.chart === 'pie') {
+    const [measure] = data.series;
+    const slices = data.rows.map((row, i) => ({
+      key: `${i}-${tick(row[data.x])}`,
+      name: tick(row[data.x]),
+      value: Number(measure ? (row[measure.key] ?? 0) : 0),
+      fill: `var(--chart-${PALETTE[i % PALETTE.length]})`,
+    }));
+    const pieConfig = Object.fromEntries(
+      slices.map((s) => [s.name, { label: s.name }]),
+    ) satisfies ChartConfig;
+    return (
+      <ChartContainer config={pieConfig} className="mx-auto aspect-square h-[250px]">
+        <PieChart>
+          <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+          <Pie data={slices} dataKey="value" nameKey="name" innerRadius={50} strokeWidth={2}>
+            {slices.map((s, i) => (
+              // Slices past the palette repeat a colour: dash their outline to tell them apart.
+              <Cell
+                key={s.key}
+                fill={s.fill}
+                strokeDasharray={i >= PALETTE.length ? '4 2' : undefined}
+              />
+            ))}
+          </Pie>
+          <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+        </PieChart>
+      </ChartContainer>
+    );
+  }
 
   return (
     <ChartContainer config={config} className="aspect-auto h-[250px] w-full">
