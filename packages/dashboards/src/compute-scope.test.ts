@@ -158,16 +158,14 @@ describe('computeWidget with a sprint selection', () => {
     }
   });
 
-  it('no selection: the same output as today', () => {
-    for (const w of [
-      { id: 'v', metric: 'velocity', chart: 'bar' },
-      { id: 'a', metric: 'average_velocity', chart: 'kpi' },
-      { id: 'b', metric: 'sprint_burndown', chart: 'line' },
-    ]) {
-      expect(computeWidget(spec(w), all, NOW, undefined)).toEqual(computeWidget(spec(w), all, NOW));
-      expect(computeWidget(spec(w), all, NOW, { sprints: [] })).toEqual(
-        computeWidget(spec(w), all, NOW),
-      );
+  it('no selection: the same output as today, for every metric', () => {
+    for (const option of widgetSpecSchema.options) {
+      for (const chart of option.shape.chart.options) {
+        const w = spec({ id: 'x', metric: option.shape.metric.value, chart });
+        const today = computeWidget(w, all, NOW);
+        expect(computeWidget(w, all, NOW, undefined)).toEqual(today);
+        expect(computeWidget(w, all, NOW, { sprints: [] })).toEqual(today);
+      }
     }
   });
 
