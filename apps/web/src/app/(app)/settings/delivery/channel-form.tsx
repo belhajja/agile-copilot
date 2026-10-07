@@ -64,27 +64,29 @@ export function ChannelForm() {
           }}
         >
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="kind">{t('kind')}</FieldLabel>
-              <NativeSelect
-                id="kind"
-                name="kind"
-                value={kind}
-                onChange={(e) => setKind(e.target.value as Kind)}
-              >
-                {KINDS.map((k) => (
-                  <NativeSelectOption key={k} value={k}>
-                    {t(`kinds.${k}`)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="channel-name">{t('name')}</FieldLabel>
-              <Input id="channel-name" name="name" required maxLength={80} />
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="kind">{t('kind')}</FieldLabel>
+                <NativeSelect
+                  id="kind"
+                  name="kind"
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as Kind)}
+                >
+                  {KINDS.map((k) => (
+                    <NativeSelectOption key={k} value={k}>
+                      {t(`kinds.${k}`)}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="channel-name">{t('name')}</FieldLabel>
+                <Input id="channel-name" name="name" required maxLength={80} />
+              </Field>
+            </div>
             {kind === 'smtp' ? (
-              <>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="host">{t('host')}</FieldLabel>
                   <Input id="host" name="host" required placeholder="smtp.example.com" />
@@ -116,7 +118,7 @@ export function ChannelForm() {
                   <Input id="from" name="from" type="email" required />
                   <FieldDescription>{t('smtpHint')}</FieldDescription>
                 </Field>
-              </>
+              </div>
             ) : (
               <Field>
                 <FieldLabel htmlFor="url">{t('url')}</FieldLabel>
@@ -125,11 +127,11 @@ export function ChannelForm() {
               </Field>
             )}
             {errorText && <FieldError>{errorText}</FieldError>}
-            <Field>
+            <div>
               <Button type="submit" disabled={pending}>
                 {t('submit')}
               </Button>
-            </Field>
+            </div>
           </FieldGroup>
         </form>
       </CardContent>

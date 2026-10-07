@@ -5,6 +5,7 @@ import { LayoutGrid } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import { getFormatter, getTranslations } from 'next-intl/server';
 import { z } from 'zod';
+import { SettingsPage } from '@/components/settings/settings-page';
 import {
   Empty,
   EmptyContent,
@@ -59,16 +60,14 @@ export default async function JiraConnectionBoardsPage({
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{connection.name}</h1>
-          <p className="text-muted-foreground">{t('description')}</p>
-        </div>
-        {boards.length > 0 && canManage && (
-          <DiscoverBoardsButton connectionId={connectionId} label={t('refresh')} />
-        )}
-      </div>
+    <SettingsPage
+      title={connection.name}
+      description={t('description')}
+      actions={
+        boards.length > 0 &&
+        canManage && <DiscoverBoardsButton connectionId={connectionId} label={t('refresh')} />
+      }
+    >
       <SyncControls
         connectionId={connectionId}
         status={state.status}
@@ -111,6 +110,6 @@ export default async function JiraConnectionBoardsPage({
           canManage={canManage}
         />
       ))}
-    </div>
+    </SettingsPage>
   );
 }

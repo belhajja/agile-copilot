@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 import { getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,11 +43,7 @@ export default async function AccountPage({
   const code = ssoErrorOf(error);
   const reason = code === 'unknown' ? null : code;
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">{session.user.email}</p>
-      </div>
+    <SettingsPage title={t('title')} description={session.user.email}>
       <Card>
         <CardHeader>
           <CardTitle>{t('signInMethods')}</CardTitle>
@@ -78,6 +75,6 @@ export default async function AccountPage({
         email={session.user.email}
         exportError={allowedCode(exportError, EXPORT_ERROR_CODES)}
       />
-    </div>
+    </SettingsPage>
   );
 }

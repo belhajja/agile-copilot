@@ -266,16 +266,17 @@
     "deleteTitle": "Remove this AI model?",
     "deleteDescription": "The key for {label} will be deleted. If it was the default, the most recently added model becomes the default.",
     "cancel": "Cancel",
-    "inputPrice": "Input, per 1M tokens",
-    "outputPrice": "Output, per 1M tokens",
+    "inputPrice": "Input / 1M tokens",
+    "outputPrice": "Output / 1M tokens",
     "savePrices": "Save prices",
     "pricesSaved": "Prices saved.",
     "pricesInvalid": "Enter prices as numbers up to 1,000 with at most 6 decimals, e.g. 3 or 0.15.",
-    "pricesHint": "Optional: your provider’s prices, to show the assistant’s cost.",
+    "pricesHint": "Your provider’s prices, to show the assistant’s cost on the Usage page.",
     "background": "Skill runs",
     "useForBackground": "Use for skill runs",
     "useDefaultForBackground": "Use the default for skill runs",
-    "backgroundSaved": "Skill runs model updated."
+    "backgroundSaved": "Skill runs model updated.",
+    "pricesTitle": "Prices (optional)"
   },
   "boards": {
     "description": "Choose the boards to sync and how their statuses map to To do, In progress and Done.",

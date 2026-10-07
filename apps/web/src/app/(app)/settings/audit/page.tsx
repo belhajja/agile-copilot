@@ -1,6 +1,7 @@
 import { can } from '@agile/auth';
 import { recentAuditEntries } from '@agile/privacy';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -35,11 +36,7 @@ export default async function AuditPage({
   const format = await getFormatter();
   const entries = await recentAuditEntries(services().db, actor, 50);
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-muted-foreground">{t('intro')}</p>
-      </div>
+    <SettingsPage title={t('title')} description={t('intro')}>
       {failure && (
         <p role="alert" className="text-sm text-destructive">
           {t(`errors.${failure}`)}
@@ -97,6 +94,6 @@ export default async function AuditPage({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </SettingsPage>
   );
 }

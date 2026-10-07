@@ -2,16 +2,9 @@ import type { LlmConnectionView } from '@agile/connections';
 import { Bot } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 import { ConfirmDeleteButton } from '@/components/confirm-delete-button';
+import { ConnectionCard, ConnectionCardSection } from '@/components/settings/connection-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from '@/components/ui/item';
 import { allowedCode } from '@/lib/error-code';
 import {
   deleteLlmConnectionAction,
@@ -33,13 +26,11 @@ export async function LlmConnectionItem({
   const t = await getTranslations('llm');
   const status = { ok: t('connected'), error: t('failing'), untested: t('untested') }[c.status];
   return (
-    <Item variant="outline">
-      <ItemMedia variant="icon">
-        <Bot />
-      </ItemMedia>
-      <ItemContent>
-        <ItemTitle>
-          {c.label}
+    <ConnectionCard
+      icon={<Bot />}
+      title={c.label}
+      badges={
+        <>
           <Badge
             variant={
               c.status === 'ok' ? 'default' : c.status === 'error' ? 'destructive' : 'secondary'
@@ -49,40 +40,41 @@ export async function LlmConnectionItem({
           </Badge>
           {c.isDefault && <Badge variant="outline">{t('default')}</Badge>}
           {c.isBackground && <Badge variant="outline">{t('background')}</Badge>}
-        </ItemTitle>
-        <ItemDescription>
+        </>
+      }
+      details={
+        <>
           {t(`providers.${c.provider}`)} · {c.model}
           {c.keyHint ? ` · ${c.keyHint}` : ''}
-        </ItemDescription>
-        {c.lastError && (
-          <p className="text-sm text-destructive">
-            {t(`errors.${allowedCode(c.lastError, LLM_ERROR_CODES) ?? 'unknown'}`)}
-          </p>
-        )}
-        {canManage && (
-          <LlmPriceForm
-            id={c.id}
-            inputMicros={c.inputPriceMicros}
-            outputMicros={c.outputPriceMicros}
-          />
-        )}
-      </ItemContent>
-      {canManage && (
-        <ItemActions className="flex-wrap">
-          {!c.isDefault && (
-            <form action={setDefaultLlmConnectionAction.bind(null, c.id)}>
+        </>
+      }
+      error={
+        c.lastError
+          ? t(`errors.${allowedCode(c.lastError, LLM_ERROR_CODES) ?? 'unknown'}`)
+          : undefined
+      }
+      actions={
+        canManage && (
+          <>
+            <ChangeModelButton id={c.id} model={c.model} />
+            <form action={retestLlmConnectionAction.bind(null, c.id)}>
               <Button variant="outline" size="sm">
-                {t('makeDefault')}
+                {t('retest')}
               </Button>
             </form>
-          )}
-          <BackgroundModelButton id={c.id} isBackground={c.isBackground} />
-          <ChangeModelButton id={c.id} model={c.model} />
-          <form action={retestLlmConnectionAction.bind(null, c.id)}>
-            <Button variant="outline" size="sm">
-              {t('retest')}
-            </Button>
-          </form>
+            {!c.isDefault && (
+              <form action={setDefaultLlmConnectionAction.bind(null, c.id)}>
+                <Button variant="outline" size="sm">
+                  {t('makeDefault')}
+                </Button>
+              </form>
+            )}
+            <BackgroundModelButton id={c.id} isBackground={c.isBackground} />
+          </>
+        )
+      }
+      danger={
+        canManage && (
           <ConfirmDeleteButton
             onConfirm={deleteLlmConnectionAction.bind(null, c.id)}
             labels={{
@@ -93,8 +85,18 @@ export async function LlmConnectionItem({
               cancel: t('cancel'),
             }}
           />
-        </ItemActions>
+        )
+      }
+    >
+      {canManage && (
+        <ConnectionCardSection title={t('pricesTitle')} description={t('pricesHint')}>
+          <LlmPriceForm
+            id={c.id}
+            inputMicros={c.inputPriceMicros}
+            outputMicros={c.outputPriceMicros}
+          />
+        </ConnectionCardSection>
       )}
-    </Item>
+    </ConnectionCard>
   );
 }
