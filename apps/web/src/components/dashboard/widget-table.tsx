@@ -1,4 +1,4 @@
-import { getFormatter, getTranslations } from 'next-intl/server';
+import { useFormatter, useTranslations } from 'next-intl';
 import {
   Table,
   TableBody,
@@ -9,13 +9,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { allowedCode } from '@/lib/error-code';
+import { useGroupLabel } from './group-label';
 import { DASHBOARD_CODES, DASHBOARD_COLUMNS } from './message-keys';
 import type { TableData } from './types';
 import { visibleRows } from './visible-rows';
 
-export async function WidgetTable({ data }: { data: TableData }) {
-  const t = await getTranslations('dashboards');
-  const format = await getFormatter();
+/** Rows can repeat their first cell (a list sorted by status): keys carry the position too. */
+const keyedRows = (rows: TableData['rows']) =>
+  rows.map((row, i) => ({ row, key: `${i}-${String(row[0])}` }));
+
+export function WidgetTable({ data }: { data: TableData }) {
+  const t = useTranslations('dashboards');
+  const format = useFormatter();
+  const groupLabel = useGroupLabel();
   const columnLabel = (key: string) => {
     const known = allowedCode(key, DASHBOARD_COLUMNS);
     return known ? t(`columns.${known}`) : key;
@@ -52,7 +58,7 @@ export async function WidgetTable({ data }: { data: TableData }) {
       case 'codes':
         return String(value).split(',').map(code).join(', ');
       default:
-        return String(value);
+        return groupLabel(String(value));
     }
   };
   const { rows, truncated } = visibleRows(data.rows);
@@ -69,13 +75,13 @@ export async function WidgetTable({ data }: { data: TableData }) {
       <TableHeader>
         <TableRow>
           {data.columns.map((c) => (
-            <TableHead key={c.key}>{columnLabel(c.key)}</TableHead>
+            <TableHead key={c.key}>{c.label ? groupLabel(c.label) : columnLabel(c.key)}</TableHead>
           ))}
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((row) => (
-          <TableRow key={String(row[0])}>
+        {keyedRows(rows).map(({ row, key }) => (
+          <TableRow key={key}>
             {data.columns.map((c, j) => (
               <TableCell
                 key={c.key}

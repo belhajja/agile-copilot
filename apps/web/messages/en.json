@@ -451,6 +451,10 @@
       "hygiene": {
         "title": "Needs attention",
         "description": "Stale, unestimated, unassigned or oversized open issues."
+      },
+      "query": {
+        "title": "Board query",
+        "description": "Built with the assistant."
       }
     },
     "series": {
@@ -462,7 +466,12 @@
       "done": "Done",
       "wip": "In progress",
       "todo": "To do",
-      "inProgress": "In progress"
+      "inProgress": "In progress",
+      "count": "Issues",
+      "points": "Points",
+      "avg_cycle_time": "Avg cycle time",
+      "p85_cycle_time": "Cycle time (85th)",
+      "avg_age": "Avg age"
     },
     "columns": {
       "percentile": "Percentile",
@@ -474,7 +483,28 @@
       "confidence": "Confidence",
       "items": "At least",
       "date": "By",
-      "problems": "Problems"
+      "problems": "Problems",
+      "type": "Type",
+      "assignee": "Assignee",
+      "points": "Points",
+      "priority": "Priority",
+      "epic": "Epic",
+      "labels": "Labels",
+      "created": "Created",
+      "resolved": "Done",
+      "statusCategory": "Category",
+      "label": "Label",
+      "component": "Component",
+      "fixVersion": "Fix version",
+      "sprint": "Sprint",
+      "createdWeek": "Week created",
+      "createdMonth": "Month created",
+      "resolvedWeek": "Week done",
+      "resolvedMonth": "Month done",
+      "count": "Issues",
+      "avg_cycle_time": "Avg cycle time",
+      "p85_cycle_time": "Cycle time (85th)",
+      "avg_age": "Avg age"
     },
     "codes": {
       "blocked": "Blocked",
@@ -506,7 +536,24 @@
     "empty": {
       "no_sprint": "No sprint to show yet.",
       "no_data": "Not enough data yet.",
-      "no_estimates": "This board has no estimates."
+      "no_estimates": "This board has no estimates.",
+      "no_match": "No issue matches.",
+      "unavailable": "This widget can’t be shown anymore. Ask the assistant for a new one."
+    },
+    "query": {
+      "groups": {
+        "none": "None",
+        "other": "Other",
+        "todo": "To do",
+        "in_progress": "In progress",
+        "done": "Done"
+      },
+      "notes": {
+        "pointsAsCount": "This board has no estimates: issues are counted.",
+        "fieldsSyncing": "Some fields are still syncing; results may be incomplete.",
+        "multiValued": "Issues with several values count in each group.",
+        "capped": "Showing {shown} of {total}."
+      }
     },
     "notEnoughData": "Not enough data yet",
     "notSprintFiltered": "Not filtered by sprint",

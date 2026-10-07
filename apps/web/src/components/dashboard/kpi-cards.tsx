@@ -1,39 +1,35 @@
-import type { KpiFormat } from '@agile/dashboards';
-import { getFormatter, getTranslations } from 'next-intl/server';
+import { useTranslations } from 'next-intl';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { allowedCode } from '@/lib/error-code';
 import { DASHBOARD_EMPTY_REASONS, DASHBOARD_HINTS, DASHBOARD_METRICS } from './message-keys';
 import { RemoveWidget, type WidgetRemoval } from './remove-widget';
 import type { RenderedWidget } from './types';
+import { useKpiText, WidgetNotes } from './widget-body';
 
 /** Sprint names can repeat: keys carry the position too. */
 const keyed = <T extends { label: string }>(items: T[]) =>
   items.map((item, i) => ({ ...item, key: `${i}-${item.label}` }));
 
 /** KPI row, adapted from the shadcn dashboard-01 block's SectionCards. */
-export async function KpiCards({
+export function KpiCards({
   widgets,
   removal,
 }: {
   widgets: RenderedWidget[];
   removal?: WidgetRemoval;
 }) {
-  const t = await getTranslations('dashboards');
-  const format = await getFormatter();
+  const t = useTranslations('dashboards');
+  const formatted = useKpiText();
 
   const title = ({ spec }: RenderedWidget): string => {
     const metric = allowedCode(spec.metric, DASHBOARD_METRICS);
-    return spec.title ?? (metric ? t(`metrics.${metric}.title`, spec.params) : spec.metric);
-  };
-  const formatted = (kpiFormat: KpiFormat, v: number | null): string => {
-    if (v === null) return '—';
-    if (kpiFormat === 'percent') {
-      return format.number(v, { style: 'percent', maximumFractionDigits: 0 });
-    }
-    return t(`units.${kpiFormat}`, {
-      count: v,
-      value: format.number(v, { maximumFractionDigits: 1 }),
-    });
+    // A query widget's params hold filters, not translation values: the title has none to fill in.
+    return (
+      spec.title ??
+      (metric
+        ? t(`metrics.${metric}.title`, spec.metric === 'query' ? undefined : spec.params)
+        : spec.metric)
+    );
   };
   const value = ({ data }: RenderedWidget): string =>
     data.kind === 'kpi' ? formatted(data.format, data.value) : '—';
@@ -77,6 +73,7 @@ export async function KpiCards({
                 ))}
               </ul>
             )}
+            <WidgetNotes data={w.data} />
             {w.data.unfiltered && (
               <div className="text-xs text-muted-foreground" data-unfiltered>
                 {t('notSprintFiltered')}

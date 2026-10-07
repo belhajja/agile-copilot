@@ -1,29 +1,27 @@
-import { getTranslations } from 'next-intl/server';
+import { useTranslations } from 'next-intl';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { allowedCode } from '@/lib/error-code';
-import { DASHBOARD_EMPTY_REASONS, DASHBOARD_METRICS, DASHBOARD_SERIES } from './message-keys';
+import { DASHBOARD_METRICS } from './message-keys';
 import { RemoveWidget, type WidgetRemoval } from './remove-widget';
 import type { RenderedWidget } from './types';
-import { WidgetChart } from './widget-chart';
-import { WidgetTable } from './widget-table';
+import { WidgetBody, WidgetNotes } from './widget-body';
 
-export async function WidgetCard({
+export function WidgetCard({
   widget,
   removal,
 }: {
   widget: RenderedWidget;
   removal?: WidgetRemoval;
 }) {
-  const t = await getTranslations('dashboards');
+  const t = useTranslations('dashboards');
   const { spec, data } = widget;
   const metric = allowedCode(spec.metric, DASHBOARD_METRICS);
-  const emptyReason =
-    data.kind === 'empty' ? allowedCode(data.reason, DASHBOARD_EMPTY_REASONS) : null;
-  const seriesLabel = (key: string) => {
-    const known = allowedCode(key, DASHBOARD_SERIES);
-    return known ? t(`series.${known}`) : key;
-  };
-  const title = spec.title ?? (metric ? t(`metrics.${metric}.title`, spec.params) : spec.metric);
+  // A query widget's params hold filters, not translation values: the title has none to fill in.
+  const title =
+    spec.title ??
+    (metric
+      ? t(`metrics.${metric}.title`, spec.metric === 'query' ? undefined : spec.params)
+      : spec.metric);
   return (
     <Card data-widget={spec.id} className="min-w-0 @container/card">
       <CardHeader>
@@ -32,21 +30,11 @@ export async function WidgetCard({
         {removal && <RemoveWidget removal={removal} widgetId={spec.id} />}
       </CardHeader>
       <CardContent className="overflow-x-auto px-2 sm:px-6">
-        {data.kind === 'series' && (
-          <WidgetChart
-            data={data}
-            labels={Object.fromEntries(
-              data.series.map((s) => [s.key, s.label ?? seriesLabel(s.key)]),
-            )}
-          />
-        )}
-        {data.kind === 'table' && <WidgetTable data={data} />}
-        {data.kind === 'empty' && (
-          <p className="text-sm text-muted-foreground">
-            {emptyReason ? t(`empty.${emptyReason}`) : t('notEnoughData')}
-          </p>
-        )}
+        {data.kind !== 'kpi' && <WidgetBody data={data} />}
       </CardContent>
+      <div className="px-6 pb-2">
+        <WidgetNotes data={data} />
+      </div>
       {data.unfiltered && (
         <p className="px-6 pb-4 text-xs text-muted-foreground" data-unfiltered>
           {t('notSprintFiltered')}

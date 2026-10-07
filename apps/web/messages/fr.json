@@ -451,6 +451,10 @@
       "hygiene": {
         "title": "À surveiller",
         "description": "Tickets ouverts inactifs, non estimés, non assignés ou trop gros."
+      },
+      "query": {
+        "title": "Requête sur le tableau",
+        "description": "Créée avec l’assistant."
       }
     },
     "series": {
@@ -462,7 +466,12 @@
       "done": "Terminé",
       "wip": "En cours",
       "todo": "À faire",
-      "inProgress": "En cours"
+      "inProgress": "En cours",
+      "count": "Tickets",
+      "points": "Points",
+      "avg_cycle_time": "Cycle time moyen",
+      "p85_cycle_time": "Cycle time (85e)",
+      "avg_age": "Âge moyen"
     },
     "columns": {
       "percentile": "Centile",
@@ -474,7 +483,28 @@
       "confidence": "Confiance",
       "items": "Au moins",
       "date": "D'ici le",
-      "problems": "Problèmes"
+      "problems": "Problèmes",
+      "type": "Type",
+      "assignee": "Responsable",
+      "points": "Points",
+      "priority": "Priorité",
+      "epic": "Epic",
+      "labels": "Étiquettes",
+      "created": "Créé le",
+      "resolved": "Terminé le",
+      "statusCategory": "Catégorie",
+      "label": "Étiquette",
+      "component": "Composant",
+      "fixVersion": "Version corrective",
+      "sprint": "Sprint",
+      "createdWeek": "Semaine de création",
+      "createdMonth": "Mois de création",
+      "resolvedWeek": "Semaine de fin",
+      "resolvedMonth": "Mois de fin",
+      "count": "Tickets",
+      "avg_cycle_time": "Cycle time moyen",
+      "p85_cycle_time": "Cycle time (85e)",
+      "avg_age": "Âge moyen"
     },
     "codes": {
       "blocked": "Bloqué",
@@ -506,7 +536,24 @@
     "empty": {
       "no_sprint": "Aucun sprint à afficher.",
       "no_data": "Pas encore assez de données.",
-      "no_estimates": "Ce tableau n'a pas d'estimations."
+      "no_estimates": "Ce tableau n'a pas d'estimations.",
+      "no_match": "Aucun ticket ne correspond.",
+      "unavailable": "Ce widget ne peut plus être affiché. Demandez-en un nouveau à l’assistant."
+    },
+    "query": {
+      "groups": {
+        "none": "Aucun",
+        "other": "Autres",
+        "todo": "À faire",
+        "in_progress": "En cours",
+        "done": "Terminé"
+      },
+      "notes": {
+        "pointsAsCount": "Ce tableau n’a pas d’estimations : les tickets sont comptés.",
+        "fieldsSyncing": "Certains champs sont en cours de synchronisation ; les résultats peuvent être incomplets.",
+        "multiValued": "Un ticket à plusieurs valeurs compte dans chaque groupe.",
+        "capped": "{shown} affichés sur {total}."
+      }
     },
     "notEnoughData": "Pas encore assez de données",
     "notSprintFiltered": "Non filtré par sprint",
