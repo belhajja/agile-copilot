@@ -25,6 +25,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 export interface StatusMapping {
   category: StatusCategory;
   blocked: boolean;
+  /** Jira's status name. */
+  name?: string;
 }
 
 type IssueRow = typeof jiraIssues.$inferSelect;
@@ -101,6 +103,13 @@ export function toMetricIssue(
       .map((c) => ({ at: c.at, from: num(c.fromValue), to: num(c.toValue) })),
     statusPeriods: periods,
     flagged,
+    status: mappings.get(issue.statusId)?.name ?? '',
+    labels: issue.labels,
+    components: issue.components,
+    fixVersions: issue.fixVersions,
+    priority: issue.priority,
+    epicKey: issue.epicKey,
+    epicName: issue.epicName,
   };
 }
 
@@ -122,7 +131,7 @@ export async function loadBoardDataset(
     const mappings = new Map(
       (
         await tx.select().from(jiraStatusMappings).where(eq(jiraStatusMappings.boardId, boardId))
-      ).map((m) => [m.jiraStatusId, { category: m.category, blocked: m.blocked }]),
+      ).map((m) => [m.jiraStatusId, { category: m.category, blocked: m.blocked, name: m.statusName }]),
     );
     const onBoard = (issueCol: typeof jiraIssues.id | typeof jiraIssueTransitions.issueId) =>
       and(eq(jiraBoardIssues.boardId, boardId), eq(jiraBoardIssues.issueId, issueCol));
@@ -228,6 +237,8 @@ export async function loadBoardDataset(
             .map((m) => ({ issueId: m.issueId, addedAt: m.addedAt, removedAt: m.removedAt })),
         }),
       ),
+      // The migration that added labels, epics… resets this: until a full sync, they are empty.
+      fieldsSynced: board.lastFullSyncAt !== null,
     };
   });
 }

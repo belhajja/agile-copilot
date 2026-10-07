@@ -19,6 +19,12 @@ const issue = {
   jiraUpdatedAt: t('2026-01-09T00:00:00Z'),
   resolvedAt: null,
   syncedAt: t('2026-01-10T00:00:00Z'),
+  labels: [],
+  components: [],
+  fixVersions: [],
+  priority: null,
+  epicKey: null,
+  epicName: null,
 };
 const mappings = new Map<string, StatusMapping>([
   ['1', { category: 'todo', blocked: false }],
@@ -90,5 +96,23 @@ describe('toMetricIssue', () => {
       { from: t('2026-01-04T00:00:00Z'), to: null },
     ]);
     expect(m.estimateChanges).toEqual([{ at: t('2026-01-03T00:00:00Z'), from: 3, to: 5 }]);
+  });
+
+  it('carries the query fields and the current status name', () => {
+    const m = toMetricIssue(
+      { ...issue, labels: ['ui'], components: ['Web'], fixVersions: ['1.0'], priority: 'High', epicKey: 'E-1', epicName: 'Checkout' },
+      [],
+      [],
+      new Map<string, StatusMapping>([['4', { category: 'done', blocked: false, name: 'Done' }]]),
+    );
+    expect(m).toMatchObject({
+      status: 'Done',
+      labels: ['ui'],
+      components: ['Web'],
+      fixVersions: ['1.0'],
+      priority: 'High',
+      epicKey: 'E-1',
+      epicName: 'Checkout',
+    });
   });
 });
