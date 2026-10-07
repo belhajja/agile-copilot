@@ -38,6 +38,9 @@ describe('selectIssues', () => {
     expect(keys({ sprints: ['active'] })).toEqual(['C', 'D']);
     expect(keys({ sprints: [{ lastClosed: 2 }] })).toEqual(['A', 'B', 'C']);
     expect(keys({ sprints: [{ id: 's1' }] })).toEqual(['A']);
+    // list_sprints gives the model Jira's sprint number: as text or as a number.
+    expect(keys({ sprints: [{ id: '102' }] })).toEqual(['B', 'C']);
+    expect(keys({ sprints: [{ id: 102 }] })).toEqual(['B', 'C']);
     expect(keys({ sprints: [{ id: 'nope' }] })).toEqual([]);
   });
 

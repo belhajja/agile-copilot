@@ -4,7 +4,7 @@ query = {
   title: short card title (≤ 80 chars),
   filter?: { types?, statuses?, priorities?, labels?, components?, fixVersions?, epics? (keys or names): string[] (≤ 10 each, case-insensitive);
              statusCategory?: ("todo"|"in_progress"|"done")[]; assignees?: (display name | null for unassigned)[];
-             sprints?: ("active" | "last_closed" | {lastClosed: n≤20} | {id: sprint id from list_sprints})[];
+             sprints?: ("active" | "last_closed" | {lastClosed: n≤20} | {id: the sprint number (jiraSprintId) from list_sprints})[];
              created?, resolved?: {lastDays: n≤730} | {sinceSprintsAgo: n≤20} },
   groupBy?: 1–2 of type, status, statusCategory, assignee, label, epic, priority, component, fixVersion, sprint, createdWeek, createdMonth, resolvedWeek, resolvedMonth,
   measure?: count (default) | points | avg_cycle_time | p85_cycle_time | avg_age,

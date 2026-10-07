@@ -46,7 +46,9 @@ export function resolveSprints(ds: BoardDataset, refs: readonly SprintRef[]): Me
           ? closed.slice(0, 1)
           : 'lastClosed' in ref
             ? closed.slice(0, ref.lastClosed)
-            : ds.sprints.filter((s) => s.id === ref.id);
+            : ds.sprints.filter(
+                (s) => s.id === String(ref.id) || String(s.jiraSprintId) === String(ref.id),
+              );
     for (const s of picked) found.set(s.id, s);
   }
   return [...found.values()];

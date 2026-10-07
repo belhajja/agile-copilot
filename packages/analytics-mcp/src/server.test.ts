@@ -176,6 +176,26 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
     }
   });
 
+  it('finds a sprint by the number list_sprints shows', async () => {
+    const mcp = await connect('org_a');
+    const listed = await mcp.call('list_sprints', { boardId: scrumId });
+    const sprint = (
+      listed.body as { sprints: { name: string; jiraSprintId: number }[] }
+    ).sprints.find((s) => s.name === 'DEMO Sprint 1');
+    if (!sprint) throw new Error('DEMO Sprint 1 not listed');
+    const r = await mcp.call('query_board', {
+      boardId: scrumId,
+      query: {
+        title: 'Sprint 1 issues',
+        display: 'kpi',
+        filter: { sprints: [{ id: sprint.jiraSprintId }] },
+      },
+    });
+    expect(r.isError).toBe(false);
+    expect((r.body as { data: { value: number } }).data.value).toBeGreaterThan(0);
+    await mcp.close();
+  });
+
   it('runs board queries on synced data', async () => {
     const mcp = await connect('org_a');
     const ok = await mcp.call('query_board', {
