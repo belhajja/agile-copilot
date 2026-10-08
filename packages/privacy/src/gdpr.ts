@@ -12,6 +12,7 @@ import {
   organization,
   personalDataExports,
   recordAudit,
+  rows,
   session,
   skillRuns,
   skills,
@@ -65,7 +66,9 @@ type Query = Db | Tx;
  * `owner_user_id`), discovered at run time so tables added later are covered.
  */
 async function personalTables(q: Query): Promise<PersonalTable[]> {
-  return (await q.execute(sql`
+  return rows<PersonalTable>(
+    q,
+    sql`
     select c.table_name as "table", c.column_name as "column"
     from information_schema.columns c
     join information_schema.tables t
@@ -75,7 +78,8 @@ async function personalTables(q: Query): Promise<PersonalTable[]> {
       and exists (select 1 from information_schema.columns o
         where o.table_schema = 'public' and o.table_name = c.table_name and o.column_name = 'org_id')
     order by c.table_name, c.column_name
-  `)) as unknown as PersonalTable[];
+  `,
+  );
 }
 
 /**
@@ -100,10 +104,8 @@ interface Workspace {
  * RLS context in turn, one indexed probe per personal table; workspace ids only.
  */
 async function personOrgIds(q: Query, userId: string): Promise<string[]> {
-  const rows = (await q.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
-    id: string;
-  }[];
-  return rows.map((r) => r.id);
+  const ids = await rows<{ id: string }>(q, sql`select id from user_org_ids(${userId}) as id`);
+  return ids.map((r) => r.id);
 }
 
 /** Of `ids`, the workspaces that still exist and the person is no longer a member of. */
@@ -136,7 +138,9 @@ const SAFE_TYPE = /^[a-z][a-z0-9 _(),]*$/;
  * `ctid` when there is none or a type is unexpected.
  */
 async function pagingKeyOf(q: Query, table: string): Promise<KeyColumn[]> {
-  const rows = (await q.execute(sql`
+  const key = await rows<KeyColumn>(
+    q,
+    sql`
     select a.attname as "name", format_type(a.atttypid, a.atttypmod) as "type"
     from pg_index i
     join pg_class c on c.oid = i.indrelid
@@ -144,9 +148,10 @@ async function pagingKeyOf(q: Query, table: string): Promise<KeyColumn[]> {
     join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
     where n.nspname = 'public' and c.relname = ${table} and i.indisprimary
     order by array_position(i.indkey::int2[], a.attnum)
-  `)) as unknown as KeyColumn[];
-  if (rows.length === 0 || !rows.every((r) => SAFE_TYPE.test(r.type))) return CTID_KEY;
-  return rows;
+  `,
+  );
+  if (key.length === 0 || !key.every((r) => SAFE_TYPE.test(r.type))) return CTID_KEY;
+  return key;
 }
 
 const withoutSecrets = (row: Record<string, unknown>) =>
@@ -403,11 +408,12 @@ async function* workspaceSection(
       key.map((k) => sql`r.${sql.identifier(k.name)}`),
       sql`, `,
     );
-    const rows = paged(
+    const found = paged(
       (after: string[] | undefined) =>
-        inOrg(
-          async (tx) =>
-            (await tx.execute(sql`
+        inOrg((tx) =>
+          rows<{ key: string[]; row: Record<string, unknown> }>(
+            tx,
+            sql`
               select jsonb_build_array(${sql.join(
                 key.map((k) => sql`r.${sql.identifier(k.name)}::text`),
                 sql`, `,
@@ -424,12 +430,13 @@ async function* workspaceSection(
                 }
               order by ${cols}
               limit ${EXPORT_PAGE_SIZE}
-            `)) as unknown as { key: string[]; row: Record<string, unknown> }[],
+            `,
+          ),
         ),
       (r) => r.key,
     );
     let first = true;
-    for await (const r of rows) {
+    for await (const r of found) {
       if (first) yield `${firstTable ? '' : ','}${json(t.table)}:[`;
       else yield ',';
       first = false;

@@ -13,6 +13,7 @@ import {
   member,
   organization,
   personalDataExports,
+  rows,
   session,
   skillBuilderCalls,
   skillRuns,
@@ -388,11 +389,9 @@ describe('personal data: export and account deletion', () => {
 
     // The indexed lookup behind it (P5-R37): workspace ids only, for this person only.
     const orgIdsOf = async (userId: string) =>
-      (
-        (await app.db.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
-          id: string;
-        }[]
-      ).map((r) => r.id);
+      (await rows<{ id: string }>(app.db, sql`select id from user_org_ids(${userId}) as id`)).map(
+        (r) => r.id,
+      );
     expect(await orgIdsOf('u_dan')).toEqual(['org_3']);
     expect(await orgIdsOf('u_stranger')).toEqual([]);
 
