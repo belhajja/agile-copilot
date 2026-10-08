@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Table,
   TableBody,
@@ -137,7 +138,8 @@ export function StatusMappingForm({
         </CardContent>
         {canManage && (
           <CardFooter className="mt-4">
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending} aria-busy={pending}>
+              {pending && <Spinner aria-hidden />}
               {t('saveMapping')}
             </Button>
           </CardFooter>

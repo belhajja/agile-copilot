@@ -773,7 +773,8 @@
     "openDashboard": "Ouvrir le tableau de bord",
     "suggestion": {
       "title": "Enregistrer ceci comme compétence ?",
-      "open": "Ouvrir dans l’éditeur de compétences"
+      "open": "Ouvrir dans l’éditeur de compétences",
+      "waiting": "Disponible une fois la réponse terminée."
     },
     "model": {
       "button": "Modèle : {model}",
@@ -1320,5 +1321,16 @@
       "not_found": "Ce jeton n'existe plus.",
       "unknown": "Une erreur est survenue."
     }
+  },
+  "ui": {
+    "close": "Fermer",
+    "more": "Plus",
+    "loading": "Chargement",
+    "toggleSidebar": "Afficher ou masquer la barre latérale",
+    "sidebar": "Barre latérale",
+    "sidebarDescription": "Affiche la barre latérale mobile.",
+    "breadcrumb": "Fil d’Ariane",
+    "commandPalette": "Palette de commandes",
+    "commandPaletteDescription": "Recherchez une commande à exécuter…"
   }
 }

@@ -8,6 +8,7 @@ import { useEffect, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { allowedCode } from '@/lib/error-code';
 import { BOARD_ERROR_CODES } from '../error-codes';
 import { discoverBoardsAction, requestSyncAction } from './actions';
@@ -46,15 +47,20 @@ export function SyncControls({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Badge
-        variant={status === 'error' ? 'destructive' : status === 'ok' ? 'default' : 'secondary'}
-      >
-        {label}
-      </Badge>
-      {error && <span className="text-sm text-destructive">{error}</span>}
+      {/* Announces queued → running → synced/failed as the polling refreshes the label. */}
+      <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-3">
+        <Badge
+          variant={status === 'error' ? 'destructive' : status === 'ok' ? 'default' : 'secondary'}
+        >
+          {busy && <Spinner aria-hidden />}
+          {label}
+        </Badge>
+        {error && <span className="text-sm text-destructive">{error}</span>}
+      </div>
       {canManage && (
         <Button
           size="sm"
+          aria-busy={pending || busy}
           disabled={pending || busy || !hasSelection}
           onClick={() =>
             startTransition(async () => {
@@ -71,7 +77,7 @@ export function SyncControls({
             })
           }
         >
-          <RefreshCw />
+          <RefreshCw className={pending || busy ? 'animate-spin' : undefined} aria-hidden />
           {t('sync.now')}
         </Button>
       )}
@@ -96,6 +102,7 @@ export function DiscoverBoardsButton({
       size="sm"
       variant={variant}
       disabled={pending}
+      aria-busy={pending}
       onClick={() =>
         startTransition(async () => {
           const r = await discoverBoardsAction(connectionId);
@@ -105,6 +112,7 @@ export function DiscoverBoardsButton({
         })
       }
     >
+      {pending && <Spinner aria-hidden />}
       {label}
     </Button>
   );

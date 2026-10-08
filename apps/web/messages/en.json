@@ -773,7 +773,8 @@
     "openDashboard": "Open the dashboard",
     "suggestion": {
       "title": "Save this as a skill?",
-      "open": "Open in skill builder"
+      "open": "Open in skill builder",
+      "waiting": "Available once the reply has finished."
     },
     "model": {
       "button": "Model: {model}",
@@ -1320,5 +1321,16 @@
       "not_found": "This token no longer exists.",
       "unknown": "Something went wrong."
     }
+  },
+  "ui": {
+    "close": "Close",
+    "more": "More",
+    "loading": "Loading",
+    "toggleSidebar": "Toggle sidebar",
+    "sidebar": "Sidebar",
+    "sidebarDescription": "Displays the mobile sidebar.",
+    "breadcrumb": "Breadcrumb",
+    "commandPalette": "Command palette",
+    "commandPaletteDescription": "Search for a command to run…"
   }
 }

@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { pickCode } from '@/lib/error-code';
 import { type SettingsState, saveWorkspaceSettingsAction } from './actions';
 import { SETTINGS_ERROR_CODES } from './error-codes';
@@ -81,7 +82,8 @@ export function SettingsForm({
             {state.status === 'ok' && <p className="text-sm">{t('saved')}</p>}
             {canEdit && (
               <div>
-                <Button type="submit" disabled={pending}>
+                <Button type="submit" disabled={pending} aria-busy={pending}>
+                  {pending && <Spinner aria-hidden />}
                   {t('save')}
                 </Button>
               </div>

@@ -5,6 +5,7 @@ import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { type DeleteAccountState, deleteAccountAction } from './actions';
 
 const idle: DeleteAccountState = { status: 'idle' };
@@ -31,7 +32,8 @@ export function DeleteAccountForm({ email }: { email: string }) {
         </FieldError>
       )}
       <div>
-        <Button type="submit" variant="destructive" disabled={pending}>
+        <Button type="submit" variant="destructive" disabled={pending} aria-busy={pending}>
+          {pending && <Spinner aria-hidden />}
           {t('deleteButton')}
         </Button>
       </div>

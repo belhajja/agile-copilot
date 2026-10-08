@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldError } from '@/components/ui/field';
+import { Spinner } from '@/components/ui/spinner';
 import { useAuthErrorMessage } from '@/lib/auth-error';
 import { acceptInvitationAction, type InvitationState, rejectInvitationAction } from './actions';
 
@@ -25,12 +26,24 @@ export function InvitationButtons({ invitationId }: { invitationId: string }) {
     <Field>
       <div className="flex gap-2">
         <form action={accept} className="flex-1">
-          <Button type="submit" className="w-full" disabled={accepting || rejecting}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={accepting || rejecting}
+            aria-busy={accepting}
+          >
+            {accepting && <Spinner aria-hidden />}
             {t('accept')}
           </Button>
         </form>
         <form action={reject}>
-          <Button type="submit" variant="outline" disabled={accepting || rejecting}>
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={accepting || rejecting}
+            aria-busy={rejecting}
+          >
+            {rejecting && <Spinner aria-hidden />}
             {t('decline')}
           </Button>
         </form>

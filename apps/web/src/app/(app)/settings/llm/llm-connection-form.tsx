@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Spinner } from '@/components/ui/spinner';
 import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import {
   createLlmConnectionAction,
@@ -239,7 +240,8 @@ export function LlmConnectionForm() {
             </Field>
             {errorText && <FieldError>{errorText}</FieldError>}
             <div>
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending} aria-busy={pending}>
+                {pending && <Spinner aria-hidden />}
                 {t('submit')}
               </Button>
             </div>

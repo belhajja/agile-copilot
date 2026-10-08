@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Spinner } from '@/components/ui/spinner';
 import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import { createJiraConnectionAction, type FormState } from './actions';
 import { JIRA_ERROR_CODES } from './error-codes';
@@ -146,7 +147,8 @@ export function JiraConnectionForm({ oauthEnabled }: { oauthEnabled: boolean }) 
             )}
             {errorText && <FieldError>{errorText}</FieldError>}
             <div>
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending} aria-busy={pending}>
+                {pending && <Spinner aria-hidden />}
                 {t('submit')}
               </Button>
             </div>
