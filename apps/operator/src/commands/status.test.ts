@@ -20,6 +20,44 @@ describe('status', () => {
     expect(text).not.toMatch(/[0-9a-f]{48}/);
   });
 
+  it('shows the image each app service runs, and with --check whether a newer one exists', async () => {
+    const OLD = `sha256:${'a'.repeat(64)}`;
+    let pulled = OLD;
+    const { ctx, docker, out } = await tempContext({
+      ref: 'develop',
+      respond: (cmd) =>
+        cmd === 'compose images --format json'
+          ? {
+              stdout: JSON.stringify(
+                ['migrate', 'web', 'worker'].map((s) => ({
+                  ContainerName: `agile-copilot-${s}-1`,
+                  ID: OLD,
+                })),
+              ),
+            }
+          : cmd.startsWith('image inspect')
+            ? { stdout: pulled }
+            : undefined,
+    });
+    await install(ctx, {}, { yes: true, resume: false });
+    out.length = 0;
+    await status(ctx);
+    expect(out.join('\n')).toMatch(/web\s+running\s+healthy\s+aaaaaaaaaaaa/);
+    // Without --check nothing is pulled.
+    expect(docker.commands.filter((c) => c.startsWith('pull'))).toEqual([]);
+
+    out.length = 0;
+    await status(ctx, { check: true });
+    expect(out.at(-1)).toBe('Images   up to date (develop)');
+
+    pulled = `sha256:${'b'.repeat(64)}`;
+    out.length = 0;
+    await status(ctx, { check: true });
+    expect(out.at(-1)).toBe(
+      'Images   a newer develop build is available (bbbbbbbbbbbb): run `upgrade`',
+    );
+  });
+
   it('reports a failed compose ps instead of showing every service missing', async () => {
     let fail = false;
     const { ctx, out } = await tempContext({

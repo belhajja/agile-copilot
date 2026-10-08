@@ -7,6 +7,8 @@ export interface HistoryEntry {
   to: string;
   at: string;
   result: 'ok' | 'rolled_back' | 'rollback_failed';
+  /** Short IDs of the app images an upgrade switched to (a moving tag says nothing by itself). */
+  images?: Partial<Record<'migrate' | 'web' | 'worker', string>>;
 }
 
 export interface InstallState {

@@ -108,8 +108,13 @@ the environment instead: `OPERATOR_REGISTRY_TOKEN` and `OPERATOR_OIDC_CLIENT_SEC
 stores the new deploy token and carries on; no other setting changes on resume.
 
 - `upgrade` (run the operator of the new version): pulls, backs up, migrates, and rolls back to
-  the previous version and data if the new one does not come up.
-- `status`, `backup`, `restore <name|latest>`, `config <setting> <value>`, `logs [service]`.
+  the previous version and data if the new one does not come up. On a moving tag (`develop`) it
+  compares the pulled images with the running ones and only upgrades when the registry has a
+  newer build; a rollback puts the previous build back under the tag. Run it with
+  `docker run --pull always ...` so the operator itself is the latest build of its tag.
+- `status [--check]`: version, services with the image each one runs, last backup and upgrade;
+  `--check` pulls this operator's images and says whether `upgrade` would change anything.
+- `backup`, `restore <name|latest>`, `config <setting> <value>`, `logs [service]`.
 - Keep the folder backed up: its `.env` holds `ENCRYPTION_KEYS`, without which the stored Jira and
   AI credentials cannot be read.
 - The operator runs as root in its container: it drives the Docker socket, which is

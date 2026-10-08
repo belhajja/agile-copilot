@@ -12,6 +12,14 @@ import {
 } from '../docker';
 import { parseEnv, renderEnv } from '../env-file';
 import { describeError, StepError, UsageError } from '../errors';
+import {
+  APP_SERVICES,
+  type AppService,
+  localImages,
+  runningImages,
+  runsLatest,
+  shortId,
+} from '../images';
 import { compareVersions, imagesFor, isRelease, writeStack } from '../stack';
 import {
   acquireLock,
@@ -29,8 +37,12 @@ async function record(
   state: InstallState,
   to: string,
   result: HistoryEntry['result'],
+  images?: Map<AppService, string>,
 ) {
-  const entry = { from: state.version, to, at: ctx.now().toISOString(), result };
+  const entry: HistoryEntry = { from: state.version, to, at: ctx.now().toISOString(), result };
+  if (images && images.size > 0) {
+    entry.images = Object.fromEntries([...images].map(([s, id]) => [s, shortId(id)]));
+  }
   await writeState(ctx.dataDir, {
     ...state,
     version: result === 'ok' ? to : state.version,
@@ -60,8 +72,18 @@ async function restartOrFail(compose: Compose, cause: unknown): Promise<never> {
   throw cause;
 }
 
-/** Back to the files and data of `backupDir`, on the images still on this host. */
-async function rollback(ctx: Context, state: InstallState, compose: Compose, backupDir: string) {
+/**
+ * Back to the files and data of `backupDir`, on the images still on this host. A moving tag
+ * (`develop`) already points to the new build after the pull: the images the app ran before
+ * (`previous`, by ID) are tagged again under the names the restored .env uses.
+ */
+async function rollback(
+  ctx: Context,
+  state: InstallState,
+  compose: Compose,
+  backupDir: string,
+  previous: Map<AppService, string>,
+) {
   const p = pathsOf(ctx.dataDir);
   await compose.run(['stop', 'web', 'worker', 'migrate']);
   // Copied next to the live folder and swapped in only once complete, so a failed copy never
@@ -73,6 +95,12 @@ async function rollback(ctx: Context, state: InstallState, compose: Compose, bac
   await rename(nextCompose, p.compose);
   await copyFile(join(backupDir, '.env'), p.env);
   await chmod(p.env, 0o600);
+  const env = parseEnv(await readFile(p.env, 'utf8'));
+  for (const service of APP_SERVICES) {
+    const id = previous.get(service);
+    const ref = env.get(`${service.toUpperCase()}_IMAGE`);
+    if (id && ref) await ctx.docker.run(['tag', id, ref]);
+  }
   // postgres on the images still on this host, up and healthy before anything is restored to it.
   await compose.check('postgres', ['up', '-d', 'postgres']);
   await waitService(ctx, compose, 'postgres');
@@ -109,12 +137,21 @@ export async function upgrade(ctx: Context): Promise<void> {
     }
 
     const envText = await readFile(p.env, 'utf8');
-    await registryLogin(ctx, parseEnv(envText));
+    const env = parseEnv(envText);
+    // What runs now, by image ID: a moving tag can point to another build after the pull.
+    const previous = await runningImages(compose);
+    await registryLogin(ctx, env);
     // Pulled before anything stops: a failed pull changes nothing.
     const images = imagesFor(ctx.build);
     for (const image of [images.migrate, images.web, images.worker]) {
       const r = await ctx.docker.run(['pull', image]);
       if (r.code !== 0) throw new StepError('pull', `could not pull ${image}`);
+    }
+    const latest = await localImages(ctx.docker, images);
+    const sameNames = APP_SERVICES.every((s) => env.get(`${s.toUpperCase()}_IMAGE`) === images[s]);
+    if (sameNames && runsLatest(previous, latest)) {
+      ctx.out(`Already up to date: ${target} (${shortId(latest.get('web') ?? '')})`);
+      return;
     }
     ctx.out('✓ new images pulled');
 
@@ -149,7 +186,7 @@ export async function upgrade(ctx: Context): Promise<void> {
     } catch (e) {
       ctx.out(`✗ ${target} did not come up: rolling back to ${state.version}`);
       try {
-        await rollback(ctx, state, compose, backupDir);
+        await rollback(ctx, state, compose, backupDir, previous);
       } catch (rollbackErr) {
         ctx.out(`✗ rollback failed too: run \`restore ${basename(backupDir)}\``);
         try {
@@ -167,7 +204,7 @@ export async function upgrade(ctx: Context): Promise<void> {
       ctx.out(`✓ back on ${state.version}`);
       throw e;
     }
-    await record(ctx, state, target, 'ok');
+    await record(ctx, state, target, 'ok', latest);
     ctx.out(`✓ upgraded to ${target}`);
   } finally {
     await release();
