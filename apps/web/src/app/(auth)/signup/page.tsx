@@ -16,5 +16,5 @@ export default async function SignupPage({
 }) {
   const { next } = await searchParams;
   if (services().env.PASSWORD_LOGIN === 'admin_only') redirect(loginPath(next));
-  return <SignupForm next={safeNextPath(next)} />;
+  return <SignupForm next={safeNextPath(next)} inviteOnly={services().env.SIGNUP === 'invite'} />;
 }

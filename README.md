@@ -345,6 +345,7 @@ One identity provider per deployment, configured by the operator (it is never a 
 - **The IdP being down never blocks the app.** Discovery is tried in the background with a 4-second timeout and retried every 30 seconds without a restart; until it answers, the login page says SSO is not reachable, while sessions and password sign-ins keep working.
 - **Only the redirect flow.** A browser cannot hand the app an ID token directly or ask for extra scopes.
 - **First SSO sign-in creates the account** with the address the IdP gives. People then join workspaces through invitations.
+- **`SIGNUP`** decides who may create a password account: `invite` (the default for self-host) only for an address with a pending invitation, plus the very first account of the instance; new workspaces can then be created only by the first account, existing workspace owners and SSO users. `open` (the default for SaaS) lets anyone sign up and create a workspace. SSO users are let in by the identity provider either way.
 - **Development:** `docker compose --profile sso up -d keycloak` starts Keycloak 26.8.0 on `127.0.0.1:4100` with a test realm (users and settings in `docker-compose.yml`; development only). `pnpm test` runs a contract test against the real Keycloak image, and the e2e suite uses a mock OIDC provider on 4090.
 
 ### Account linking

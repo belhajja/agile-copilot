@@ -16,10 +16,13 @@ import { cn } from '@/lib/utils';
 export function SignupForm({
   className,
   next,
+  inviteOnly = false,
   ...props
 }: ComponentProps<'div'> & {
   /** Safe in-app path to open after signing up (an invitation link); `/` means onboarding. */
   next: string;
+  /** SIGNUP=invite: only invited addresses can sign up. */
+  inviteOnly?: boolean;
 }) {
   const t = useTranslations('auth');
   const errorMessage = useAuthErrorMessage();
@@ -50,7 +53,9 @@ export function SignupForm({
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-xl">{t('signupTitle')}</CardTitle>
-          <CardDescription>{t('signupDescription')}</CardDescription>
+          <CardDescription>
+            {t(inviteOnly ? 'signupInviteOnly' : 'signupDescription')}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit}>

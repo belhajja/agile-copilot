@@ -26,6 +26,9 @@ config:
     displayName: SSO
   passwordLogin: all # all | admin_only (needs SSO and breakGlassEmails)
   breakGlassEmails: ""
+  # invite | open; empty = invite for selfhost, open for saas. invite: password accounts only for
+  # invited addresses (and the first account), new workspaces only for owners and SSO users.
+  signup: ""
   atlassianOAuthClientId: ""
   # mcp-atlassian: Data Center hosts that resolve to private addresses (also list them in
   # networkPolicy.jiraPrivateCidrs). Once set, it is an allowlist for every Data Center host.

@@ -31,7 +31,9 @@ import {
   takeSignInAttempt,
   withClientAddress,
 } from './sign-in-limits';
+import { guardInviteOnlySignUp, mayCreateWorkspace, type SignupPolicy } from './signup';
 import {
+  breakGlassCreation,
   guardPasswordLogin,
   guardSsoStart,
   isBreakGlass,
@@ -56,6 +58,12 @@ export interface AuthOptions {
   passwordLogin?: PasswordLogin;
   /** Platform admin accounts that sign in with a password (break-glass when the IdP is down). */
   breakGlassEmails?: readonly string[];
+  /**
+   * SIGNUP. Default `open`. `invite`: password sign-ups only for an address with a pending
+   * invitation (or the instance's first account), and new workspaces only for the first one,
+   * existing owners and SSO users. SSO sign-ups follow the identity provider either way.
+   */
+  signup?: SignupPolicy;
   /**
    * Runs first when a workspace is deleted, before anything is purged (SaaS: cancel its Stripe
    * subscriptions and expire its open Checkout sessions). Throwing keeps the workspace.
@@ -93,6 +101,7 @@ export function createAuth(
     sso,
     passwordLogin = 'all',
     breakGlassEmails = [],
+    signup = 'open',
     beforeWorkspaceDeleted = async () => {},
     seatLimit = async () => null,
     trustedProxyHops = 0,
@@ -152,6 +161,11 @@ export function createAuth(
           await takeSignInAttempt(db, secret, email, clientAddressOf(ctx.request));
         }
         guardPasswordLogin(ctx, policy);
+        // The operator's break-glass CLI creates its accounts without an invitation.
+        const operator = !ctx.request && breakGlassCreation.getStore() === true;
+        if (ctx.path === '/sign-up/email' && signup === 'invite' && !operator) {
+          await guardInviteOnlySignUp(db, ctx.body?.email);
+        }
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);
         await rememberBeforeState(db, ctx);
@@ -221,7 +235,10 @@ export function createAuth(
       // Always present (an empty list without SSO) so the auth API keeps one static type.
       genericOAuth({ config: sso && ssoProvider ? [ssoProviderConfig(sso)] : [] }),
       organization({
-        allowUserToCreateOrganization: true,
+        allowUserToCreateOrganization:
+          signup === 'open'
+            ? true
+            : (user) => mayCreateWorkspace(db, user.id, sso ? ssoProviderId(sso) : null),
         // With SSO, accepting an invitation needs an address the identity provider verified.
         // Without SSO no address is ever verified: link possession is the proof (M5 residual).
         requireEmailVerificationOnInvitation: Boolean(sso),

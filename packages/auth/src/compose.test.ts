@@ -70,6 +70,7 @@ describe('self-host settings (deploy/compose/docker-compose.yml, .env.example)',
       'OIDC_DISPLAY_NAME',
       'PASSWORD_LOGIN',
       'BREAK_GLASS_EMAILS',
+      'SIGNUP',
       'MCP_RATE_LIMIT_PER_MINUTE',
       'TRUSTED_PROXY_HOPS',
     ];
@@ -86,6 +87,8 @@ describe('self-host settings (deploy/compose/docker-compose.yml, .env.example)',
       OIDC_PROVIDER: fromEnv('OIDC_PROVIDER', 'keycloak'),
       OIDC_DISPLAY_NAME: fromEnv('OIDC_DISPLAY_NAME', 'SSO'),
       PASSWORD_LOGIN: fromEnv('PASSWORD_LOGIN', 'all'),
+      // The schema's default for DEPLOYMENT_MODE=selfhost.
+      SIGNUP: fromEnv('SIGNUP', 'invite'),
       MCP_RATE_LIMIT_PER_MINUTE: fromEnv('MCP_RATE_LIMIT_PER_MINUTE', '60'),
       LANGFUSE_BASE_URL: fromEnv('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com'),
       // The app is published directly by default: X-Forwarded-For is not trusted.

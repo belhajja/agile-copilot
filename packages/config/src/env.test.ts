@@ -57,6 +57,16 @@ describe('parseServerEnv', () => {
     );
   });
 
+  it('closes sign-up to invitations by default on self-host, not on SaaS', () => {
+    expect(parseServerEnv(valid).SIGNUP).toBe('invite');
+    expect(parseServerEnv({ ...valid, DEPLOYMENT_MODE: 'saas' }).SIGNUP).toBe('open');
+    expect(parseServerEnv({ ...valid, SIGNUP: 'open' }).SIGNUP).toBe('open');
+    expect(parseServerEnv({ ...valid, DEPLOYMENT_MODE: 'saas', SIGNUP: 'invite' }).SIGNUP).toBe(
+      'invite',
+    );
+    expect(() => parseServerEnv({ ...valid, SIGNUP: 'anyone' })).toThrow(/SIGNUP/);
+  });
+
   it('reads the SSO settings and the password policy', () => {
     const sso = {
       ...valid,

@@ -5,6 +5,7 @@
     "loginDescription": "Connectez-vous à votre espace",
     "signupTitle": "Créer votre compte",
     "signupDescription": "Suivez vos livraisons en quelques minutes",
+    "signupInviteOnly": "L'inscription se fait sur invitation. Utilisez l'adresse à laquelle votre invitation a été envoyée.",
     "name": "Nom complet",
     "email": "E-mail",
     "password": "Mot de passe",
@@ -102,7 +103,8 @@
     "title": "Créer votre espace de travail",
     "description": "Un espace regroupe les connexions Jira, le modèle d'IA et les réglages de votre équipe.",
     "workspaceName": "Nom de l'espace",
-    "submit": "Créer l'espace"
+    "submit": "Créer l'espace",
+    "inviteOnly": "Les nouveaux espaces de travail sont créés par un administrateur. Demandez à un administrateur d'un espace de travail de vous inviter."
   },
   "nav": {
     "platform": "Espace",

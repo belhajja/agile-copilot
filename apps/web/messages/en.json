@@ -5,6 +5,7 @@
     "loginDescription": "Sign in to your workspace",
     "signupTitle": "Create your account",
     "signupDescription": "Start tracking your delivery in minutes",
+    "signupInviteOnly": "Sign-up is by invitation. Use the address your invitation was sent to.",
     "name": "Full name",
     "email": "Email",
     "password": "Password",
@@ -102,7 +103,8 @@
     "title": "Create your workspace",
     "description": "A workspace holds your team's Jira connections, AI model and settings.",
     "workspaceName": "Workspace name",
-    "submit": "Create workspace"
+    "submit": "Create workspace",
+    "inviteOnly": "New workspaces are created by an administrator. Ask a workspace admin to invite you."
   },
   "nav": {
     "platform": "Workspace",
