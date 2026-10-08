@@ -12,3 +12,6 @@ next-env.d.ts
 .pnpm-store/
 # CI job reports (e.g. hadolint)
 reports/
+
+# Database backups written by deploy/compose/update.sh and update.ps1
+deploy/compose/backups/
