@@ -38,4 +38,11 @@ export default async function globalSetup() {
       `Not listening: ${missing.join(', ')}. Stop the old \`pnpm mocks\` process (port 4010) and run the e2e suite again.`,
     );
   }
+  // `next dev` compiles a route on its first request. On a CI runner, with every worker signing up
+  // at once, the first sign-up and the first /onboarding outlasted the 30 s a test gets: compile
+  // the routes every test starts with before the tests run.
+  for (const path of ['/signup', '/login', '/onboarding', '/api/auth/ok']) {
+    // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request -- local dev server
+    await fetch(`http://localhost:3200${path}`, { redirect: 'manual' });
+  }
 }
