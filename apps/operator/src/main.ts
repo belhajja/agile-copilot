@@ -17,8 +17,10 @@ export const USAGE = `Usage: operator <command> [options]
   install [--yes] [--resume] [--mode local|server] [--port N] [--domain D] [--acme-email E]
           [--jira-hosts H,..] [--private-hosts H,..] [--registry-user U --registry-token T]
           [--oidc-provider keycloak|oidc --oidc-issuer URL --oidc-client-id ID --oidc-client-secret S]
-  upgrade              upgrade to this operator's version (backup first, rollback on failure)
-  status               version, services, last backup and upgrade
+  upgrade              upgrade to this operator's version (backup first, rollback on failure);
+                       on a moving tag (develop) only when the registry has a newer build
+  status [--check]     version, services and their images, last backup and upgrade; --check
+                       pulls this operator's images and tells whether \`upgrade\` would change anything
   backup               back up the database with .env and the compose files
   restore <name|latest> [--yes]
   config <setting> <value>
@@ -59,6 +61,7 @@ export async function main(
         yes: { type: 'boolean', default: false },
         resume: { type: 'boolean', default: false },
         follow: { type: 'boolean', default: false },
+        check: { type: 'boolean', default: false },
         ...settingOptions,
       },
     });
@@ -78,7 +81,7 @@ export async function main(
         await upgrade(ctx);
         return 0;
       case 'status':
-        await status(ctx);
+        await status(ctx, { check: Boolean(values.check) });
         return 0;
       case 'backup':
         await backupCommand(ctx);

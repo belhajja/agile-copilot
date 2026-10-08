@@ -37,15 +37,51 @@ async function from100(ref: string, respond?: Responder) {
 
 const envOf = async (dataDir: string) => parseEnv(await readFile(join(dataDir, '.env'), 'utf8'));
 
+const OLD = `sha256:${'a'.repeat(64)}`;
+const NEW = `sha256:${'b'.repeat(64)}`;
+
+/** The app containers run `running`; every app image tag points to `pulled` once pulled. */
+function digests(running: string, pulled: string, then?: Responder): Responder {
+  return (cmd, args, opts) => {
+    if (cmd === 'compose images --format json') {
+      return {
+        stdout: JSON.stringify(
+          ['migrate', 'web', 'worker'].map((s) => ({
+            ContainerName: `agile-copilot-${s}-1`,
+            ID: running,
+          })),
+        ),
+      };
+    }
+    if (cmd.startsWith('image inspect')) return { stdout: `${pulled}\n` };
+    return then?.(cmd, args, opts);
+  };
+}
+
+/** An install from `develop` (a moving tag), then an operator of the same tag on that folder. */
+async function fromDevelop(respond?: Responder) {
+  const first = await tempContext({ ref: 'develop' });
+  await install(first.ctx, {}, { yes: true, resume: false });
+  const next = await tempContext({ ref: 'develop', respond });
+  next.ctx.dataDir = first.dataDir;
+  return { ...next, dataDir: first.dataDir };
+}
+
+const DEVELOP_WEB = 'registry.example.com/agile/web/snapshot:develop';
+
 describe('upgrade', () => {
   it('pulls, stops the app, backs up, switches images and waits for health', async () => {
     const { ctx, docker, dataDir } = await from100('v1.1.0');
     await upgrade(ctx);
     expect(docker.commands).toEqual([
       'compose ps -a --format json',
+      'compose images --format json',
       'pull registry.example.com/agile/migrate:v1.1.0',
       'pull registry.example.com/agile/web:v1.1.0',
       'pull registry.example.com/agile/worker:v1.1.0',
+      'image inspect --format {{.Id}} registry.example.com/agile/migrate:v1.1.0',
+      'image inspect --format {{.Id}} registry.example.com/agile/web:v1.1.0',
+      'image inspect --format {{.Id}} registry.example.com/agile/worker:v1.1.0',
       'compose stop web worker',
       'compose exec -T postgres pg_dump -U agile -d agile -Fc',
       'compose up -d',
@@ -182,6 +218,48 @@ describe('upgrade', () => {
     await upgrade(ctx);
     expect(docker.commands).toEqual([]);
     expect(out.at(-1)).toMatch(/Already on v1\.0\.0/);
+  });
+
+  it('leaves a moving tag alone when the registry has nothing newer', async () => {
+    const { ctx, docker, out, dataDir } = await fromDevelop(digests(OLD, OLD));
+    await upgrade(ctx);
+    expect(docker.commands.some((c) => c.startsWith('compose stop'))).toBe(false);
+    expect(docker.commands.some((c) => c.includes('pg_dump'))).toBe(false);
+    expect(out.at(-1)).toBe('Already up to date: develop (aaaaaaaaaaaa)');
+    expect((await readState(dataDir))?.history).toEqual([]);
+  });
+
+  it('upgrades a moving tag when the registry has a newer build, and records the images', async () => {
+    const { ctx, docker, dataDir } = await fromDevelop(digests(OLD, NEW));
+    await upgrade(ctx);
+    expect(docker.commands).toContain('compose stop web worker');
+    expect((await readState(dataDir))?.history.at(-1)).toMatchObject({
+      from: 'develop',
+      to: 'develop',
+      result: 'ok',
+      images: { migrate: 'bbbbbbbbbbbb', web: 'bbbbbbbbbbbb', worker: 'bbbbbbbbbbbb' },
+    });
+  });
+
+  it('upgrades when an app container is missing, even if the images match', async () => {
+    const { ctx, docker } = await fromDevelop((cmd) =>
+      cmd === 'compose images --format json'
+        ? { stdout: JSON.stringify([{ ContainerName: 'agile-copilot-web-1', ID: OLD }]) }
+        : cmd.startsWith('image inspect')
+          ? { stdout: OLD }
+          : undefined,
+    );
+    await upgrade(ctx);
+    expect(docker.commands).toContain('compose stop web worker');
+  });
+
+  it('puts the previous images back under a moving tag when its upgrade rolls back', async () => {
+    const { ctx, docker } = await fromDevelop(digests(OLD, NEW, failHealthOnceAfterSwitch()));
+    await expect(upgrade(ctx)).rejects.toBeInstanceOf(StepError);
+    const retag = docker.commands.indexOf(`tag ${OLD} ${DEVELOP_WEB}`);
+    expect(retag).toBeGreaterThanOrEqual(0);
+    // Before the app is started again on the tag.
+    expect(docker.commands.lastIndexOf('compose up -d')).toBeGreaterThan(retag);
   });
 
   it('refuses to upgrade an unhealthy stack', async () => {
