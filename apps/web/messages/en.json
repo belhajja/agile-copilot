@@ -1320,5 +1320,16 @@
       "not_found": "This token no longer exists.",
       "unknown": "Something went wrong."
     }
+  },
+  "ui": {
+    "close": "Close",
+    "more": "More",
+    "loading": "Loading",
+    "toggleSidebar": "Toggle sidebar",
+    "sidebar": "Sidebar",
+    "sidebarDescription": "Displays the mobile sidebar.",
+    "breadcrumb": "Breadcrumb",
+    "commandPalette": "Command palette",
+    "commandPaletteDescription": "Search for a command to run…"
   }
 }
