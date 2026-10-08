@@ -46,6 +46,21 @@ export const CONFIG_KEYS: Record<
     services: ['web', 'worker'],
     values: (v) => ({ SKILL_RUNS_DAILY_LIMIT: integer('skill-runs-daily-limit', 1, 10_000)(v) }),
   },
+  'auto-upgrade': {
+    modes: ['local', 'server'],
+    services: ['updater'],
+    values: (v) => {
+      if (v !== 'on' && v !== 'off') throw new UsageError('auto-upgrade must be on or off.');
+      return { AUTO_UPGRADE: v };
+    },
+  },
+  'auto-upgrade-interval': {
+    modes: ['local', 'server'],
+    services: ['updater'],
+    values: (v) => ({
+      AUTO_UPGRADE_INTERVAL_MINUTES: integer('auto-upgrade-interval', 15, 1440)(v),
+    }),
+  },
   port: {
     modes: ['local'],
     services: ['web', 'worker'],

@@ -44,6 +44,11 @@ for svc in web worker migrate; do
   for v in v0.0.1 v0.0.2 v0.0.3; do docker push -q "$LOCAL/$svc:$v" >/dev/null; done
 done
 fetch "$OP"
+# The updater service runs the operator image of the installed version.
+for v in v0.0.1 v0.0.2 v0.0.3; do
+  docker tag "$OP" "$LOCAL/operator:$v"
+  docker push -q "$LOCAL/operator:$v" >/dev/null
+done
 
 op() {
   version=$1
@@ -57,6 +62,8 @@ healthy() { docker exec agile-copilot-web-1 wget -qO- http://127.0.0.1:3000/heal
 echo '--- install v0.0.1'
 op v0.0.1 install --yes --mode local --port 3000
 healthy
+# The updater runs, on the operator image of the installed version.
+test "$(docker inspect -f '{{.State.Running}} {{.Config.Image}}' agile-copilot-updater-1)" = "true $LOCAL/operator:v0.0.1"
 sql "create table it_marker (v text); insert into it_marker values ('kept')"
 
 echo '--- upgrade to v0.0.2'

@@ -25,6 +25,11 @@ describe('install', () => {
     expect(env.get('WEB_IMAGE')).toBe('registry.example.com/agile/web:v1.0.0');
     expect(env.get('MCP_ALLOWED_URL_DOMAINS')).toBe('jira.corp.local');
     expect(env.get('BETTER_AUTH_URL')).toBe('http://localhost:3100');
+    // The updater: this operator's image, the install folder (here, not in a container: its own
+    // path), automatic upgrades on by default.
+    expect(env.get('OPERATOR_IMAGE')).toBe('registry.example.com/agile/operator:v1.0.0');
+    expect(env.get('OPERATOR_DATA_SOURCE')).toBe(dataDir);
+    expect(env.get('AUTO_UPGRADE')).toBe('on');
     if (process.platform !== 'win32') {
       expect((await stat(join(dataDir, '.env'))).mode & 0o777).toBe(0o600);
     }

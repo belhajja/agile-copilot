@@ -7,6 +7,7 @@ import {
   composeFiles,
   imagesFor,
   isRelease,
+  operatorImage,
   refSlug,
   renderOverride,
   writeStack,
@@ -20,6 +21,10 @@ describe('versions and images', () => {
     expect(isRelease('develop')).toBe(false);
     expect(refSlug('Feat/Operator_X')).toBe('feat-operator-x');
     expect(imagesFor({ ref: 'v1.4.0', imageBase: 'r/p' }).web).toBe('r/p/web:v1.4.0');
+    expect(operatorImage({ ref: 'v1.4.0', imageBase: 'r/p' })).toBe('r/p/operator:v1.4.0');
+    expect(operatorImage({ ref: 'develop', imageBase: 'r/p' })).toBe(
+      'r/p/operator/snapshot:develop',
+    );
     expect(imagesFor({ ref: 'develop', imageBase: 'r/p' }).migrate).toBe(
       'r/p/migrate/snapshot:develop',
     );
@@ -44,6 +49,20 @@ describe('the compose override', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     expect(yaml).toContain('127.0.0.1:${WEB_PORT:-3000}:3000');
     expect(yaml).not.toContain('caddy');
+  });
+
+  it('runs the updater from the operator image, with the Docker socket and the install folder', () => {
+    for (const mode of ['local', 'server'] as const) {
+      const yaml = renderOverride(mode, { pgInit: 'x', caddyfile: 'y' });
+      expect(yaml).toContain('  updater:');
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+      expect(yaml).toContain('    image: ${OPERATOR_IMAGE:?set OPERATOR_IMAGE}');
+      expect(yaml).toContain('    command: [watch]');
+      expect(yaml).toContain('    restart: unless-stopped');
+      expect(yaml).toContain('      - /var/run/docker.sock:/var/run/docker.sock');
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+      expect(yaml).toContain('      - ${OPERATOR_DATA_SOURCE:?set OPERATOR_DATA_SOURCE}:/data');
+    }
   });
 
   it('adds the Caddyfile on a server and publishes nothing from web', () => {
