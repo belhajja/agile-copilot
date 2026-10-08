@@ -148,12 +148,22 @@ helm-kubeconform:
     - sh deploy/helm/check.sh
     - PATH="$HELM_TOOLS_DIR:$PATH" pnpm vitest run packages/jira-tools/src/helm.test.ts
 
+# `pnpm dlx promptfoo` installs into the same store as the workspace (.pnpm-store), so the evals
+# jobs cache that store under their own key: promptfoo (~1.7 GB) is downloaded once per lockfile
+# and promptfoo pin (evals/package.json), and the other jobs' cache stays its usual size.
+.promptfoo-cache:
+  cache:
+    key:
+      prefix: evals
+      files: [pnpm-lock.yaml, evals/package.json]
+    paths: [.pnpm-store]
+
 # Agent evals (promptfoo): the real agent, tools, approvals and data envelopes against a scripted,
 # deterministic mock model on the demo Jira data. Every test must pass. These are plumbing checks
 # (tools offered, numbers flowing back from the metrics engine, approvals, envelopes), not a model
 # quality measure. No secret is configured or read here: no provider key, no Jira credential.
 evals:
-  extends: .pnpm
+  extends: [.pnpm, .promptfoo-cache]
   stage: test
   # Install, the promptfoo download and the Testcontainers Postgres; the scripted runs are short.
   timeout: 30 minutes
@@ -176,7 +186,7 @@ evals:
 # for all environments. Needs ANTHROPIC_API_KEY, OPENAI_API_KEY, EVAL_ANTHROPIC_MODEL and
 # EVAL_OPENAI_MODEL; passes at 90% of tests (stochastic models).
 evals-live:
-  extends: .pnpm
+  extends: [.pnpm, .promptfoo-cache]
   stage: test
   # As evals, plus real provider calls (rate limits, retries).
   timeout: 45 minutes
