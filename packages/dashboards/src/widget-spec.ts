@@ -120,6 +120,29 @@ export const CATALOG_METRIC_KEYS: CatalogMetricKey[] = METRIC_KEYS.filter(
   (m): m is CatalogMetricKey => m !== 'query',
 );
 
+/** Every chart type a widget can have, across the catalog and query displays. */
+export const WIDGET_CHARTS = [
+  ...new Set(widgetSpecSchema.options.flatMap((o) => o.shape.chart.options)),
+] as WidgetSpec['chart'][];
+
+/**
+ * The charts a stored widget can switch to: its metric's charts, or for a query the displays its
+ * query is valid with. An unavailable query keeps the one it has.
+ */
+export function chartOptions(spec: WidgetSpec): WidgetSpec['chart'][] {
+  if (spec.metric !== 'query') {
+    const option = widgetSpecSchema.options.find((o) => o.shape.metric.value === spec.metric);
+    return option ? [...option.shape.chart.options] : [spec.chart];
+  }
+  const { params } = spec;
+  if ('unavailable' in params) return [spec.chart];
+  return DISPLAYS.filter(
+    (display) =>
+      widgetSpecSchema.safeParse({ ...spec, chart: display, params: { ...params, display } })
+        .success,
+  );
+}
+
 /** Parses stored widgets, dropping (not failing on) any that no longer validate. */
 export function parseWidgets(value: unknown): WidgetSpec[] {
   if (!Array.isArray(value)) return [];

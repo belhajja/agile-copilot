@@ -33,6 +33,7 @@ export type AuditAction =
   | 'delivery_channel.deleted'
   | 'dashboard.widget_pinned'
   | 'dashboard.widget_removed'
+  | 'dashboard.widget_updated'
   | 'organization.deleted'
   | 'member.invited'
   | 'member.invite_resent'

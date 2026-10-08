@@ -1,6 +1,8 @@
 import { insightsFor } from '@agile/automation';
+import { listJiraConnections } from '@agile/connections';
 import {
   bySprintDate,
+  chartOptions,
   computeWidget,
   ensureDefaultDashboards,
   listDashboards,
@@ -17,6 +19,7 @@ import { z } from 'zod';
 import { AgentMarkdown } from '@/components/agent/agent-markdown';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { type SprintOption, SprintPicker } from '@/components/dashboard/sprint-picker';
+import { JiraSiteProvider } from '@/components/jira-issue-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,9 +33,9 @@ import {
 } from '@/components/ui/empty';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickCode } from '@/lib/error-code';
-import { requireActor, services } from '@/server/context';
+import { connectionDeps, requireActor, services } from '@/server/context';
 import { syncDeps } from '@/server/sync';
-import { removeWidgetAction } from './actions';
+import { removeWidgetAction, updateWidgetAction } from './actions';
 
 const REMOVE_ERRORS = ['not_found', 'unknown'] as const;
 
@@ -54,11 +57,13 @@ export default async function BoardDashboardPage({
   const t = await getTranslations('dashboards');
   const format = await getFormatter();
   await ensureDefaultDashboards(db, actor.orgId, actor.userId, board);
-  const [dashboards, dataset, insights] = await Promise.all([
+  const [dashboards, dataset, insights, connections] = await Promise.all([
     listDashboards(db, actor.orgId, actor.userId, board.id),
     loadBoardDataset(db, actor.orgId, board.id),
     insightsFor(db, actor, board.id),
+    listJiraConnections(connectionDeps(), actor.orgId),
   ]);
+  const jiraBaseUrl = connections.find((c) => c.id === board.connectionId)?.baseUrl;
   const now = new Date();
 
   const header = (
@@ -109,21 +114,26 @@ export default async function BoardDashboardPage({
     .sort((a, b) => -bySprintDate(a, b))
     .map((s) => ({ id: s.id, name: s.name, state: s.state, dates: range(s) }));
 
-  const views = dashboards.map((d) => ({
-    id: d.id,
-    label:
-      d.kind !== 'custom'
-        ? t(`kinds.${d.kind}`)
-        : d.name === PINNED_DASHBOARD_NAME
-          ? t('kinds.pinned')
-          : d.name,
-    widgets: d.widgets.map((spec) => ({ spec, data: computeWidget(spec, dataset, now, scope) })),
-    // Widgets pinned from the assistant can be removed in one click (on the Pinned dashboard only).
-    removal:
-      d.kind === 'custom' && d.name === PINNED_DASHBOARD_NAME
-        ? { action: removeWidgetAction.bind(null, board.id, d.id), label: t('removeWidget') }
+  const views = dashboards.map((d) => {
+    // Widgets pinned from the assistant can be renamed, re-charted or removed (Pinned only).
+    const editable = d.kind === 'custom' && d.name === PINNED_DASHBOARD_NAME;
+    return {
+      id: d.id,
+      label: d.kind !== 'custom' ? t(`kinds.${d.kind}`) : editable ? t('kinds.pinned') : d.name,
+      widgets: d.widgets.map((spec) => ({
+        spec,
+        data: computeWidget(spec, dataset, now, scope),
+        ...(editable ? { charts: chartOptions(spec) } : {}),
+      })),
+      editing: editable
+        ? {
+            remove: removeWidgetAction.bind(null, board.id, d.id),
+            removeLabel: t('removeWidget'),
+            update: updateWidgetAction.bind(null, board.id, d.id),
+          }
         : undefined,
-  }));
+    };
+  });
   return (
     <div className="grid gap-6">
       {header}
@@ -164,7 +174,9 @@ export default async function BoardDashboardPage({
         </TabsList>
         {views.map((v) => (
           <TabsContent key={v.id} value={v.id} className="mt-4">
-            <DashboardView widgets={v.widgets} removal={v.removal} />
+            <JiraSiteProvider baseUrl={jiraBaseUrl}>
+              <DashboardView widgets={v.widgets} editing={v.editing} />
+            </JiraSiteProvider>
           </TabsContent>
         ))}
       </Tabs>

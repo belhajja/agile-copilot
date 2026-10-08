@@ -18,6 +18,7 @@ import {
   lastClosedSprint,
   leadTime,
   type MetricSprint,
+  type SprintVelocity,
   scopeChange,
   sprintBurn,
   sprintVelocity,
@@ -72,34 +73,17 @@ export function computeWidget(
       const unit = unitFor(ds, spec.params.unit);
       const rows = velocity(ds, { sprints: spec.params.sprints, unit });
       if (rows.length === 0) return empty('no_sprint');
-      const summary = velocitySummary(rows);
-      return spec.metric === 'average_velocity'
-        ? {
-            kind: 'kpi',
-            value: summary.average,
-            format: unit,
-            hint: { key: 'lastSprints', values: { count: rows.length } },
-          }
-        : {
-            kind: 'kpi',
-            value: summary.sayDoRatio,
-            format: 'percent',
-            hint: { key: 'lastSprints', values: { count: rows.length } },
-          };
+      return velocityKpi(spec.metric, rows, unit, {
+        key: 'lastSprints',
+        values: { count: rows.length },
+      });
     }
     case 'velocity': {
       const rows = velocity(ds, {
         sprints: spec.params.sprints,
         unit: unitFor(ds, spec.params.unit),
       });
-      if (rows.length === 0) return empty('no_sprint');
-      return {
-        kind: 'series',
-        chart: 'bar',
-        x: 'sprint',
-        series: [{ key: 'committed' }, { key: 'completed' }],
-        rows: rows.map((r) => ({ sprint: r.name, committed: r.committed, completed: r.completed })),
-      };
+      return rows.length === 0 ? empty('no_sprint') : velocityChart(rows);
     }
     case 'scope_change': {
       const sprint = pickSprint(ds, spec.params.sprint);
@@ -209,7 +193,52 @@ export function computeWidget(
       return 'unavailable' in spec.params
         ? empty('unavailable')
         : runQuery(ds, spec.params, { now });
+    default: {
+      const unhandled: never = spec;
+      return unhandled;
+    }
   }
+}
+
+/** Average velocity or say/do ratio of some sprints' velocity rows (non-empty). */
+function velocityKpi(
+  metric: 'average_velocity' | 'say_do_ratio',
+  rows: SprintVelocity[],
+  unit: Unit,
+  hint: { key: string; values: Record<string, number> },
+  perSprint = false,
+): WidgetData {
+  const summary = velocitySummary(rows);
+  return metric === 'average_velocity'
+    ? {
+        kind: 'kpi',
+        value: summary.average,
+        format: unit,
+        hint,
+        ...(perSprint ? breakdownOf(rows.map((r) => ({ label: r.name, value: r.completed }))) : {}),
+      }
+    : {
+        kind: 'kpi',
+        value: summary.sayDoRatio,
+        format: 'percent',
+        hint,
+        ...(perSprint
+          ? breakdownOf(
+              rows.map((r) => ({ label: r.name, value: ratio(r.completed, r.committed) })),
+            )
+          : {}),
+      };
+}
+
+/** Committed vs completed per sprint. */
+function velocityChart(rows: SprintVelocity[]): WidgetData {
+  return {
+    kind: 'series',
+    chart: 'bar',
+    x: 'sprint',
+    series: [{ key: 'committed' }, { key: 'completed' }],
+    rows: rows.map((r) => ({ sprint: r.name, committed: r.committed, completed: r.completed })),
+  };
 }
 
 function burnFor(
@@ -263,25 +292,13 @@ function computeScoped(
           return row ? [row] : [];
         });
       if (rows.length === 0) return empty('no_sprint');
-      const summary = velocitySummary(rows);
-      const hint = { key: 'selectedSprints', values: { count: rows.length } };
-      return spec.metric === 'average_velocity'
-        ? {
-            kind: 'kpi',
-            value: summary.average,
-            format: unit,
-            hint,
-            ...breakdownOf(rows.map((r) => ({ label: r.name, value: r.completed }))),
-          }
-        : {
-            kind: 'kpi',
-            value: summary.sayDoRatio,
-            format: 'percent',
-            hint,
-            ...breakdownOf(
-              rows.map((r) => ({ label: r.name, value: ratio(r.completed, r.committed) })),
-            ),
-          };
+      return velocityKpi(
+        spec.metric,
+        rows,
+        unit,
+        { key: 'selectedSprints', values: { count: rows.length } },
+        true,
+      );
     }
     case 'velocity': {
       const unit = unitFor(ds, spec.params.unit);
@@ -289,14 +306,7 @@ function computeScoped(
         const row = sprintVelocity(ds, s, { unit, now });
         return row ? [row] : [];
       });
-      if (rows.length === 0) return empty('no_sprint');
-      return {
-        kind: 'series',
-        chart: 'bar',
-        x: 'sprint',
-        series: [{ key: 'committed' }, { key: 'completed' }],
-        rows: rows.map((r) => ({ sprint: r.name, committed: r.committed, completed: r.completed })),
-      };
+      return rows.length === 0 ? empty('no_sprint') : velocityChart(rows);
     }
     case 'scope_change': {
       const unit = unitFor(ds, spec.params.unit);
@@ -522,5 +532,9 @@ function flowWidget(spec: FlowSpec, ds: BoardDataset, w: FlowWindow): WidgetData
         ],
         rows: cumulativeFlow(ds, { days: w.days, now }),
       };
+    default: {
+      const unhandled: never = spec;
+      return unhandled;
+    }
   }
 }

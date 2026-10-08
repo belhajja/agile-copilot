@@ -113,6 +113,18 @@ export const DASHBOARD_SERIES = [
   'avg_age',
 ] as const;
 
+/** `dashboards.charts.*`: chart types a widget can be shown as. */
+export const DASHBOARD_CHARTS = [
+  'kpi',
+  'table',
+  'bar',
+  'stacked_bar',
+  'line',
+  'area',
+  'pie',
+  'list',
+] as const;
+
 /** `dashboards.query.groups.*`: group tokens in query results (`@none` → `none`). */
 export const QUERY_GROUPS = ['none', 'other', 'todo', 'in_progress', 'done'] as const;
 

@@ -184,6 +184,7 @@ describe('runQuery', () => {
         { sprint: 'Sprint 2', s0: 1, s1: 1 },
         { sprint: 'Sprint 3', s0: 0, s1: 2 },
       ],
+      pivot: 'type',
       notes: [{ key: 'multiValued' }],
     });
   });
@@ -201,7 +202,20 @@ describe('runQuery', () => {
         ['Bug', 2, 1, 0],
         ['Story', 0, 1, 1],
       ],
+      pivot: 'priority',
     });
+  });
+
+  it('names the second dimension, so its month labels can be formatted', () => {
+    const data = run({
+      display: 'table',
+      groupBy: ['type', 'createdMonth'],
+      filter: { created: { lastDays: 60 } },
+    });
+    if (data.kind !== 'table') throw new Error(data.kind);
+    expect(data.pivot).toBe('createdMonth');
+    expect(data.columns.length).toBeGreaterThan(2);
+    expect(data.columns.slice(1).every((c) => /^\d{4}-\d{2}$/.test(c.label ?? ''))).toBe(true);
   });
 
   it('lists issues with the chosen columns, sorted (empty values last) and limited', () => {
@@ -308,6 +322,7 @@ describe('runQuery', () => {
         { type: 'Bug', s0: 0, s1: 0, s2: 1, s3: 1, s4: 0, s5: 0, s6: 0, s7: 1 },
         { type: 'Story', s0: 0, s1: 0, s2: 0, s3: 1, s4: 0, s5: 0, s6: 1, s7: 0 },
       ],
+      pivot: 'createdWeek',
       notes: [{ key: 'capped', values: { shown: 8, total: 105 } }],
     });
   });

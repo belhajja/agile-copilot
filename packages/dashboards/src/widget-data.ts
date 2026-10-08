@@ -34,6 +34,8 @@ export type WidgetData = Common &
         /** `label`: a literal display name (a sprint's), used instead of the key's message. */
         series: { key: string; label?: string; stacked?: boolean; dashed?: boolean }[];
         rows: Record<string, string | number | null>[];
+        /** A pivot's second dimension: what the series labels are values of. */
+        pivot?: string;
       }
     | {
         kind: 'table';
@@ -47,6 +49,8 @@ export type WidgetData = Common &
           label?: string;
         }[];
         rows: (string | number | null)[][];
+        /** A pivot's second dimension: what the labelled columns' labels are values of. */
+        pivot?: string;
         /** Forecast tables: a percentile hit the simulation's day cap, so the real answer is later. */
         capped?: boolean;
         maxDays?: number;

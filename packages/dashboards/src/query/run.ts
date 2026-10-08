@@ -328,6 +328,7 @@ export function runQuery(
         ...columns.map((c, i) => ({ key: `s${i}`, type: valueType(measure), label: c.label })),
       ],
       rows: rows.map((r) => [r.label, ...columns.map((c) => cell(r, c))]),
+      pivot: second,
     });
   }
   return finish({
@@ -339,5 +340,6 @@ export function runQuery(
       [first]: r.label,
       ...Object.fromEntries(columns.map((c, i) => [`s${i}`, cell(r, c)])),
     })),
+    pivot: second,
   });
 }

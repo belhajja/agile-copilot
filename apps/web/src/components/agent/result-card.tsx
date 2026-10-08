@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import { type PinResultActionResult, pinResultAction } from '@/app/(app)/agent/actions';
 import { DASHBOARD_METRICS } from '@/components/dashboard/message-keys';
 import { WidgetBody, WidgetNotes } from '@/components/dashboard/widget-body';
+import { JiraSiteProvider, useBoardSite } from '@/components/jira-issue-link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { allowedCode } from '@/lib/error-code';
@@ -14,7 +15,7 @@ import type { PinnableResult } from './tool-output';
 
 type PinState =
   | { status: 'idle' }
-  | { status: 'pinned'; boardId: string }
+  | { status: 'pinned'; boardId: string; alreadyPinned: boolean }
   | { status: 'error'; code: Extract<PinResultActionResult, { ok: false }>['code'] };
 
 /**
@@ -27,6 +28,7 @@ export function ResultCard({ result }: { result: PinnableResult }) {
   const format = useFormatter();
   const [state, setState] = useState<PinState>({ status: 'idle' });
   const [pending, startTransition] = useTransition();
+  const jiraBaseUrl = useBoardSite(result.board.id);
   const metric = allowedCode(result.widget.metric, DASHBOARD_METRICS);
   const title =
     result.widget.title ??
@@ -36,7 +38,11 @@ export function ResultCard({ result }: { result: PinnableResult }) {
   const pin = () =>
     startTransition(async () => {
       const r = await pinResultAction({ boardId: result.board.id, widget: result.widget });
-      setState(r.ok ? { status: 'pinned', boardId: r.boardId } : { status: 'error', code: r.code });
+      setState(
+        r.ok
+          ? { status: 'pinned', boardId: r.boardId, alreadyPinned: r.alreadyPinned }
+          : { status: 'error', code: r.code },
+      );
     });
   return (
     <div className="grid min-w-0 gap-3 rounded-lg border p-3" data-query-result>
@@ -55,13 +61,17 @@ export function ResultCard({ result }: { result: PinnableResult }) {
         )}
       </div>
       <div className="min-w-0 overflow-x-auto">
-        <WidgetBody data={result.data} />
+        <JiraSiteProvider baseUrl={jiraBaseUrl}>
+          <WidgetBody data={result.data} title={title} />
+        </JiraSiteProvider>
       </div>
       <WidgetNotes data={result.data} />
       <div className="flex flex-wrap items-center gap-2">
         {state.status === 'pinned' ? (
           <>
-            <Badge variant="secondary">{t('result.pinned')}</Badge>
+            <Badge variant="secondary" data-already-pinned={state.alreadyPinned || undefined}>
+              {state.alreadyPinned ? t('result.alreadyPinned') : t('result.pinned')}
+            </Badge>
             <Link href={`/boards/${state.boardId}`} className="text-sm underline" data-pinned-board>
               {t('openDashboard')}
             </Link>

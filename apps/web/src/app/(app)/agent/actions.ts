@@ -130,7 +130,7 @@ export async function deleteGroupAction(groupId: unknown): Promise<ConversationA
 }
 
 export type PinResultActionResult =
-  | { ok: true; boardId: string }
+  | { ok: true; boardId: string; alreadyPinned: boolean }
   | { ok: false; code: 'invalid_widget' | 'unknown_board' | 'dashboard_full' | 'unknown' };
 
 const pinInput = z.object({ boardId: z.uuid(), widget: z.record(z.string(), z.unknown()) });
@@ -150,8 +150,8 @@ export async function pinResultAction(input: {
       { boardId: parsed.data.boardId, widget: parsed.data.widget, via: 'user' },
     );
     if (!result.ok) return { ok: false, code: result.code };
-    revalidatePath(`/boards/${parsed.data.boardId}`);
-    return { ok: true, boardId: parsed.data.boardId };
+    if (!result.alreadyPinned) revalidatePath(`/boards/${parsed.data.boardId}`);
+    return { ok: true, boardId: parsed.data.boardId, alreadyPinned: result.alreadyPinned };
   } catch {
     return { ok: false, code: 'unknown' };
   }

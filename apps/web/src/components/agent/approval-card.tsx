@@ -3,6 +3,7 @@
 import type { ToolUIPart } from 'ai';
 import { Check, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import type { ReactNode } from 'react';
 import {
   Confirmation,
   ConfirmationAccepted,
@@ -12,6 +13,7 @@ import {
   ConfirmationRequest,
   ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
+import { JiraIssueLink } from '@/components/jira-issue-link';
 import { APPROVAL_FIELDS, CONVERTED_FIELDS } from './approval-fields';
 import type { ApprovalView } from './approval-view';
 import { ToolError } from './tool-call';
@@ -27,6 +29,7 @@ export function ApprovalCard({
   toolName,
   view,
   siteNames,
+  siteUrls,
   disabled,
   notSent,
   onDecision,
@@ -37,6 +40,8 @@ export function ApprovalCard({
   view: ApprovalView;
   /** Jira connection id → name, to show the site by name. */
   siteNames: Readonly<Record<string, string>>;
+  /** Jira connection id → base URL, to link the issue key. */
+  siteUrls: Readonly<Record<string, string>>;
   disabled: boolean;
   /**
    * The decision was taken here but its request failed. Resending it cannot help (the server
@@ -48,14 +53,30 @@ export function ApprovalCard({
   const t = useTranslations('agent');
   const input = (part.input ?? {}) as Record<string, unknown>;
   const rows = APPROVAL_FIELDS.filter((f) => input[f] !== undefined && input[f] !== '');
-  const show = (f: string, v: unknown) =>
-    Array.isArray(v)
-      ? v.join(', ')
-      : f === 'site'
-        ? typeof v === 'string' && Object.hasOwn(siteNames, v)
-          ? siteNames[v]
-          : t('unknownSite')
-        : String(v);
+  // The change's site; without one the workspace has a single site, which is it.
+  const urls = Object.values(siteUrls);
+  const siteUrl =
+    typeof input.site === 'string'
+      ? Object.hasOwn(siteUrls, input.site)
+        ? siteUrls[input.site]
+        : null
+      : urls.length === 1
+        ? urls[0]
+        : null;
+  const show = (f: string, v: unknown): ReactNode =>
+    Array.isArray(v) ? (
+      v.join(', ')
+    ) : f === 'site' ? (
+      typeof v === 'string' && Object.hasOwn(siteNames, v) ? (
+        siteNames[v]
+      ) : (
+        t('unknownSite')
+      )
+    ) : f === 'issueKey' && typeof v === 'string' ? (
+      <JiraIssueLink issueKey={v} baseUrl={siteUrl} />
+    ) : (
+      String(v)
+    );
   const assignee = view.state === 'output-available' ? assignedTo(part.output) : undefined;
   const closed =
     view.closedBy === 'superseded'
@@ -74,7 +95,12 @@ export function ApprovalCard({
     >
       <ConfirmationTitle>
         <span className="font-medium">{toolLabel(t, toolName)}</span>
-        {typeof input.issueKey === 'string' ? ` · ${input.issueKey}` : ''}
+        {typeof input.issueKey === 'string' && (
+          <>
+            {' · '}
+            <JiraIssueLink issueKey={input.issueKey} baseUrl={siteUrl} />
+          </>
+        )}
       </ConfirmationTitle>
       <dl className="grid min-w-0 gap-2 text-sm">
         {rows.map((f) => (

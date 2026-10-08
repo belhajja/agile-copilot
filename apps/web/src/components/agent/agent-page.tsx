@@ -1,10 +1,12 @@
 import { type ConversationSummary, listConversationHistory } from '@agile/agent';
 import { canManageConnections } from '@agile/auth';
 import { listJiraConnections, listLlmConnections } from '@agile/connections';
+import { listSelectedBoards } from '@agile/sync';
 import type { UIMessage } from 'ai';
 import { Bot } from 'lucide-react';
 import Link from 'next/link';
 import { getFormatter, getNow, getTimeZone, getTranslations } from 'next-intl/server';
+import { BoardSitesProvider } from '@/components/jira-issue-link';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -15,6 +17,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { connectionDeps, type SessionActor, services } from '@/server/context';
+import { syncDeps } from '@/server/sync';
 import { AgentChat } from './agent-chat';
 import { AgentShell } from './agent-shell';
 import { groupConversations } from './group-conversations';
@@ -36,10 +39,11 @@ export async function AgentPage({
 }) {
   const t = await getTranslations('agent');
   const format = await getFormatter();
-  const [llms, history, jiraSites, now, timeZone] = await Promise.all([
+  const [llms, history, jiraSites, boards, now, timeZone] = await Promise.all([
     listLlmConnections(connectionDeps(), actor.orgId),
     listConversationHistory(services().db, actor),
     listJiraConnections(connectionDeps(), actor.orgId),
+    listSelectedBoards(syncDeps(), actor.orgId),
     getNow(),
     getTimeZone(),
   ]);
@@ -87,6 +91,15 @@ export async function AgentPage({
     .map((c) => ({ id: c.id, label: c.label, model: c.model, isDefault: c.isDefault }));
   const pickedId = conversation?.llmConnectionId ?? null;
   const fallback = pickedId !== null && !models.some((m) => m.id === pickedId);
+  const siteUrls: Record<string, string> = Object.fromEntries(
+    jiraSites.map((s) => [s.id, s.baseUrl]),
+  );
+  const boardSites = Object.fromEntries(
+    boards.flatMap((b) => {
+      const url = siteUrls[b.connectionId];
+      return url ? [[b.id, url] as const] : [];
+    }),
+  );
   return (
     <AgentShell
       history={sidebar}
@@ -101,12 +114,15 @@ export async function AgentPage({
         />
       }
     >
-      <AgentChat
-        key={conversationId}
-        conversationId={conversationId}
-        initialMessages={initialMessages}
-        siteNames={Object.fromEntries(jiraSites.map((s) => [s.id, s.name]))}
-      />
+      <BoardSitesProvider sites={boardSites}>
+        <AgentChat
+          key={conversationId}
+          conversationId={conversationId}
+          initialMessages={initialMessages}
+          siteNames={Object.fromEntries(jiraSites.map((s) => [s.id, s.name]))}
+          siteUrls={siteUrls}
+        />
+      </BoardSitesProvider>
     </AgentShell>
   );
 }

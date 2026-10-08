@@ -144,6 +144,7 @@
     "title": "Connexions Jira",
     "description": "Connectez les sites Jira de vos équipes. Les identifiants sont testés avant d'être enregistrés, puis chiffrés.",
     "empty": "Aucun Jira connecté pour l'instant.",
+    "openIssue": "{key}, ouvrir dans Jira (nouvel onglet)",
     "emptyHint": "Connectez un site Jira Cloud ou un serveur Data Center pour commencer.",
     "add": "Ajouter une connexion",
     "addDescription": "Utilisez la connexion Atlassian, un jeton d'API (Cloud) ou un jeton d'accès personnel (Data Center).",
@@ -557,10 +558,40 @@
     },
     "notEnoughData": "Pas encore assez de données",
     "notSprintFiltered": "Non filtré par sprint",
+    "chartTable": {
+      "label": "{title} (graphique)",
+      "untitled": "Graphique",
+      "category": "Valeur",
+      "toggle": "Afficher les données en tableau"
+    },
     "sprintDay": "J{day}",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}",
     "removeWidget": "Retirer de ce tableau de bord",
+    "editWidget": {
+      "action": "Modifier « {title} »",
+      "title": "Modifier le graphique",
+      "description": "Renommez-le, ou affichez les mêmes données autrement.",
+      "name": "Titre",
+      "chart": "Afficher en",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "errors": {
+        "not_found": "Ce graphique n’est plus sur le tableau de bord.",
+        "invalid_widget": "Ce titre ou ce type de graphique ne peut pas être utilisé pour ce graphique.",
+        "unknown": "Une erreur est survenue lors de l’enregistrement du graphique."
+      }
+    },
+    "charts": {
+      "kpi": "Nombre",
+      "table": "Tableau",
+      "bar": "Histogramme",
+      "stacked_bar": "Histogramme empilé",
+      "line": "Courbe",
+      "area": "Aires",
+      "pie": "Camembert",
+      "list": "Liste de tickets"
+    },
     "insights": "Encarts de vos compétences",
     "insightWhen": "Mis à jour {when}",
     "removeErrors": {
@@ -621,6 +652,7 @@
     "result": {
       "pin": "Épingler au tableau de bord",
       "pinned": "Épinglé",
+      "alreadyPinned": "Déjà sur votre tableau de bord",
       "asOf": "{board} · au {time}",
       "pinErrors": {
         "invalid_widget": "Ce résultat ne peut pas être épinglé.",

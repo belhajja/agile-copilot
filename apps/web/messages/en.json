@@ -144,6 +144,7 @@
     "title": "Jira connections",
     "description": "Connect the Jira sites your teams work in. Credentials are tested before they are saved, then encrypted.",
     "empty": "No Jira connected yet.",
+    "openIssue": "{key}, open in Jira (new tab)",
     "emptyHint": "Connect a Jira Cloud site or a Data Center server to start.",
     "add": "Add a connection",
     "addDescription": "Use Atlassian sign-in, an API token (Cloud) or a personal access token (Data Center).",
@@ -557,10 +558,40 @@
     },
     "notEnoughData": "Not enough data yet",
     "notSprintFiltered": "Not filtered by sprint",
+    "chartTable": {
+      "label": "{title} (chart)",
+      "untitled": "Chart",
+      "category": "Value",
+      "toggle": "Show data as a table"
+    },
     "sprintDay": "Day {day}",
     "cappedDays": "≥ {days} days",
     "truncated": "{shown} of {total}",
     "removeWidget": "Remove from this dashboard",
+    "editWidget": {
+      "action": "Edit “{title}”",
+      "title": "Edit chart",
+      "description": "Rename it, or show the same data another way.",
+      "name": "Title",
+      "chart": "Show as",
+      "save": "Save",
+      "cancel": "Cancel",
+      "errors": {
+        "not_found": "This chart is no longer on the dashboard.",
+        "invalid_widget": "This title or chart type can’t be used for this chart.",
+        "unknown": "Something went wrong saving the chart."
+      }
+    },
+    "charts": {
+      "kpi": "Number",
+      "table": "Table",
+      "bar": "Bar chart",
+      "stacked_bar": "Stacked bar chart",
+      "line": "Line chart",
+      "area": "Area chart",
+      "pie": "Pie chart",
+      "list": "Issue list"
+    },
     "insights": "Insights from your skills",
     "insightWhen": "Updated {when}",
     "removeErrors": {
@@ -621,6 +652,7 @@
     "result": {
       "pin": "Pin to dashboard",
       "pinned": "Pinned",
+      "alreadyPinned": "Already on your dashboard",
       "asOf": "{board} · as of {time}",
       "pinErrors": {
         "invalid_widget": "This result can’t be pinned.",

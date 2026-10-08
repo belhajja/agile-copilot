@@ -4,6 +4,8 @@ import type { WidgetData, WidgetSpec } from '@agile/dashboards';
 export interface RenderedWidget {
   spec: WidgetSpec;
   data: WidgetData;
+  /** Charts it can be switched to (set where widgets can be edited). */
+  charts?: readonly string[];
 }
 
 export type SeriesData = Extract<WidgetData, { kind: 'series' }>;
