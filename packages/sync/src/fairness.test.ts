@@ -41,7 +41,7 @@ async function waitFor<T>(read: () => Promise<T>, done: (v: T) => boolean, ms = 
   for (;;) {
     const value = await read();
     if (done(value) || Date.now() > until) return value;
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 25));
   }
 }
 
