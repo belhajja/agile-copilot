@@ -1,7 +1,7 @@
 import type { KpiFormat, WidgetData } from '@agile/dashboards';
 import { useFormatter, useTranslations } from 'next-intl';
 import { allowedCode } from '@/lib/error-code';
-import { useGroupLabel } from './group-label';
+import { useDimensionLabel } from './group-label';
 import {
   DASHBOARD_EMPTY_REASONS,
   DASHBOARD_HINTS,
@@ -49,7 +49,7 @@ export function WidgetNotes({ data }: { data: WidgetData }) {
 export function WidgetBody({ data }: { data: WidgetData }) {
   const t = useTranslations('dashboards');
   const kpiText = useKpiText();
-  const groupLabel = useGroupLabel();
+  const dimensionLabel = useDimensionLabel();
   const seriesLabel = (key: string) => {
     const known = allowedCode(key, DASHBOARD_SERIES);
     return known ? t(`series.${known}`) : key;
@@ -60,7 +60,10 @@ export function WidgetBody({ data }: { data: WidgetData }) {
         <WidgetChart
           data={data}
           labels={Object.fromEntries(
-            data.series.map((s) => [s.key, s.label ? groupLabel(s.label) : seriesLabel(s.key)]),
+            data.series.map((s) => [
+              s.key,
+              s.label ? dimensionLabel(data.pivot, s.label) : seriesLabel(s.key),
+            ]),
           )}
         />
       );

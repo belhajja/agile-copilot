@@ -10,9 +10,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { allowedCode } from '@/lib/error-code';
-import { useGroupLabel } from './group-label';
+import { useDimensionLabel } from './group-label';
 import { DASHBOARD_CODES, DASHBOARD_COLUMNS } from './message-keys';
-import { MONTH_FORMAT, monthStart } from './month-label';
 import type { TableData } from './types';
 import { visibleRows } from './visible-rows';
 
@@ -23,7 +22,7 @@ const keyedRows = (rows: TableData['rows']) =>
 export function WidgetTable({ data }: { data: TableData }) {
   const t = useTranslations('dashboards');
   const format = useFormatter();
-  const groupLabel = useGroupLabel();
+  const dimensionLabel = useDimensionLabel();
   const columnLabel = (key: string) => {
     const known = allowedCode(key, DASHBOARD_COLUMNS);
     return known ? t(`columns.${known}`) : key;
@@ -60,10 +59,8 @@ export function WidgetTable({ data }: { data: TableData }) {
         return code(String(value));
       case 'codes':
         return String(value).split(',').map(code).join(', ');
-      default: {
-        const month = monthStart(column.key, String(value));
-        return month ? format.dateTime(month, MONTH_FORMAT) : groupLabel(String(value));
-      }
+      default:
+        return dimensionLabel(column.key, String(value));
     }
   };
   const { rows, truncated } = visibleRows(data.rows);
@@ -80,7 +77,9 @@ export function WidgetTable({ data }: { data: TableData }) {
       <TableHeader>
         <TableRow>
           {data.columns.map((c) => (
-            <TableHead key={c.key}>{c.label ? groupLabel(c.label) : columnLabel(c.key)}</TableHead>
+            <TableHead key={c.key}>
+              {c.label ? dimensionLabel(data.pivot, c.label) : columnLabel(c.key)}
+            </TableHead>
           ))}
         </TableRow>
       </TableHeader>
