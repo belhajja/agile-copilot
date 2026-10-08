@@ -36,7 +36,9 @@ services:
         target: /docker-entrypoint-initdb.d/01-app-role.sh
         mode: 0555
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agile -d agile"]
+      # Over TCP: on first start the entrypoint runs the init scripts on a socket-only server and
+      # then restarts it, so a socket check reports ready too early (migrate then fails).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agile -d agile"]
       interval: 2s
       retries: 30
   migrate:
