@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { account, createDb, user } from '@agile/db';
@@ -83,14 +84,13 @@ function runBreakGlassCli(
   stdin: string,
 ): Promise<{ code: number | null; out: string }> {
   const pkg = join(import.meta.dirname, '..');
-  const child = spawn(
-    join(pkg, 'node_modules', '.bin', 'tsx'),
-    ['src/break-glass-cli.ts', ...args],
-    {
-      cwd: pkg,
-      env: { PATH: process.env.PATH ?? '', ...env },
-    },
-  );
+  // tsx's CLI run by this node: node_modules/.bin/tsx is a .cmd shim on Windows, which spawn
+  // cannot start without a shell.
+  const tsxCli = createRequire(join(pkg, 'package.json')).resolve('tsx/cli');
+  const child = spawn(process.execPath, [tsxCli, 'src/break-glass-cli.ts', ...args], {
+    cwd: pkg,
+    env: { PATH: process.env.PATH ?? '', ...env },
+  });
   let out = '';
   child.stdout.on('data', (d) => {
     out += d;
