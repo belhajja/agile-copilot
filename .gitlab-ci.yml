@@ -85,6 +85,12 @@ node-build:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
+  # The standalone build (the artifact) is served by e2e as the image serves it: with the static
+  # assets copied next to server.js (apps/web/Dockerfile, runner stage).
+  after_script:
+    - >-
+      if [ -f apps/web/.next/standalone/apps/web/server.js ] && [ -d apps/web/.next/static ]; then
+      cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/; fi
 
 # One image per Dockerfile target, named like the Helm chart's image.web/worker/migrate.
 # The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
@@ -213,10 +219,17 @@ e2e:
   stage: acceptance
   # Browser install, the web app build when there is none to reuse, then the suite.
   timeout: 40 minutes
+  # node-build's standalone web app, served as is instead of building it again
+  # (E2E_PREBUILT_WEB, e2e/playwright.config.ts). Without that artifact the tests build it.
+  needs:
+    - job: node-build
+      artifacts: true
+      optional: true
   services:
     - name: $DOCKER_HUB_MIRROR/library/postgres:17-alpine
       alias: postgres
   variables:
+    E2E_PREBUILT_WEB: "1"
     POSTGRES_USER: agile
     POSTGRES_PASSWORD: agile_dev_password
     POSTGRES_DB: agile

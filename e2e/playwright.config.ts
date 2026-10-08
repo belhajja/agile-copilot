@@ -1,4 +1,15 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
+
+// The standalone server node-build leaves as an artifact (static assets copied in, as in the
+// image). CI sets E2E_PREBUILT_WEB=1 to serve it instead of building again; without it, or when
+// it is missing, CI builds as before.
+const prebuiltServer = fileURLToPath(
+  new URL('../apps/web/.next/standalone/apps/web/server.js', import.meta.url),
+);
+const usePrebuilt =
+  !!process.env.CI && process.env.E2E_PREBUILT_WEB === '1' && existsSync(prebuiltServer);
 
 // Migrations run as the owner; the worker starts before globalSetup, so it migrates first.
 const ownerUrl =
@@ -55,11 +66,14 @@ export default defineConfig({
     {
       // CI serves a production build: `next dev` compiles each route on its first request, which
       // under every worker at once outlasted a test's 30 s on the shared runners.
-      command: process.env.CI
-        ? 'pnpm --filter @agile/web build && pnpm --filter @agile/web exec next start --port 3200'
-        : 'pnpm --filter @agile/web exec next dev --port 3200',
+      command: usePrebuilt
+        ? `node ${JSON.stringify(prebuiltServer)}`
+        : process.env.CI
+          ? 'pnpm --filter @agile/web build && pnpm --filter @agile/web exec next start --port 3200'
+          : 'pnpm --filter @agile/web exec next dev --port 3200',
       url: 'http://localhost:3200/login',
-      env,
+      // server.js reads PORT and HOSTNAME; HOSTNAME is the container's name on CI runners.
+      env: usePrebuilt ? { ...env, PORT: '3200', HOSTNAME: '0.0.0.0' } : env,
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 600_000 : 180_000,
     },
