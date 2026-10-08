@@ -82,55 +82,46 @@ Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ol
 
 The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE`, and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)* and *Sign-in limits*).
 
-## Install with the operator
+### Running the published images on a computer
 
-The operator installs and upgrades the self-host stack on any Docker host inside the Orange
-network. It keeps everything (settings, secrets, compose files, backups) in one folder you choose.
+`docker-compose.local.yml` is an override for `docker-compose.selfhost.yml`. It runs the images the
+GitLab pipeline publishes (nothing is built) and publishes the app on this computer only, at
+`http://localhost:${WEB_PORT:-3000}`. It needs Docker Desktop (or Docker Engine with the Compose
+plugin, v2.24 or later) and the Orange network or VPN.
 
 ```bash
-docker run --rm -it \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /opt/agile-copilot:/data \
-  registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/operator:<version> install
+# 1. Get the compose files and the Postgres init script (a clone is simplest)
+git clone -b develop https://gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai.git agile-copilot
+cd agile-copilot
+
+# 2. Log in to the registry with a deploy token (Settings → Repository → Deploy tokens,
+#    scope read_registry)
+docker login registry.gitlab.tech.orange -u <deploy-token-username>
+
+# 3. Configure
+cp .env.example .env
+# Fill in .env (paste generated values: .env does not run $(...)):
+#   COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.local.yml   (on Windows: ; instead of :)
+#   BETTER_AUTH_URL=http://localhost:3000
+#   BETTER_AUTH_SECRET=<openssl rand -base64 32>   ENCRYPTION_KEYS=v1:<openssl rand -base64 32>
+#   POSTGRES_PASSWORD=<openssl rand -hex 24>       APP_DB_PASSWORD=<openssl rand -hex 24>
+#   DOCKER_HUB_MIRROR=dockerproxy.repos.tech.orange   (optional: Postgres through Orange's mirror)
+
+# 4. Start
+docker compose pull
+docker compose up -d
 ```
 
-It asks for the mode (`local`: this computer, `server`: HTTPS with a domain), the port or domain,
-the Jira hosts to allow and a registry deploy token, generates every secret, starts the stack and
-waits until it is healthy. Every answer can be given as a flag (`--yes` takes the defaults).
-Answering the prompts needs `-it` on `docker run`; without a terminal, pass the flags or `--yes`.
+Then open `http://localhost:3000` and sign up: the first account creates the first workspace.
 
-Secrets passed as flags end up in the host's process list and shell history. Pass them through
-the environment instead: `OPERATOR_REGISTRY_TOKEN` and `OPERATOR_OIDC_CLIENT_SECRET` (e.g.
-`docker run -e OPERATOR_REGISTRY_TOKEN ...` with the variable set in your shell) are used when
-`--registry-token` or `--oidc-client-secret` is absent. With `--oidc-issuer` and no secret,
-`install` asks for it without echoing. If the registry refused the images, `install --resume
---registry-user <user>` with the token in `OPERATOR_REGISTRY_TOKEN` (or `--registry-token`)
-stores the new deploy token and carries on; no other setting changes on resume.
-
-- `upgrade` (run the operator of the new version): pulls, backs up, migrates, and rolls back to
-  the previous version and data if the new one does not come up. On a moving tag (`develop`) it
-  compares the pulled images with the running ones and only upgrades when the registry has a
-  newer build; a rollback puts the previous build back under the tag. Run it with
-  `docker run --pull always ...` so the operator itself is the latest build of its tag.
-- Automatic upgrades: the stack includes an `updater` service (the operator image running
-  `watch`). Every hour it runs a freshly pulled operator's `upgrade`, so a new `develop` build is
-  installed within the hour (with the backup and rollback above), the operator included. A
-  release tag never changes, so a release install stays on its version until you run a newer
-  operator. `config auto-upgrade off` pauses it, `config auto-upgrade-interval <minutes>`
-  (15–1440) changes the period. An install made before the updater existed gets it on its next
-  `upgrade`.
-- `status [--check]`: version, services with the image each one runs, last backup and upgrade,
-  and the updater's last check; `--check` pulls this operator's images and says whether
-  `upgrade` would change anything.
-- `backup`, `restore <name|latest>`, `config <setting> <value>`, `logs [service]`.
-- Keep the folder backed up: its `.env` holds `ENCRYPTION_KEYS`, without which the stored Jira and
-  AI credentials cannot be read.
-- The operator runs as root in its container: it drives the Docker socket, which is
-  root-equivalent anyway.
-- Adopting an existing hand-made install is not supported in this version: keep running it with
-  `docker compose`, or install fresh with the operator and restore a `pg_dump` of the old
-  database into it (the new install has its own `ENCRYPTION_KEYS`, so the Jira and AI
-  credentials stored in the old database have to be entered again).
+- **Which version runs.** By default the latest `develop` build. To pin a release, set
+  `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` (e.g.
+  `registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`).
+- **Updating.** Back up first (below), then `docker compose pull` and `docker compose up -d`:
+  `migrate` applies the new migrations before `web` and `worker` start. A newer `develop` build is
+  published by every green pipeline on `develop`.
+- **Back up** the database (`docker compose exec postgres pg_dump -U agile -Fc agile > backup.dump`)
+  **and `.env`**: without `ENCRYPTION_KEYS` the stored Jira and AI credentials cannot be read.
 
 ### Deploying on a server
 
@@ -146,10 +137,10 @@ stores the new deploy token and carries on; no other setting changes on resume.
 
 ```bash
 # 1. Get the compose files, the Postgres init script and the Caddyfile (a clone is simplest)
-git clone -b develop https://gitlab.com/agile-copilot/agile-copilot.git && cd agile-copilot
+git clone -b develop https://gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai.git agile-copilot && cd agile-copilot
 
 # 2. Log in to the registry with the deploy token
-docker login registry.gitlab.com -u <deploy-token-username> -p <deploy-token>
+docker login registry.gitlab.tech.orange -u <deploy-token-username>
 
 # 3. Configure
 cp .env.example .env
@@ -168,7 +159,7 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml up -d
 
 Then open `https://<APP_DOMAIN>` and sign up: the first account creates the first workspace. To make typing shorter, `export COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.server.yml` lets you run plain `docker compose ...` commands.
 
-- **Which version runs.** By default the latest `develop` build (`…/web/snapshot:develop`, and the same for `worker` and `migrate`). To pin a release, set `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` to the release images (`registry.gitlab.com/agile-copilot/agile-copilot/web:<tag>`, …). Tags publish them, and so does the manual publish job on `main`.
+- **Which version runs.** By default the latest `develop` build (`…/web/snapshot:develop`, and the same for `worker` and `migrate`). To pin a release, set `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` to the release images (`registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`, …). Tags publish them, and so does the manual publish job on `main`.
 - **Updating.** Run `pull`, then `up -d` again. `migrate` applies new migrations before `web` and `worker` start.
 - **Back up** the Postgres volume (`docker compose exec postgres pg_dump -U agile agile > backup.sql`, on a schedule) **and `.env`**. Without `ENCRYPTION_KEYS`, the stored Jira and AI provider credentials cannot be decrypted.
 - **Keep the `caddy_data` volume.** It holds the certificate, and Let's Encrypt limits how often one can be issued again.

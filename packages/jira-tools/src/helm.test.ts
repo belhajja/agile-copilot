@@ -66,13 +66,11 @@ describe('apps/web/Dockerfile', () => {
       /^FROM (\S+)/.exec(s)?.[1],
     ]),
   );
-  // Final images: stages no other stage builds on. The chart deploys runner, worker and migrate;
-  // the operator drives Docker through its socket on a Docker host and is never deployed by it.
-  const finals = stages.filter((s) => !used.has(nameOf(s)));
-  const deployed = finals.filter((s) => nameOf(s) !== 'operator');
+  // Final images: stages no other stage builds on. The chart deploys every one of them.
+  const deployed = stages.filter((s) => !used.has(nameOf(s)));
 
   it('runs every image the chart deploys as the numeric user the chart expects', () => {
-    expect(finals.map(nameOf).sort()).toEqual(['migrate', 'operator', 'runner', 'worker']);
+    expect(deployed.map(nameOf).sort()).toEqual(['migrate', 'runner', 'worker']);
     const podUser = (parse(chart('values.yaml')) as { podSecurityContext: { runAsUser: number } })
       .podSecurityContext.runAsUser;
     for (const stage of deployed) {
