@@ -95,7 +95,7 @@ workspace.
 
 The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. `web` and `worker` receive an explicit list of variables from `.env` (never `POSTGRES_PASSWORD` or an owner connection URL). The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 200 s: on stop it interrupts running syncs at their next page (they are recorded as *interrupted* and retried) and running skill runs (recorded as *interrupted* with their report kept; a delivery still being sent is abandoned, not retried), then waits up to 190 s for jobs to record their outcome (plus a 195 s backstop) before exiting. On Kubernetes, set `terminationGracePeriodSeconds: 200`.
 
-`POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into SQL and into connection URLs, so they must be URL-safe and contain no quotes; generate them with `openssl rand -hex 24`.
+`POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into connection URLs, so they must be URL-safe; generate them with `openssl rand -hex 24`. (The script that creates `app_user` passes the password to `psql` as a variable, so quotes in it cannot break the SQL.)
 
 The script that creates `app_user` only runs when the Postgres volume is first created. Changing `APP_DB_PASSWORD` afterwards has no effect on the database by itself. Either update the role in place (in `deploy/compose`):
 
