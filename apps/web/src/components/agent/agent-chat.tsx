@@ -1,5 +1,6 @@
 'use client';
 
+import { turnErrorCode } from '@agile/agent/turn-errors';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import { useChat } from '@ai-sdk/react';
 import {
@@ -173,6 +174,14 @@ export function AgentChat({
                       <p key={key} className="whitespace-pre-wrap">
                         {part.text}
                       </p>
+                    );
+                  }
+                  const turnError = turnErrorCode(part);
+                  if (turnError) {
+                    return (
+                      <Alert key={key} variant="destructive" data-turn-error={turnError}>
+                        <AlertDescription>{t(`turnErrors.${turnError}`)}</AlertDescription>
+                      </Alert>
                     );
                   }
                   if (!isToolUIPart(part) || part.type === 'dynamic-tool') return null;

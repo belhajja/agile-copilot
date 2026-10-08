@@ -1,4 +1,5 @@
 import { TOOL_ERROR_CODES } from '@agile/agent/tool-errors';
+import { TURN_ERROR_CODES } from '@agile/agent/turn-errors';
 import { describe, expect, it } from 'vitest';
 import en from '../../../messages/en.json';
 import fr from '../../../messages/fr.json';
@@ -13,6 +14,15 @@ describe('assistant texts (EN/FR)', () => {
       const missing = TOOL_ERROR_CODES.filter(
         (code) => typeof toolErrors[code] !== 'string' || !toolErrors[code]?.trim(),
       );
+      expect(missing).toEqual([]);
+    },
+  );
+
+  it.each(Object.entries(locales))(
+    '%s has a sentence for every way a reply can end without an answer',
+    (_locale, messages) => {
+      const turnErrors = messages.agent.turnErrors as Record<string, string>;
+      const missing = TURN_ERROR_CODES.filter((code) => !turnErrors[code]?.trim());
       expect(missing).toEqual([]);
     },
   );

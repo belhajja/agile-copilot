@@ -686,6 +686,9 @@
     "assignedTo": "Assigned to {name}.",
     "superseded": "Closed: you moved on without approving.",
     "scrollDown": "Scroll to the latest message",
+    "turnErrors": {
+      "turn_timeout": "This answer took too long and was stopped. Ask again, ideally with a narrower question."
+    },
     "errors": {
       "generic": "The assistant could not answer. Check the AI model connection and try again.",
       "unauthorized": "Your session has expired. Sign in again to keep chatting.",
