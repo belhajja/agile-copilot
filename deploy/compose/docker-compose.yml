@@ -1,8 +1,10 @@
-# Usage: cp .env.example .env (fill secrets), then: docker compose -f docker-compose.selfhost.yml up -d --build
+# Agile Copilot on a local machine, from the images the GitLab pipeline publishes (nothing is
+# built here). Everything it needs is this file and a .env next to it:
+#   cp .env.example .env   (fill in the required values), then: docker compose up -d
 # Services: postgres, migrate (one-shot), web (the app), worker (Jira sync and skill runs) and
 # mcp-atlassian (the assistant's live Jira tools; a read-only twin, mcp-atlassian-readonly, serves
-# skill runs and previews).
-# Set WEB_PORT in .env to publish the app on a port other than 3000 (and match BETTER_AUTH_URL).
+# skill runs and previews). The app is published on this machine only, at http://localhost:${WEB_PORT}.
+name: agile-copilot
 services:
   postgres:
     # DOCKER_HUB_MIRROR: a Docker Hub mirror to pull from (e.g. Orange's dockerproxy.repos.tech.orange).
@@ -15,18 +17,22 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    # Creates app_user, the non-owner role the app connects as (row-level security applies to it).
+    configs:
+      - source: pg-init
+        target: /docker-entrypoint-initdb.d/01-app-role.sh
+        mode: 0555
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agile -d agile"]
       interval: 2s
       retries: 30
   migrate:
-    build: { context: ., dockerfile: apps/web/Dockerfile, target: migrate }
+    image: ${MIGRATE_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate/snapshot:develop}
     environment:
       DATABASE_OWNER_URL: postgres://agile:${POSTGRES_PASSWORD}@postgres:5432/agile
     depends_on: { postgres: { condition: service_healthy } }
   web:
-    build: { context: ., dockerfile: apps/web/Dockerfile, target: runner }
+    image: ${WEB_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web/snapshot:develop}
     restart: unless-stopped
     # Only what the app needs: never the owner credentials (POSTGRES_PASSWORD, DATABASE_OWNER_URL).
     environment:
@@ -62,7 +68,8 @@ services:
       # Skill previews read Jira through the read-only twin only.
       MCP_ATLASSIAN_READONLY_URL: http://mcp-atlassian-readonly:8000/mcp
       SKILL_RUNS_DAILY_LIMIT: ${SKILL_RUNS_DAILY_LIMIT:-50}
-    ports: ["${WEB_PORT:-3000}:3000"]
+    # This machine only (127.0.0.1): put a TLS reverse proxy in front to serve other machines.
+    ports: ["127.0.0.1:${WEB_PORT:-3000}:3000"]
     # `mcp`: the only service that can reach mcp-atlassian (and the only one it can reach);
     # `mcp-readonly`: the read-only twin, for skill previews (shared with the worker).
     networks: [default, mcp, mcp-readonly]
@@ -81,7 +88,7 @@ services:
     # Jira tools then answer "unavailable").
     depends_on: { migrate: { condition: service_completed_successfully } }
   worker:
-    build: { context: ., dockerfile: apps/web/Dockerfile, target: worker }
+    image: ${WORKER_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker/snapshot:develop}
     restart: unless-stopped
     # On SIGTERM the worker aborts running jobs, then waits up to 190 s for them to record their
     # outcome (a skill run plus its delivery can take 180 s), with a 195 s backstop. Kubernetes:
@@ -174,3 +181,15 @@ networks:
   mcp-readonly: {}
 volumes:
   pgdata:
+configs:
+  # Same as docker/postgres/init/01-app-role.sh (tested); $$ keeps a literal $ from Compose.
+  pg-init:
+    content: |
+      #!/bin/sh
+      # Creates the non-owner role the app connects as, so Postgres row-level security applies to it.
+      set -e
+      psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" <<-EOSQL
+        CREATE ROLE app_user LOGIN PASSWORD '$${APP_DB_PASSWORD}';
+        GRANT CONNECT ON DATABASE "$${POSTGRES_DB}" TO app_user;
+        GRANT USAGE ON SCHEMA public TO app_user;
+      EOSQL
