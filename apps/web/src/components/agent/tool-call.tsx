@@ -4,6 +4,7 @@ import type { ToolUIPart } from 'ai';
 import { ChevronDown, Sparkles, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { useId } from 'react';
 import { CodeBlock } from '@/components/ai-elements/code-block';
 import { Tool, ToolContent } from '@/components/ai-elements/tool';
 import { Badge } from '@/components/ui/badge';
@@ -90,6 +91,7 @@ function SkillSuggestionCard({
 }) {
   const t = useTranslations('agent.suggestion');
   const ts = useTranslations('skills');
+  const waitingId = useId();
   const posts = suggestion.trigger === 'schedule' || suggestion.trigger === 'alert';
   return (
     <div className="grid min-w-0 gap-3 rounded-lg border p-3" data-skill-suggestion>
@@ -112,9 +114,14 @@ function SkillSuggestionCard({
           <Link href={href}>{t('open')}</Link>
         </Button>
       ) : (
-        <Button size="sm" className="justify-self-start" disabled>
-          {t('open')}
-        </Button>
+        <div className="grid gap-1">
+          <Button size="sm" className="justify-self-start" disabled aria-describedby={waitingId}>
+            {t('open')}
+          </Button>
+          <p id={waitingId} className="text-xs text-muted-foreground">
+            {t('waiting')}
+          </p>
+        </div>
       )}
     </div>
   );

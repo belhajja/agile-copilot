@@ -39,6 +39,15 @@ describe('ToolCall (skill suggestion card)', () => {
     expect(out).toMatch(/<button[^>]*\sdisabled=""/);
   });
 
+  it('says why the link is off, tied to the button', () => {
+    const out = html(true);
+    const describedBy = out.match(/<button[^>]*aria-describedby="([^"]+)"/)?.[1];
+    expect(describedBy).toBeTruthy();
+    expect(out).toContain(`id="${describedBy}"`);
+    expect(out).toContain('waiting');
+    expect(html(false)).not.toContain('waiting');
+  });
+
   it('opens the builder once the chat is no longer busy', () => {
     const out = html(false);
     expect(out).toMatch(/href="\/skills\/new\?from=c1&amp;suggestion=t1"/);

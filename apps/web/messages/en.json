@@ -773,7 +773,8 @@
     "openDashboard": "Open the dashboard",
     "suggestion": {
       "title": "Save this as a skill?",
-      "open": "Open in skill builder"
+      "open": "Open in skill builder",
+      "waiting": "Available once the reply has finished."
     },
     "model": {
       "button": "Model: {model}",

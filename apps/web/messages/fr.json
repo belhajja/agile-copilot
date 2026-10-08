@@ -773,7 +773,8 @@
     "openDashboard": "Ouvrir le tableau de bord",
     "suggestion": {
       "title": "Enregistrer ceci comme compétence ?",
-      "open": "Ouvrir dans l’éditeur de compétences"
+      "open": "Ouvrir dans l’éditeur de compétences",
+      "waiting": "Disponible une fois la réponse terminée."
     },
     "model": {
       "button": "Modèle : {model}",
