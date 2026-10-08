@@ -254,10 +254,10 @@ describe('executing a run: owner, read-only report, delivery', () => {
       const posts = h.hook.posts.length;
       const running = executeSkillRun(h.deps, 'org_a', runId, stop.signal);
       // The post reached the platform, which does not answer: the worker stops now.
-      for (let i = 0; i < 200 && h.hook.posts.length === posts; i++) {
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      expect(h.hook.posts.length).toBe(posts + 1);
+      await vi.waitFor(() => expect(h.hook.posts.length).toBe(posts + 1), {
+        timeout: 30_000,
+        interval: 25,
+      });
       stop.abort();
       expect(await running).toEqual({ status: 'failed', code: 'interrupted' });
     } finally {

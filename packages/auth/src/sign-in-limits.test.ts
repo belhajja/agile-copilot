@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { createDb, signInAttempts } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { sql } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import { ACCOUNT_SIGN_IN_CEILING, ADDRESS_SIGN_IN_ATTEMPTS } from './sign-in-lim
 
 const BASE = 'http://localhost:3000';
 const PASSWORD = 'correct-horse-1';
+const SECRET = 'x'.repeat(32);
 let lastOctet = 0;
 /** A client address no other request in this file uses (a fresh per-address bucket). */
 const freshAddress = () => {
@@ -23,7 +25,7 @@ describe('sign-in limits', () => {
   let tdb: TestDatabase;
   let conn: ReturnType<typeof createDb>;
   const make = (options: Partial<AuthOptions> = {}) =>
-    createAuth({ db: conn.db, secret: 'x'.repeat(32), baseURL: BASE, ...options });
+    createAuth({ db: conn.db, secret: SECRET, baseURL: BASE, ...options });
 
   const signIn = (
     auth: ReturnType<typeof make>,
@@ -214,6 +216,19 @@ describe('sign-in limits', () => {
     it('starts over once the window has passed, and forgets expired windows', async () => {
       const auth = make();
       const stale = sql`now() - interval '16 minutes'`;
+      // The earlier cases leave more counters than one sign-in prunes (100, in no set order): keep
+      // the victim's account counter (over the limit since the first case) and the known markers.
+      const victimKey = createHmac('sha256', SECRET)
+        .update('sign-in:victim@example.com')
+        .digest('hex');
+      const [victim] = await conn.db
+        .select({ attempts: signInAttempts.attempts })
+        .from(signInAttempts)
+        .where(sql`${signInAttempts.keyHash} = ${victimKey}`);
+      expect(victim?.attempts).toBeGreaterThan(ADDRESS_SIGN_IN_ATTEMPTS);
+      await conn.db
+        .delete(signInAttempts)
+        .where(sql`${signInAttempts.attempts} > 0 and ${signInAttempts.keyHash} <> ${victimKey}`);
       await conn.db.update(signInAttempts).set({ windowStartedAt: stale });
       await conn.db
         .insert(signInAttempts)

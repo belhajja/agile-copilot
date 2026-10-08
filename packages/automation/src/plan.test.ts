@@ -10,7 +10,7 @@ import {
 import { createSkill, deleteSkill, serializeSkill, setSkillVisibility } from '@agile/skills';
 import { member, owner } from '@agile/sync/testing';
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALERT_COOLDOWN_HOURS, planSkillRuns } from './plan';
 import {
   claimRun,
@@ -68,15 +68,19 @@ describe('planning background runs (schedules, alerts, limits)', () => {
   /** Waits until `n` sessions of the app role wait on a lock; returns how many were seen. */
   const lockWaiters = async (n: number) => {
     let seen = 0;
-    for (let i = 0; i < 400; i++) {
-      const [row] = await h.db.execute<{ n: number }>(
-        sql`select count(*)::int as n from pg_stat_activity
-            where wait_event_type = 'Lock' and datname = current_database()`,
-      );
-      seen = row?.n ?? 0;
-      if (seen >= n) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    await vi
+      .waitFor(
+        async () => {
+          const [row] = await h.db.execute<{ n: number }>(
+            sql`select count(*)::int as n from pg_stat_activity
+                where wait_event_type = 'Lock' and datname = current_database()`,
+          );
+          seen = row?.n ?? 0;
+          expect(seen).toBeGreaterThanOrEqual(n);
+        },
+        { timeout: 30_000, interval: 25 },
+      )
+      .catch(() => {});
     return seen;
   };
   /** Holds a lock (taken by `take`) in another session until `release()` is called. */

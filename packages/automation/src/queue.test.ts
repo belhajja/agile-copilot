@@ -4,7 +4,7 @@ import { startSyncQueue } from '@agile/sync';
 import { member, owner } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   enqueueSkillRuns,
   handleSkillJob,
@@ -154,7 +154,16 @@ describe('"Run now" and the skill worker (pg-boss)', () => {
     expect(await waitForRun(run.id)).toMatchObject({ status: 'succeeded' });
     // A third send after it finished is claimed by nobody.
     await tick();
-    await new Promise((r) => setTimeout(r, 1_500));
+    // Every job sent for the run has been worked (and any mail it sent received).
+    await vi.waitFor(
+      async () => {
+        const jobs = await boss.findJobs(SKILL_RUN_QUEUE, { key: run.id });
+        expect(jobs.filter((j) => !['completed', 'failed', 'cancelled'].includes(j.state))).toEqual(
+          [],
+        );
+      },
+      { timeout: 30_000, interval: 50 },
+    );
     expect(h.smtp.mails.filter((m) => m.subject.includes(name))).toHaveLength(1);
     expect(errors).toEqual([]);
   });
