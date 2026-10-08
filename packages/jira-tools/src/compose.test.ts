@@ -51,7 +51,7 @@ describe.each(['docker-compose.yml', 'deploy/compose/docker-compose.yml'])('%s',
   });
 
   it('keeps each mcp-atlassian instance on its own network, away from the database', () => {
-    // Its only SSRF guard is its own (unpinned) domain check: it must not reach Postgres.
+    // Its SSRF guard trusts the DNS of MCP_ALLOWED_URL_DOMAINS hosts: it must not reach Postgres.
     for (const [, s] of mcp) {
       const readOnly = s.environment?.READ_ONLY_MODE === 'true';
       expect(networksOf(s)).toEqual([readOnly ? 'mcp-readonly' : 'mcp']);

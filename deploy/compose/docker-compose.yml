@@ -5,11 +5,24 @@
 # mcp-atlassian (the assistant's live Jira tools; a read-only twin, mcp-atlassian-readonly, serves
 # skill runs and previews). The app is published on this machine only, at http://localhost:${WEB_PORT}.
 name: agile-copilot
+# Every service: bounded logs (3 x 10 MB per container), no privilege escalation (setuid binaries
+# stay unprivileged) and no Linux capabilities unless a service adds some back.
+x-hardened: &hardened
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
 services:
   postgres:
+    <<: *hardened
     # DOCKER_HUB_MIRROR: a Docker Hub mirror to pull from (e.g. Orange's dockerproxy.repos.tech.orange).
     image: ${DOCKER_HUB_MIRROR:-docker.io}/library/postgres:17-alpine
     restart: unless-stopped
+    # The entrypoint starts as root to fix the data directory's ownership, then drops to the
+    # postgres user (su-exec): exactly the capabilities those two steps use.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    # No read_only: Compose writes the pg-init config into the container's filesystem.
     environment:
       POSTGRES_USER: agile
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -23,17 +36,28 @@ services:
         target: /docker-entrypoint-initdb.d/01-app-role.sh
         mode: 0555
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agile -d agile"]
+      # Over TCP: on first start the entrypoint runs the init scripts on a socket-only server and
+      # then restarts it, so a socket check reports ready too early (migrate then fails).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agile -d agile"]
       interval: 2s
       retries: 30
   migrate:
+    <<: *hardened
     image: ${MIGRATE_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate/snapshot:develop}
+    read_only: true
+    tmpfs: [/tmp]
     environment:
       DATABASE_OWNER_URL: postgres://agile:${POSTGRES_PASSWORD}@postgres:5432/agile
     depends_on: { postgres: { condition: service_healthy } }
   web:
+    <<: *hardened
     image: ${WEB_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web/snapshot:develop}
     restart: unless-stopped
+    # The server writes to /tmp and the Next.js cache only.
+    read_only: true
+    tmpfs: [/tmp, "/app/apps/web/.next/cache:uid=10001,gid=10001"]
+    mem_limit: 1g
+    pids_limit: 256
     # Only what the app needs: never the owner credentials (POSTGRES_PASSWORD, DATABASE_OWNER_URL).
     environment:
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-selfhost}
@@ -88,8 +112,13 @@ services:
     # Jira tools then answer "unavailable").
     depends_on: { migrate: { condition: service_completed_successfully } }
   worker:
+    <<: *hardened
     image: ${WORKER_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker/snapshot:develop}
     restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 1g
+    pids_limit: 256
     # On SIGTERM the worker aborts running jobs, then waits up to 190 s for them to record their
     # outcome (a skill run plus its delivery can take 180 s), with a 195 s backstop. Kubernetes:
     # terminationGracePeriodSeconds: 200.
@@ -129,13 +158,20 @@ services:
   # One shared instance for every workspace: each request carries its own Jira URL and token (Data
   # Center) or OAuth token and cloud id (Cloud). Never set JIRA_URL, Jira tokens or
   # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, on the `mcp`
-  # network, which it shares with nothing else (not Postgres, not the worker): its own outbound
-  # check (MCP_ALLOWED_URL_DOMAINS) is not DNS-pinned like the app's.
+  # network, which it shares with nothing else (not Postgres, not the worker). It refuses Jira URLs
+  # that resolve to private, loopback or link-local addresses and connects to the address it
+  # checked (no DNS rebinding), except for hosts in MCP_ALLOWED_URL_DOMAINS, which may resolve
+  # anywhere. Its egress is otherwise unrestricted (the Helm chart adds a NetworkPolicy).
   mcp-atlassian:
+    <<: *hardened
     # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
     restart: unless-stopped
+    # Writes to /tmp and its home directory only.
+    read_only: true
+    tmpfs: [/tmp, "/home/app:uid=1000,gid=1000"]
     mem_limit: 512m
+    pids_limit: 256
     environment:
       TRANSPORT: streamable-http
       PORT: "8000"
@@ -144,8 +180,8 @@ services:
       # plus jira_search_assignable_users, which the backend uses to resolve assignees.
       ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
       ATLASSIAN_OAUTH_ENABLE: "true"
-      # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
-      # allowlist for every Data Center host, public ones included: list them all.
+      # The only Data Center hosts it will send a PAT to (and subdomains), which may then resolve
+      # to private addresses. Empty = any public host. See .env.example.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
     networks: [mcp]
     healthcheck: &mcp-atlassian-health
@@ -160,9 +196,14 @@ services:
   # `mcp-readonly`, is shared by web and worker only: the worker can reach this twin and nothing on
   # `mcp` (the read-write instance).
   mcp-atlassian-readonly:
+    <<: *hardened
     image: ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:5b7c9b64d4eb3210cab74be8bf3e6aeea9ed14f3042dc59ba5c5287bd4dbe466
     restart: unless-stopped
+    # Writes to /tmp and its home directory only.
+    read_only: true
+    tmpfs: [/tmp, "/home/app:uid=1000,gid=1000"]
     mem_limit: 512m
+    pids_limit: 256
     environment:
       TRANSPORT: streamable-http
       PORT: "8000"
@@ -187,9 +228,12 @@ configs:
     content: |
       #!/bin/sh
       # Creates the non-owner role the app connects as, so Postgres row-level security applies to it.
+      # The password and database name are psql variables, quoted by psql (:'pw', :"db"): any character
+      # is safe in them. The heredoc is quoted, so the shell expands nothing in the SQL.
       set -e
-      psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" <<-EOSQL
-        CREATE ROLE app_user LOGIN PASSWORD '$${APP_DB_PASSWORD}';
-        GRANT CONNECT ON DATABASE "$${POSTGRES_DB}" TO app_user;
+      psql -v ON_ERROR_STOP=1 -v pw="$$APP_DB_PASSWORD" -v db="$$POSTGRES_DB" \
+        --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" <<-'EOSQL'
+        CREATE ROLE app_user LOGIN PASSWORD :'pw';
+        GRANT CONNECT ON DATABASE :"db" TO app_user;
         GRANT USAGE ON SCHEMA public TO app_user;
       EOSQL

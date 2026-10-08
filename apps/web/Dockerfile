@@ -25,12 +25,14 @@ RUN pnpm --filter @agile/web build \
 
 # The worker and the migrations as single bundled files: no node_modules, tsx or pnpm at runtime.
 # The SQL migrations sit next to the bundle, where packages/db/src/migrate.ts looks for them
-# (`../drizzle` from the script).
+# (`../drizzle` from the script). The break-glass CLI ships in the web image (README "Break-glass
+# accounts").
 FROM deps AS bundle
 COPY . .
 RUN node scripts/bundle-node.mjs apps/worker/src/main.ts /out/worker/dist/worker.mjs \
   && node scripts/bundle-node.mjs packages/db/src/migrate-cli.ts /out/migrate/dist/migrate.mjs \
-  && cp -r packages/db/drizzle /out/migrate/drizzle
+  && cp -r packages/db/drizzle /out/migrate/drizzle \
+  && node scripts/bundle-node.mjs packages/auth/src/break-glass-cli.ts /out/tools/break-glass.mjs
 
 # Runtime base: Alpine with Node's binary only, without npm, yarn and corepack (unused at runtime).
 # Same Alpine release as node:24-alpine (3.24), so the binary finds the libraries it was built for.
@@ -44,23 +46,27 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 
 # Runtime images run as uid/gid 10001: numeric, so Kubernetes' runAsNonRoot can verify it (Helm
-# podSecurityContext, tested in packages/jira-tools/src/helm.test.ts).
+# podSecurityContext, tested in packages/jira-tools/src/helm.test.ts). Their code stays owned by
+# root: the app user can read it, not rewrite it.
 FROM runtime AS migrate
-COPY --from=bundle --chown=10001:10001 /out/migrate ./
+COPY --from=bundle /out/migrate ./
 USER 10001:10001
 CMD ["node", "dist/migrate.mjs"]
 
 FROM runtime AS worker
 ENV NODE_ENV=production WORKER_HEALTH_PORT=8080 WORKER_HEALTH_HOST=0.0.0.0
-COPY --from=bundle --chown=10001:10001 /out/worker ./
+COPY --from=bundle /out/worker ./
 USER 10001:10001
 EXPOSE 8080
 CMD ["node", "dist/worker.mjs"]
 
 FROM runtime AS runner
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
-COPY --from=build --chown=10001:10001 /repo/apps/web/.next/standalone ./
-COPY --from=build --chown=10001:10001 /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/.next/standalone ./
+COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=bundle /out/tools ./tools
+# The only directory the server writes to (besides /tmp).
+RUN mkdir -p apps/web/.next/cache && chown 10001:10001 apps/web/.next/cache
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
