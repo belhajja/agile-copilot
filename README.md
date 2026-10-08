@@ -486,7 +486,8 @@ What the chart guarantees:
   - Ingress to every pod of the release is denied by default.
   - Only the web app reaches mcp-atlassian; the web app and the worker reach the read-only twin; nothing connects to the worker.
   - The mcp-atlassian pods may reach cluster DNS and public IPv4 addresses only, plus `networkPolicy.jiraPrivateCidrs` for self-hosted Jira.
-  - Restrict `networkPolicy.webIngressFrom` to your ingress controller; `NOTES.txt` warns while it is open to the whole cluster.
+  - Only the ingress controller reaches the web app: `networkPolicy.webIngressFrom` defaults to the ingress-nginx pods (namespace `ingress-nginx`). Point it at your controller's namespace and pod labels; `[]` opens it to every pod, and `NOTES.txt` then warns.
+  - The web app and the worker may reach cluster DNS, Postgres (`networkPolicy.appEgress.postgres`, port 5432 on any address by default: narrow `to` to your database), the mcp-atlassian services and public IPv4 addresses on any port. Private ranges, link-local addresses (the cloud metadata service) and the rest of the cluster are blocked, except `networkPolicy.jiraPrivateCidrs`, `networkPolicy.appEgress.extraCIDRs` (a private Jira, LLM gateway, SMTP relay or identity provider: the hosts in `config.allowedPrivateHosts`) and `networkPolicy.appEgress.extraRules`. `networkPolicy.appEgress.enabled=false` leaves their egress open.
 - **Images:** pin them by digest (`image.*.digest`). The images are built from `apps/web/Dockerfile` (targets `runner`, `worker`, `migrate`).
 
 `sh deploy/helm/check.sh` lints the chart and validates the rendered manifests with kubeconform. It uses helm v4.3.0 and kubeconform v0.8.0, downloading them with a checksum check when missing. CI runs it, together with `HELM_REQUIRED=1 pnpm vitest run packages/jira-tools/src/helm.test.ts`.

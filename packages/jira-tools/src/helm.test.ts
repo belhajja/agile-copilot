@@ -416,7 +416,7 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     expect(ro.ingress?.flatMap((r) => components(r.from))).toEqual(['web', 'worker']);
     // Nothing connects to the worker.
     const worker = find(ms, 'NetworkPolicy', 'worker').spec;
-    expect(worker.policyTypes).toEqual(['Ingress']);
+    expect(worker.policyTypes).toEqual(['Ingress', 'Egress']);
     expect(worker.ingress).toEqual([]);
     // The worker's URL for the read-write instance does not exist.
     const workerEnv = pod(ms, 'Deployment', 'worker').containers[0]?.env ?? [];
@@ -481,6 +481,82 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
         to: [kubeDns, { ipBlock: { cidr: '169.254.20.10/32' } }],
         ports: dnsPorts,
       });
+    },
+  );
+
+  it('lets only the ingress controller open the web app by default, anyone once emptied', () => {
+    const web = find(ms, 'NetworkPolicy', 'web').spec;
+    expect(web.ingress).toEqual([
+      {
+        ports: [{ port: 3000 }],
+        from: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'ingress-nginx' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'ingress-nginx' } },
+          },
+        ],
+      },
+    ]);
+    const open = find(render('networkPolicy.webIngressFrom=null'), 'NetworkPolicy', 'web').spec;
+    expect(open.ingress).toEqual([{ ports: [{ port: 3000 }] }]);
+  });
+
+  const mcpPeer = (component: string) => ({
+    podSelector: {
+      matchLabels: {
+        'app.kubernetes.io/name': 'agile-copilot',
+        'app.kubernetes.io/instance': 'agile',
+        'app.kubernetes.io/component': component,
+      },
+    },
+  });
+  const tcp = (port: number) => [{ port, protocol: 'TCP' }];
+
+  it.each([
+    ['web', ['mcp-atlassian', 'mcp-atlassian-readonly']],
+    ['worker', ['mcp-atlassian-readonly']],
+  ])(
+    'lets %s reach DNS, Postgres, its mcp-atlassian services and public IPv4 only',
+    (name, mcp) => {
+      const policy = (m: Manifest[]) => find(m, 'NetworkPolicy', name).spec;
+      const spec = policy(ms);
+      expect(spec.policyTypes).toEqual(['Ingress', 'Egress']);
+      expect(spec.egress).toEqual([
+        { to: [kubeDns], ports: dnsPorts },
+        // Postgres: that port on any address until `to` is narrowed.
+        { ports: tcp(5432) },
+        { ports: tcp(8000), to: mcp.map(mcpPeer) },
+        { to: [{ ipBlock: { cidr: '0.0.0.0/0', except: nonPublic } }] },
+      ]);
+      // The cloud metadata service (link-local) and the cluster's private ranges stay out.
+      expect(nonPublic).toContain('169.254.0.0/16');
+      expect(JSON.stringify(spec.egress)).not.toMatch(/::/);
+
+      const configured = policy(
+        render(
+          'networkPolicy.jiraPrivateCidrs[0]=10.20.0.0/16',
+          'networkPolicy.appEgress.extraCIDRs[0]=10.30.0.0/16',
+          'networkPolicy.appEgress.extraCIDRs[1]=10.20.0.0/16',
+          'networkPolicy.appEgress.postgres.to[0].ipBlock.cidr=10.0.12.5/32',
+          'networkPolicy.appEgress.extraRules[0].ports[0].port=8080',
+        ),
+      ).egress;
+      expect(configured?.[1]).toEqual({
+        ports: tcp(5432),
+        to: [{ ipBlock: { cidr: '10.0.12.5/32' } }],
+      });
+      expect(configured?.slice(4)).toEqual([
+        { to: [{ ipBlock: { cidr: '10.20.0.0/16' } }] },
+        { to: [{ ipBlock: { cidr: '10.30.0.0/16' } }] },
+        { ports: [{ port: 8080 }] },
+      ]);
+
+      // Without mcp-atlassian there is no rule for it; with appEgress off, egress is open.
+      const noMcp = policy(render('mcpAtlassian.enabled=false')).egress;
+      expect(JSON.stringify(noMcp)).not.toMatch(/mcp-atlassian|8000/);
+      const open = policy(render('networkPolicy.appEgress.enabled=false'));
+      expect(open.policyTypes).toEqual(['Ingress']);
+      expect(open.egress).toBeUndefined();
     },
   );
 

@@ -91,3 +91,57 @@ setting is valid (L16: the worker never gets the web app's secrets).
 {{ include "agile.secretEnv" (dict "root" . "key" "STRIPE_SECRET_KEY" "optional" true) }}
 {{ include "agile.secretEnv" (dict "root" . "key" "STRIPE_WEBHOOK_SECRET" "optional" true) }}
 {{- end -}}
+
+{{/* Egress rule: name resolution (port 53) at the cluster DNS pods and networkPolicy.dns.cidrs. */}}
+{{- define "agile.dnsEgress" -}}
+{{- $dns := .Values.networkPolicy.dns -}}
+- to:
+    {{- with $dns.peers }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- range $dns.cidrs }}
+    - ipBlock: { cidr: {{ . | quote }} }
+    {{- end }}
+  ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+{{- end -}}
+
+{{/* Egress rule: public IPv4 addresses (everything but networkPolicy.privateCidrs), any port. */}}
+{{- define "agile.publicEgress" -}}
+- to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except: {{- toYaml .Values.networkPolicy.privateCidrs | nindent 10 }}
+{{- end -}}
+
+{{/*
+Egress rules of web and worker (networkPolicy.appEgress): DNS, Postgres, the mcp-atlassian
+services the component calls, public IPv4, then the configured private CIDRs and extra rules.
+*/}}
+{{- define "agile.appEgress" -}}
+{{- $root := .root -}}
+{{- $np := $root.Values.networkPolicy -}}
+{{- $eg := $np.appEgress -}}
+{{ include "agile.dnsEgress" $root }}
+- ports: [{ port: {{ $eg.postgres.port }}, protocol: TCP }]
+  {{- with $eg.postgres.to }}
+  to: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if $root.Values.mcpAtlassian.enabled }}
+- ports: [{ port: 8000, protocol: TCP }]
+  to:
+    {{- if eq .component "web" }}
+    - podSelector:
+        matchLabels: {{- include "agile.selector" (dict "root" $root "component" "mcp-atlassian") | nindent 10 }}
+    {{- end }}
+    - podSelector:
+        matchLabels: {{- include "agile.selector" (dict "root" $root "component" "mcp-atlassian-readonly") | nindent 10 }}
+{{- end }}
+{{ include "agile.publicEgress" $root }}
+{{- range (concat $np.jiraPrivateCidrs $eg.extraCIDRs | uniq) }}
+- to:
+    - ipBlock: { cidr: {{ . | quote }} }
+{{- end }}
+{{- with $eg.extraRules }}
+{{ toYaml . }}
+{{- end }}
+{{- end -}}
