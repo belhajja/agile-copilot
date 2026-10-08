@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/item';
 import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Spinner } from '@/components/ui/spinner';
 import { allowedCode } from '@/lib/error-code';
 import { BOARD_ERROR_CODES } from '../error-codes';
 import { type ActionState, saveBoardSelectionAction } from './actions';
@@ -197,7 +198,8 @@ export function BoardSelectionForm({
         </CardContent>
         {canManage && (
           <CardFooter className="mt-4">
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending} aria-busy={pending}>
+              {pending && <Spinner aria-hidden />}
               {t('saveSelection')}
             </Button>
           </CardFooter>

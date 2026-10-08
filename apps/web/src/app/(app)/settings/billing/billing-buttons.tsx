@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
 import { FieldError } from '@/components/ui/field';
+import { Spinner } from '@/components/ui/spinner';
 import { type BillingState, checkoutAction, portalAction } from './actions';
 
 const idle: BillingState = { status: 'idle' };
@@ -32,14 +33,21 @@ export function BillingButtons({ paid, hasCustomer }: { paid: boolean; hasCustom
       <div className="flex flex-wrap gap-2">
         {!paid && (
           <form action={startCheckout}>
-            <Button type="submit" disabled={!hydrated || checkingOut}>
+            <Button type="submit" disabled={!hydrated || checkingOut} aria-busy={checkingOut}>
+              {checkingOut && <Spinner aria-hidden />}
               {t('upgrade')}
             </Button>
           </form>
         )}
         {hasCustomer && (
           <form action={openPortal}>
-            <Button type="submit" variant="outline" disabled={!hydrated || opening}>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={!hydrated || opening}
+              aria-busy={opening}
+            >
+              {opening && <Spinner aria-hidden />}
               {t('manage')}
             </Button>
           </form>

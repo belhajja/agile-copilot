@@ -6,6 +6,7 @@ import { type FormEvent, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { authClient } from '@/lib/auth-client';
 import { useAuthErrorMessage } from '@/lib/auth-error';
 
@@ -54,7 +55,8 @@ export function CreateWorkspaceForm() {
         </Field>
         {error && <FieldError>{error}</FieldError>}
         <Field>
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending} aria-busy={pending}>
+            {pending && <Spinner aria-hidden />}
             {t('submit')}
           </Button>
         </Field>

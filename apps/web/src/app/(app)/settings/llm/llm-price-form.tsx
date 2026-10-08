@@ -5,6 +5,7 @@ import { useActionState, useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { type FormState, setLlmPricesAction } from './actions';
 
 /** Prices per million tokens for the cost meter (optional; tokens are counted either way). */
@@ -63,7 +64,8 @@ export function LlmPriceForm({
             placeholder={decimal(15)}
           />
         </Field>
-        <Button type="submit" variant="outline" disabled={pending}>
+        <Button type="submit" variant="outline" disabled={pending} aria-busy={pending}>
+          {pending && <Spinner aria-hidden />}
           {t('savePrices')}
         </Button>
       </div>

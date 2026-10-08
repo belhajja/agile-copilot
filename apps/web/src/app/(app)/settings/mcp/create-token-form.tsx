@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Spinner } from '@/components/ui/spinner';
 import { pickCode } from '@/lib/error-code';
 import { type CreateTokenState, createTokenAction } from './actions';
 import { desktopConfig } from './client-config';
@@ -54,7 +55,8 @@ export function CreateTokenForm({ endpoint }: { endpoint: string | null }) {
               </NativeSelect>
             </Field>
             <Field className="@xl/main:w-auto">
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending} aria-busy={pending}>
+                {pending && <Spinner aria-hidden />}
                 {t('create')}
               </Button>
             </Field>

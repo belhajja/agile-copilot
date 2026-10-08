@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 
 /** Asks for a name (a conversation title, a group name); stays open on a refused one. */
 export function NameDialog({
@@ -88,7 +89,8 @@ export function NameDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('cancel')}
             </Button>
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending} aria-busy={pending}>
+              {pending && <Spinner aria-hidden />}
               {submitLabel}
             </Button>
           </DialogFooter>

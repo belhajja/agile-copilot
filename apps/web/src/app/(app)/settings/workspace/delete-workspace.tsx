@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { authClient } from '@/lib/auth-client';
 import { useAuthErrorMessage } from '@/lib/auth-error';
 
@@ -46,7 +47,8 @@ export function DeleteWorkspace({ orgId, name }: { orgId: string; name: string }
           </Field>
           {error && <FieldError>{error}</FieldError>}
           <div>
-            <Button type="submit" variant="destructive" disabled={pending}>
+            <Button type="submit" variant="destructive" disabled={pending} aria-busy={pending}>
+              {pending && <Spinner aria-hidden />}
               {t('deleteButton')}
             </Button>
           </div>
