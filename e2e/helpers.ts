@@ -90,8 +90,8 @@ export async function setUpWorkspace(page: Page) {
   await page.getByRole('button', { name: 'Test and save' }).click();
   await expect(connectionItem(page, 'Mock model').getByText('Connected')).toBeVisible();
   const prices = connectionItem(page, 'Mock model');
-  await prices.getByLabel('Input, per 1M tokens').fill('3');
-  await prices.getByLabel('Output, per 1M tokens').fill('15');
+  await prices.getByLabel('Input / 1M tokens').fill('3');
+  await prices.getByLabel('Output / 1M tokens').fill('15');
   await prices.getByRole('button', { name: 'Save prices' }).click();
   await expect(prices.getByText('Prices saved.')).toBeVisible();
   return { email, orgId: await orgIdOf(email) };
