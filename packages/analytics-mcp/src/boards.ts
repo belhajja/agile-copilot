@@ -68,13 +68,34 @@ export async function requireBoard(ctx: AnalyticsContext, boardId: string): Prom
   return board;
 }
 
+export type DatasetLoader = (boardId: string) => Promise<BoardDataset | null>;
+
+/**
+ * Loads each board's dataset at most once: one server serves one chat turn, where the model often
+ * asks several questions about the same board. A failed load is not kept, the next call retries.
+ */
+export function cachedDatasetLoader(ctx: AnalyticsContext): DatasetLoader {
+  const loads = new Map<string, Promise<BoardDataset | null>>();
+  return (boardId) => {
+    const cached = loads.get(boardId);
+    if (cached) return cached;
+    const load = loadBoardDataset(ctx.db, ctx.orgId, boardId);
+    loads.set(boardId, load);
+    load.catch(() => {
+      if (loads.get(boardId) === load) loads.delete(boardId);
+    });
+    return load;
+  };
+}
+
 /** A selected board of the caller's workspace and its dataset (see `requireBoard`). */
 export async function openBoard(
   ctx: AnalyticsContext,
   boardId: string,
+  loadDataset: DatasetLoader = (id) => loadBoardDataset(ctx.db, ctx.orgId, id),
 ): Promise<{ board: BoardSummary; dataset: BoardDataset }> {
   const board = await requireBoard(ctx, boardId);
-  const dataset = await loadBoardDataset(ctx.db, ctx.orgId, boardId);
+  const dataset = await loadDataset(boardId);
   if (!dataset) throw new UnknownBoardError();
   return { board, dataset };
 }

@@ -1,11 +1,17 @@
-import { CATALOG_METRIC_KEYS } from '@agile/dashboards';
+import { CATALOG_METRIC_KEYS, loadBoardDataset } from '@agile/dashboards';
 import type { Db } from '@agile/db';
 import { discoverBoards, listBoards, runSync, setBoardSelection } from '@agile/sync';
 import { NOW, owner, startSyncHarness } from '@agile/sync/testing';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type AnalyticsServerOptions, createAnalyticsMcpServer } from './server';
+
+// Counted, otherwise unchanged.
+vi.mock('@agile/dashboards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agile/dashboards')>();
+  return { ...actual, loadBoardDataset: vi.fn(actual.loadBoardDataset) };
+});
 
 describe('analytics MCP server (tenant-scoped, demo data)', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
@@ -229,6 +235,43 @@ describe('analytics MCP server (tenant-scoped, demo data)', () => {
     });
     expect(foreign).toMatchObject({ isError: true, body: { code: 'unknown_board' } });
     await mcp.close();
+  });
+
+  it('loads a board dataset once per server, and retries a failed load', async () => {
+    const loads = vi.mocked(loadBoardDataset);
+    loads.mockClear();
+    const mcp = await connect('org_a');
+    try {
+      for (const [name, args] of [
+        ['get_metric', { boardId: scrumId, metric: 'wip' }],
+        ['get_metric', { boardId: scrumId, metric: 'average_velocity' }],
+        ['forecast', { boardId: scrumId, question: 'how_many' }],
+        ['find_issues', { boardId: scrumId }],
+        ['query_board', { boardId: scrumId, query: { title: 'x', display: 'kpi' } }],
+        ['get_metric', { boardId: kanbanId, metric: 'wip' }],
+      ] as const) {
+        expect((await mcp.call(name, args)).isError).toBe(false);
+      }
+      expect(loads.mock.calls.map(([, , boardId]) => boardId)).toEqual([scrumId, kanbanId]);
+    } finally {
+      await mcp.close();
+    }
+
+    // A new server (the next turn) reads the data again; a failure is not remembered.
+    loads.mockClear();
+    loads.mockRejectedValueOnce(new Error('db down'));
+    const next = await connect('org_a', undefined, { onError: () => {} });
+    try {
+      const failed = await next.call('get_metric', { boardId: scrumId, metric: 'wip' });
+      expect(failed.body).toMatchObject({ code: 'internal_error' });
+      expect((await next.call('get_metric', { boardId: scrumId, metric: 'wip' })).isError).toBe(
+        false,
+      );
+      expect((await next.call('find_issues', { boardId: scrumId })).isError).toBe(false);
+      expect(loads).toHaveBeenCalledTimes(2);
+    } finally {
+      await next.close();
+    }
   });
 
   it('turns any other failure into a fixed error without driver text', async () => {

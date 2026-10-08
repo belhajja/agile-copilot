@@ -6,7 +6,13 @@ import {
 } from '@agile/dashboards';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { type AnalyticsContext, listBoardSummaries, openBoard, UnknownBoardError } from './boards';
+import {
+  type AnalyticsContext,
+  cachedDatasetLoader,
+  listBoardSummaries,
+  openBoard,
+  UnknownBoardError,
+} from './boards';
 import { findIssues, findIssuesInput } from './issues';
 import { capRows, computeMetric, METRIC_GUIDE, metricCatalog, metricSpec } from './metrics';
 import { QUERY_GUIDE } from './query';
@@ -74,6 +80,8 @@ export function createAnalyticsMcpServer(
   options: AnalyticsServerOptions = {},
 ): McpServer {
   const server = new McpServer({ name: 'agile-analytics', version: '1.0.0' });
+  // The board is re-checked on every call; its dataset is loaded once per server.
+  const datasets = cachedDatasetLoader(ctx);
 
   server.registerTool(
     'list_boards',
@@ -115,7 +123,7 @@ export function createAnalyticsMcpServer(
       guarded(options, async () => {
         const spec = metricSpec(metric as CatalogMetricKey, params);
         if (!spec.ok) return failure('invalid_params', `Invalid params: ${spec.issues.join('; ')}`);
-        const { board, dataset } = await openBoard(ctx, boardId);
+        const { board, dataset } = await openBoard(ctx, boardId, datasets);
         const now = ctx.now();
         return result({
           board: { id: board.id, name: board.name },
@@ -147,7 +155,7 @@ export function createAnalyticsMcpServer(
           );
           return failure('invalid_query', `Invalid query: ${issues.join('; ')}`);
         }
-        const { board, dataset } = await openBoard(ctx, boardId);
+        const { board, dataset } = await openBoard(ctx, boardId, datasets);
         const now = ctx.now();
         return result({
           board: { id: board.id, name: board.name },
@@ -180,7 +188,7 @@ export function createAnalyticsMcpServer(
           question === 'how_many' ? { days, historyDays } : { items, historyDays },
         );
         if (!spec.ok) return failure('invalid_params', `Invalid params: ${spec.issues.join('; ')}`);
-        const { board, dataset } = await openBoard(ctx, boardId);
+        const { board, dataset } = await openBoard(ctx, boardId, datasets);
         return result({
           board: { id: board.id, name: board.name },
           question,
@@ -200,7 +208,7 @@ export function createAnalyticsMcpServer(
     },
     async (input) =>
       guarded(options, async () => {
-        const { board, dataset } = await openBoard(ctx, input.boardId);
+        const { board, dataset } = await openBoard(ctx, input.boardId, datasets);
         return result({
           board: { id: board.id, name: board.name },
           ...findIssues(dataset, input, ctx.now()),
