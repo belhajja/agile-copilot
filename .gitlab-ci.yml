@@ -34,6 +34,12 @@ include:
       context-path: .
       # The images need Postgres and secrets to start, and define no HEALTHCHECK.
       healthcheck-disabled: true
+      # The template's defaults plus an explicit gate: docker-trivy fails (it always passes
+      # --exit-code 1) on HIGH or CRITICAL OS vulnerabilities that have a fix, or an end-of-life
+      # base image. Lower severities are not reported; npm dependencies are covered by node-audit.
+      trivy-args: >-
+        --severity HIGH,CRITICAL --ignore-unfixed --pkg-types os --exit-on-eol 1
+        --detection-priority comprehensive --disable-telemetry --skip-version-check
   # The chart: `helm lint --strict`, package, and publish to this project's OCI registry from main.
   - component: $CI_SERVER_FQDN/to-be-continuous/helm/gitlab-ci-helm@9.7.0
     inputs:
