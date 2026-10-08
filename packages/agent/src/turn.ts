@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loadDefaultLlm, loadUsableLlm } from '@agile/connections';
-import type { Actor } from '@agile/db';
-import { withOrg } from '@agile/db';
+import { type Actor, withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import {
   convertToModelMessages,
@@ -37,6 +36,7 @@ import {
   unarchiveConversation,
 } from './conversations';
 import type { AgentDeps } from './deps';
+import { MESSAGE_MAX_LENGTH } from './limits';
 import { languageModelFor, usesInsecureTransport } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import {
@@ -63,7 +63,7 @@ export const agentRequestSchema = z
     message: z
       .object({
         id: z.string().regex(/^[\w-]{1,100}$/),
-        text: z.string().trim().min(1).max(8_000),
+        text: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH),
       })
       .strict()
       .optional(),

@@ -1,5 +1,6 @@
 'use client';
 
+import { MESSAGE_MAX_LENGTH } from '@agile/agent/limits';
 import { turnErrorCode } from '@agile/agent/turn-errors';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import { useChat } from '@ai-sdk/react';
@@ -33,7 +34,6 @@ import { cn } from '@/lib/utils';
 import { AgentMarkdown } from './agent-markdown';
 import { ApprovalCard } from './approval-card';
 import { approvalView } from './approval-view';
-import { MAX_MESSAGE_LENGTH } from './limits';
 import { type ChatErrorKey, chatErrorKey, toAgentRequest } from './request';
 import { ToolCall } from './tool-call';
 
@@ -78,7 +78,7 @@ export function AgentChat({
   });
   const busy = status === 'submitted' || status === 'streaming';
   const errorKey = error ? chatErrorKey(error) : undefined;
-  const atLimit = text.length >= MAX_MESSAGE_LENGTH;
+  const atLimit = text.length >= MESSAGE_MAX_LENGTH;
 
   const send = (value: string) => {
     const trimmed = value.trim();
@@ -100,7 +100,7 @@ export function AgentChat({
           aria-label={t('inputLabel')}
           aria-describedby={atLimit ? 'agent-input-limit' : undefined}
           placeholder={t('placeholder')}
-          maxLength={MAX_MESSAGE_LENGTH}
+          maxLength={MESSAGE_MAX_LENGTH}
           value={text}
           onChange={(e) => setText(e.currentTarget.value)}
         />
