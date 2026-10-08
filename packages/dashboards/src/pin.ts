@@ -24,17 +24,43 @@ export type PinFailure = {
 /** Why a widget could not be removed (no such dashboard of the user's, or no such widget). */
 export type RemoveFailure = { ok: false; code: 'not_found' };
 
+/** Stable JSON (sorted keys), so equal params compare equal whatever their key order. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Same metric, chart and (defaulted) params: pinning it again would show the same thing. */
+function sameWidget(stored: unknown, widget: WidgetSpec): boolean {
+  if (!stored || typeof stored !== 'object') return false;
+  const s = stored as { metric?: unknown; chart?: unknown; params?: unknown };
+  return (
+    s.metric === widget.metric &&
+    s.chart === widget.chart &&
+    canonical(s.params ?? {}) === canonical(widget.params)
+  );
+}
+
 /**
  * Adds a widget to the user's "Pinned" dashboard of a board (created on first use). The spec is
  * data from the model: it is validated against the fixed catalog, gets a server-made id, and only
  * ever lands on the caller's own dashboard of a board selected in their workspace. Not a Jira
- * write, so no approval: it is audited and removable in one click.
+ * write, so no approval: it is audited and removable in one click. Pinning the same metric and
+ * params again returns the widget already there (`alreadyPinned`) instead of adding a copy.
  */
 export async function pinWidget(
   db: Db,
   owner: WidgetOwner,
   input: { boardId: string; widget: Record<string, unknown>; via: 'assistant' | 'user' },
-): Promise<{ ok: true; dashboardId: string; widget: WidgetSpec } | PinFailure> {
+): Promise<
+  { ok: true; dashboardId: string; widget: WidgetSpec; alreadyPinned: boolean } | PinFailure
+> {
   const parsed = widgetSpecSchema.safeParse({
     ...input.widget,
     id: `w-${randomBytes(6).toString('hex')}`,
@@ -99,6 +125,15 @@ export async function pinWidget(
     if (!pinned) throw new Error('pinned dashboard insert returned nothing');
     // Stored widgets are kept as they are (even ones that no longer validate): never dropped on write.
     const stored: unknown[] = Array.isArray(pinned.widgets) ? pinned.widgets : [];
+    const existing = stored.find((w) => sameWidget(w, widget));
+    if (existing) {
+      return {
+        ok: true,
+        dashboardId: pinned.id,
+        widget: existing as WidgetSpec,
+        alreadyPinned: true,
+      } as const;
+    }
     if (stored.length >= MAX_WIDGETS) return { ok: false, code: 'dashboard_full' } as const;
     await tx
       .update(dashboards)
@@ -117,7 +152,7 @@ export async function pinWidget(
         via: input.via,
       },
     });
-    return { ok: true, dashboardId: pinned.id, widget } as const;
+    return { ok: true, dashboardId: pinned.id, widget, alreadyPinned: false } as const;
   });
 }
 

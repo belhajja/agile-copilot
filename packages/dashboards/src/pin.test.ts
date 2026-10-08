@@ -84,10 +84,57 @@ describe('pinned widgets (prompt-driven dashboard)', () => {
     ).toEqual({ ok: false, code: 'unknown_board' });
   });
 
-  it('keeps one Pinned dashboard under concurrent pins, and at most 40 widgets', async () => {
+  it('returns the widget already pinned for the same metric, chart and params', async () => {
+    const [before] = await listDashboards(h.db, 'org_a', me.userId, boardId);
+    const count = before?.widgets.length ?? 0;
+    const pinnedAudits = async () =>
+      (
+        await h.rawDb
+          .select({ id: auditLog.id })
+          .from(auditLog)
+          .where(eq(auditLog.action, 'dashboard.widget_pinned'))
+      ).length;
+    const audits = await pinnedAudits();
+    // Defaults filled in and keys in another order are still the same widget.
+    const again = await pinWidget(h.db, me, {
+      boardId,
+      widget: { metric: 'cycle_time', chart: 'table', params: { percentile: 85, windowDays: 90 } },
+      via: 'user',
+    });
+    if (!again.ok) throw new Error('pin failed');
+    expect(again.alreadyPinned).toBe(true);
+    expect(again.widget).toMatchObject({ metric: 'cycle_time', title: 'Team X cycle time' });
+    expect(again.widget.id).toBe(before?.widgets[0]?.id);
+    expect(await pinnedAudits()).toBe(audits);
+
+    const other = await pinWidget(h.db, me, {
+      boardId,
+      widget: { metric: 'cycle_time', chart: 'table', params: { percentile: 95 } },
+      via: 'user',
+    });
+    expect(other).toMatchObject({ ok: true, alreadyPinned: false });
+
+    // Concurrent identical pins add it once.
     const results = await Promise.all(
-      Array.from({ length: 6 }, () =>
-        pinWidget(h.db, me, { boardId, widget: { metric: 'wip', chart: 'kpi' }, via: 'assistant' }),
+      Array.from({ length: 4 }, () =>
+        pinWidget(h.db, me, { boardId, widget: { metric: 'wip', chart: 'kpi' }, via: 'user' }),
+      ),
+    );
+    expect(results.filter((r) => r.ok && !r.alreadyPinned).length).toBe(1);
+    expect(new Set(results.map((r) => (r.ok ? r.widget.id : null))).size).toBe(1);
+    const [after] = await listDashboards(h.db, 'org_a', me.userId, boardId);
+    expect(after?.widgets.length).toBe(count + 2);
+  });
+
+  it('keeps one Pinned dashboard under concurrent pins, and at most 40 widgets', async () => {
+    const lead = (days: number) => ({
+      metric: 'forecast_how_many',
+      chart: 'table',
+      params: { days },
+    });
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        pinWidget(h.db, me, { boardId, widget: lead(i + 1), via: 'assistant' }),
       ),
     );
     expect(results.every((r) => r.ok)).toBe(true);
@@ -95,11 +142,17 @@ describe('pinned widgets (prompt-driven dashboard)', () => {
     expect(rows.length).toBe(1);
     const left = 40 - (rows[0]?.widgets.length ?? 0);
     for (let i = 0; i < left; i++) {
-      await pinWidget(h.db, me, { boardId, widget: { metric: 'wip', chart: 'kpi' }, via: 'user' });
+      await pinWidget(h.db, me, { boardId, widget: lead(100 + i), via: 'user' });
     }
-    expect(
-      await pinWidget(h.db, me, { boardId, widget: { metric: 'wip', chart: 'kpi' }, via: 'user' }),
-    ).toEqual({ ok: false, code: 'dashboard_full' });
+    expect(await pinWidget(h.db, me, { boardId, widget: lead(300), via: 'user' })).toEqual({
+      ok: false,
+      code: 'dashboard_full',
+    });
+    // A widget already there is still returned on a full dashboard.
+    expect(await pinWidget(h.db, me, { boardId, widget: lead(1), via: 'user' })).toMatchObject({
+      ok: true,
+      alreadyPinned: true,
+    });
   });
 
   it("removes a widget from the user's own dashboard only, and audits pins and removals", async () => {
@@ -179,7 +232,9 @@ describe('pinned widgets: concurrency and stored data', () => {
   let h: Awaited<ReturnType<typeof startSyncHarness>>;
   let boardId = '';
   const me = { orgId: 'org_a', userId: 'user_race' };
-  const kpi = { metric: 'wip', chart: 'kpi' };
+  // Each call a different widget: pinning the same one twice returns the first.
+  let n = 0;
+  const next = () => ({ metric: 'forecast_how_many', chart: 'table', params: { days: ++n } });
 
   beforeAll(async () => {
     h = await startSyncHarness();
@@ -199,11 +254,13 @@ describe('pinned widgets: concurrency and stored data', () => {
 
   it('at 39 widgets, three concurrent pins yield exactly one ok and 40 widgets', async () => {
     for (let i = 0; i < 39; i++) {
-      const r = await pinWidget(h.db, me, { boardId, widget: kpi, via: 'user' });
+      const r = await pinWidget(h.db, me, { boardId, widget: next(), via: 'user' });
       if (!r.ok) throw new Error('prefill failed');
     }
     const results = await Promise.all(
-      Array.from({ length: 3 }, () => pinWidget(h.db, me, { boardId, widget: kpi, via: 'user' })),
+      Array.from({ length: 3 }, () =>
+        pinWidget(h.db, me, { boardId, widget: next(), via: 'user' }),
+      ),
     );
     expect(results.filter((r) => r.ok).length).toBe(1);
     expect(results.filter((r) => !r.ok && r.code === 'dashboard_full').length).toBe(2);
@@ -217,7 +274,7 @@ describe('pinned widgets: concurrency and stored data', () => {
     if (!target || !second) throw new Error('missing');
     await removeWidget(h.db, me, row.id, second.id); // make room (39)
     const [, removed] = await Promise.all([
-      pinWidget(h.db, me, { boardId, widget: kpi, via: 'user' }),
+      pinWidget(h.db, me, { boardId, widget: next(), via: 'user' }),
       removeWidget(h.db, me, row.id, target.id),
     ]);
     expect(removed).toEqual({ ok: true });
@@ -230,7 +287,7 @@ describe('pinned widgets: concurrency and stored data', () => {
     const row = await dashboardRow();
     const keep = row.widgets.slice(0, 2);
     const [, saved] = await Promise.all([
-      pinWidget(h.db, me, { boardId, widget: kpi, via: 'user' }),
+      pinWidget(h.db, me, { boardId, widget: next(), via: 'user' }),
       saveDashboardWidgets(h.db, me.orgId, me.userId, row.id, keep),
     ]);
     expect(saved).toEqual({ ok: true });
@@ -245,7 +302,7 @@ describe('pinned widgets: concurrency and stored data', () => {
       .update(dashboards)
       .set({ widgets: [legacy] as never })
       .where(eq(dashboards.id, row.id));
-    const pinned = await pinWidget(h.db, me, { boardId, widget: kpi, via: 'user' });
+    const pinned = await pinWidget(h.db, me, { boardId, widget: next(), via: 'user' });
     if (!pinned.ok) throw new Error('pin failed');
     expect((await dashboardRow()).widgets).toEqual([legacy, pinned.widget]);
     expect(await removeWidget(h.db, me, row.id, pinned.widget.id)).toEqual({ ok: true });

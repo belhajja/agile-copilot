@@ -621,6 +621,7 @@
     "result": {
       "pin": "Pin to dashboard",
       "pinned": "Pinned",
+      "alreadyPinned": "Already on your dashboard",
       "asOf": "{board} · as of {time}",
       "pinErrors": {
         "invalid_widget": "This result can’t be pinned.",

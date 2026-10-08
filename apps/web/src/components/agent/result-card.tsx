@@ -14,7 +14,7 @@ import type { PinnableResult } from './tool-output';
 
 type PinState =
   | { status: 'idle' }
-  | { status: 'pinned'; boardId: string }
+  | { status: 'pinned'; boardId: string; alreadyPinned: boolean }
   | { status: 'error'; code: Extract<PinResultActionResult, { ok: false }>['code'] };
 
 /**
@@ -36,7 +36,11 @@ export function ResultCard({ result }: { result: PinnableResult }) {
   const pin = () =>
     startTransition(async () => {
       const r = await pinResultAction({ boardId: result.board.id, widget: result.widget });
-      setState(r.ok ? { status: 'pinned', boardId: r.boardId } : { status: 'error', code: r.code });
+      setState(
+        r.ok
+          ? { status: 'pinned', boardId: r.boardId, alreadyPinned: r.alreadyPinned }
+          : { status: 'error', code: r.code },
+      );
     });
   return (
     <div className="grid min-w-0 gap-3 rounded-lg border p-3" data-query-result>
@@ -61,7 +65,9 @@ export function ResultCard({ result }: { result: PinnableResult }) {
       <div className="flex flex-wrap items-center gap-2">
         {state.status === 'pinned' ? (
           <>
-            <Badge variant="secondary">{t('result.pinned')}</Badge>
+            <Badge variant="secondary" data-already-pinned={state.alreadyPinned || undefined}>
+              {state.alreadyPinned ? t('result.alreadyPinned') : t('result.pinned')}
+            </Badge>
             <Link href={`/boards/${state.boardId}`} className="text-sm underline" data-pinned-board>
               {t('openDashboard')}
             </Link>

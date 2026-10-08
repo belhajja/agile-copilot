@@ -145,6 +145,7 @@ export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): T
       }
       return asUntrustedData('pin_widget', {
         pinned: true,
+        alreadyPinned: result.alreadyPinned,
         boardId,
         dashboardId: result.dashboardId,
         widget: result.widget,

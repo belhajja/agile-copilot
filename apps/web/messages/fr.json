@@ -621,6 +621,7 @@
     "result": {
       "pin": "Épingler au tableau de bord",
       "pinned": "Épinglé",
+      "alreadyPinned": "Déjà sur votre tableau de bord",
       "asOf": "{board} · au {time}",
       "pinErrors": {
         "invalid_widget": "Ce résultat ne peut pas être épinglé.",
