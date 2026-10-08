@@ -98,6 +98,7 @@ describe('personal data: export and account deletion', () => {
       status: 'succeeded',
       output: `Report for ${userId}`,
     });
+    return conversationId;
   };
 
   interface Exported {
@@ -484,6 +485,133 @@ describe('personal data: export and account deletion', () => {
     expect(await raw.db.$count(skillBuilderCalls, eq(skillBuilderCalls.userId, 'u_gus'))).toBe(0);
     expect(await raw.db.$count(mcpTokens, eq(mcpTokens.userId, 'u_gus'))).toBe(0);
     expect(await raw.db.$count(mcpRateBuckets, eq(mcpRateBuckets.userId, 'u_gus'))).toBe(0);
+  });
+
+  it('keeps a former workspace to what the person wrote, and a current one whole', async () => {
+    await raw.db.insert(user).values({ id: 'u_kim', name: 'Kim', email: 'kim@example.com' });
+    await raw.db.insert(organization).values([
+      { id: 'org_kim_now', name: 'Kim Now', slug: 'kim-now', createdAt: NOW },
+      { id: 'org_kim_old', name: 'Kim Old', slug: 'kim-old', createdAt: NOW },
+    ]);
+    await raw.db.insert(member).values({
+      id: 'm_kim',
+      organizationId: 'org_kim_now',
+      userId: 'u_kim',
+      role: 'manager',
+      createdAt: NOW,
+    });
+    // The same history in both: Kim's question, the assistant reading Jira, Jira details elsewhere.
+    for (const [orgId, n] of [
+      ['org_kim_now', 1],
+      ['org_kim_old', 2],
+    ] as const) {
+      const conversationId = await seedPerson(orgId, 'u_kim', `Kim question ${orgId}`);
+      await raw.db.insert(agentMessages).values({
+        orgId,
+        conversationId,
+        id: `m-kim-answer-${orgId}`,
+        seq: 1,
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-jira_search',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { jql: `project = SECRET${n}` },
+            output: { issues: [{ key: `SECRET${n}-7`, summary: `Jira summary ${orgId}` }] },
+          },
+          { type: 'text', text: `Assistant answer ${orgId}` },
+        ],
+      });
+      await raw.db.insert(auditLog).values({
+        orgId,
+        actorUserId: 'u_kim',
+        action: 'agent_action.proposed',
+        targetType: 'agent_conversation',
+        targetId: conversationId,
+        metadata: { issueKey: `AUDIT${n}-1` },
+      });
+      await raw.db.insert(jiraConnections).values({
+        id: `00000000-0000-4000-8000-00000000c0${n}0`,
+        orgId,
+        name: `Kim site ${orgId}`,
+        deployment: 'cloud',
+        authType: 'basic',
+        baseUrl: `https://kim-${n}.atlassian.net`,
+        accountId: `jira-kim-${n}`,
+        accountName: `Kim Jira ${orgId}`,
+        secret: 'enc-jira-secret',
+        createdBy: 'u_kim',
+      });
+    }
+
+    const data = await exportOf('u_kim');
+    expect(data.workspaces.map((w) => [w.workspace.workspace, w.workspace.member])).toEqual([
+      ['Kim Now', true],
+      ['Kim Old', false],
+    ]);
+    const [now, old] = data.workspaces;
+
+    // Current workspace: everything, as before.
+    const nowText = JSON.stringify(now);
+    for (const kept of [
+      'Kim question org_kim_now',
+      'Assistant answer org_kim_now',
+      'SECRET1-7',
+      'project = SECRET1',
+      'Report for u_kim',
+      'AUDIT1-1',
+      'Kim Jira org_kim_now',
+      'DEMO-1',
+    ]) {
+      expect(nowText).toContain(kept);
+    }
+
+    // Former workspace: Kim's own words, ids and dates only.
+    expect(old?.conversations).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        title: 'u_kim chat',
+        createdAt: expect.any(String),
+        messages: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'Kim question org_kim_old' }],
+            at: expect.any(String),
+          },
+          { role: 'assistant', parts: [], at: expect.any(String) },
+        ],
+      }),
+    ]);
+    expect(old?.skills[0]?.runs).toEqual([
+      expect.not.objectContaining({ output: expect.anything() }),
+    ]);
+    expect(old?.skills[0]?.runs[0]).toEqual(expect.objectContaining({ status: 'succeeded' }));
+    expect(old?.actionsInAuditLog).toEqual([
+      expect.objectContaining({ action: 'agent_action.proposed' }),
+      expect.objectContaining({ action: 'agent_action.proposed' }),
+    ]);
+    expect(old?.jiraConnections).toEqual([{ createdAt: expect.any(String) }]);
+    expect(old?.usage).toHaveLength(1);
+    expect(old?.other.agent_approvals).toEqual([
+      expect.objectContaining({ id: expect.any(String), conversation_id: expect.any(String) }),
+    ]);
+    expect(Object.keys(old?.other.agent_approvals?.[0] ?? {})).not.toContain('input');
+    const oldText = JSON.stringify(old);
+    for (const leaked of [
+      'Assistant answer',
+      'SECRET2',
+      'Jira summary',
+      'Report for u_kim',
+      'AUDIT2-1',
+      'Kim Jira',
+      'kim-2.atlassian.net',
+      'jira-kim-2',
+      'jira_add_comment',
+      'DEMO-1',
+    ]) {
+      expect(oldText).not.toContain(leaked);
+    }
   });
 
   it('runs one export per person at a time and a few per hour', async () => {
