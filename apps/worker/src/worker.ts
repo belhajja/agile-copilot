@@ -3,11 +3,11 @@ import type { WorkerEnv } from '@agile/config';
 import { parseKeyring } from '@agile/crypto';
 import { createDb } from '@agile/db';
 import { createAtlassianOAuth } from '@agile/jira';
+import { errorName, type Logger } from '@agile/observability/log';
 import { RETENTION_QUEUE, startRetentionWorker } from '@agile/privacy';
 import { SYNC_QUEUE, type SyncDeps, startSyncQueue, startSyncWorker } from '@agile/sync';
 import { sql } from 'drizzle-orm';
 import { startHealthServer } from './health';
-import type { Logger } from './log';
 
 /**
  * On stop, how long pg-boss waits for running jobs: above the longest skill run plus delivery
@@ -23,8 +23,6 @@ export interface RunningWorker {
   signal: AbortSignal;
   stop(): Promise<void>;
 }
-
-const errorName = (error: unknown) => (error instanceof Error ? error.name : 'unknown');
 
 /** Wires the sync, skill and retention workers (pg-boss) and the health endpoint. */
 export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningWorker> {

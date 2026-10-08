@@ -1,3 +1,4 @@
+import { errorName, log } from '@agile/observability/log';
 import { openUserExport } from '@agile/privacy';
 import { currentSession, services } from '@/server/context';
 import { isSameOrigin } from '@/server/same-origin';
@@ -39,9 +40,7 @@ export async function POST(request: Request) {
           controller.close();
         } else controller.enqueue(encoder.encode(next.value));
       } catch (e) {
-        console.error(
-          JSON.stringify({ level: 'error', event: 'export_failed', name: (e as Error)?.name }),
-        );
+        log('error', 'export_failed', { error: errorName(e) });
         await finish();
         controller.error(e);
       }

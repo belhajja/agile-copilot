@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
+import type { Logger } from '@agile/observability/log';
 import { describe, expect, it, vi } from 'vitest';
 import { installCrashHandlers } from './crash';
-import type { Logger } from './log';
 
 describe('crash handlers', () => {
   it('log the error name only and shut down gracefully', () => {

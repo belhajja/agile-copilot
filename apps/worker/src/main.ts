@@ -1,7 +1,7 @@
 import { EnvError, langfuseConfigOf, parseWorkerEnv } from '@agile/config';
 import { startTracing } from '@agile/observability';
+import { errorName, log } from '@agile/observability/log';
 import { installCrashHandlers } from './crash';
-import { log } from './log';
 import { startWorker, WORKER_STOP_BACKSTOP_MS } from './worker';
 
 let env: ReturnType<typeof parseWorkerEnv>;
@@ -10,7 +10,7 @@ try {
 } catch (e) {
   // EnvError lists key names and rules only, never values.
   if (e instanceof EnvError) console.error(e.message);
-  else log('error', 'worker_config_failed', { error: e instanceof Error ? e.name : 'unknown' });
+  else log('error', 'worker_config_failed', { error: errorName(e) });
   process.exit(1);
 }
 
@@ -22,7 +22,7 @@ let worker: Awaited<ReturnType<typeof startWorker>>;
 try {
   worker = await startWorker(env, log);
 } catch (e) {
-  log('error', 'worker_start_failed', { error: e instanceof Error ? e.name : 'unknown' });
+  log('error', 'worker_start_failed', { error: errorName(e) });
   process.exit(1);
 }
 
@@ -43,7 +43,7 @@ async function shutdown(signal: string) {
     log('info', 'worker_stopped');
     process.exit(crashed ? 1 : 0);
   } catch (e) {
-    log('error', 'worker_stop_failed', { error: e instanceof Error ? e.name : 'unknown' });
+    log('error', 'worker_stop_failed', { error: errorName(e) });
     process.exit(1);
   }
 }

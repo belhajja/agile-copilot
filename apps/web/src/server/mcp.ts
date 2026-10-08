@@ -1,5 +1,6 @@
 import 'server-only';
 import type { McpHttpDeps } from '@agile/mcp-gateway';
+import { errorName, log } from '@agile/observability/log';
 import { entitlements } from './billing';
 import { services } from './context';
 
@@ -10,14 +11,6 @@ export function mcpDeps(): McpHttpDeps {
     db,
     planAllowsMcp: async (orgId) => (await entitlements(orgId)).externalMcp,
     rateLimitPerMinute: env.MCP_RATE_LIMIT_PER_MINUTE,
-    onError: (error, code) =>
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          event: 'mcp_error',
-          code,
-          name: error instanceof Error ? error.name : undefined,
-        }),
-      ),
+    onError: (error, code) => log('error', 'mcp_error', { code, error: errorName(error) }),
   };
 }

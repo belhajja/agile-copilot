@@ -1,4 +1,5 @@
 import { readBodyCapped } from '@agile/net';
+import { errorName, log } from '@agile/observability/log';
 import { openAuditExport } from '@agile/privacy';
 import { z } from 'zod';
 import { currentActor, services } from '@/server/context';
@@ -72,13 +73,7 @@ export async function POST(request: Request) {
           controller.close();
         } else controller.enqueue(encoder.encode(next.value));
       } catch (e) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'audit_export_failed',
-            name: (e as Error)?.name,
-          }),
-        );
+        log('error', 'audit_export_failed', { error: errorName(e) });
         await finish();
         controller.error(e);
       }
