@@ -10,6 +10,7 @@ import {
 import type { UIMessage } from 'ai';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { AgentActor } from './deps';
+import { TITLE_MAX_LENGTH } from './limits';
 
 export interface ConversationSummary {
   id: string;
@@ -284,9 +285,6 @@ export async function saveConversation(
     .set({ title: row.title || titleOf(stored), updatedAt: new Date() })
     .where(ownedBy(actor, id));
 }
-
-/** Longest title kept, typed or derived from the first question. */
-export const TITLE_MAX_LENGTH = 80;
 
 const cleanTitle = (title: string) => title.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX_LENGTH);
 

@@ -2,9 +2,8 @@ import { agentConversationGroups, agentConversations, type Db, isUuid, withOrg }
 import { and, desc, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import type { ConversationSummary } from './conversations';
 import type { AgentActor } from './deps';
+import { GROUP_NAME_MAX_LENGTH } from './limits';
 
-/** Longest group name kept. */
-export const GROUP_NAME_MAX_LENGTH = 60;
 /** Groups one person can have in a workspace. */
 export const MAX_GROUPS = 50;
 /** Recent ungrouped conversations listed in the sidebar. */

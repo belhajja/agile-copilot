@@ -8,7 +8,6 @@ export {
   type ConversationHistory,
   createGroup,
   deleteGroup,
-  GROUP_NAME_MAX_LENGTH,
   type HistoryGroupSummary,
   listConversationHistory,
   MAX_GROUPS,
@@ -25,9 +24,9 @@ export {
   renameConversation,
   setConversationArchived,
   setConversationModel,
-  TITLE_MAX_LENGTH,
 } from './conversations';
 export type { AgentActor, AgentDeps } from './deps';
+export { GROUP_NAME_MAX_LENGTH, TITLE_MAX_LENGTH } from './limits';
 export { systemPrompt } from './prompt';
 export {
   draftSkill,

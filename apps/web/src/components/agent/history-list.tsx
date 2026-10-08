@@ -1,5 +1,6 @@
 'use client';
 
+import { GROUP_NAME_MAX_LENGTH, TITLE_MAX_LENGTH } from '@agile/agent/limits';
 import {
   Archive,
   ArchiveRestore,
@@ -52,10 +53,6 @@ import {
 import { cn } from '@/lib/utils';
 import type { HistoryGroup } from './group-conversations';
 import { NameDialog } from './name-dialog';
-
-/** Same limits as the server (`TITLE_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`). */
-const TITLE_MAX = 80;
-const GROUP_NAME_MAX = 60;
 
 export interface HistoryItem {
   id: string;
@@ -192,7 +189,7 @@ export function HistoryList({
         onOpenChange={setCreating}
         title={t('manage.newGroupTitle')}
         label={t('manage.groupName')}
-        maxLength={GROUP_NAME_MAX}
+        maxLength={GROUP_NAME_MAX_LENGTH}
         submitLabel={t('manage.create')}
         onSubmit={(name) => createGroupAction(name)}
       />
@@ -264,7 +261,7 @@ function FolderSection({
         title={t('renameGroupTitle')}
         label={t('groupName')}
         initial={folder.name}
-        maxLength={GROUP_NAME_MAX}
+        maxLength={GROUP_NAME_MAX_LENGTH}
         submitLabel={t('save')}
         onSubmit={(name) => renameGroupAction(folder.id, name)}
       />
@@ -400,7 +397,7 @@ function ConversationRow({
         title={t('renameTitle')}
         label={t('titleLabel')}
         initial={item.title}
-        maxLength={TITLE_MAX}
+        maxLength={TITLE_MAX_LENGTH}
         submitLabel={t('save')}
         onSubmit={(title) => renameConversationAction(item.id, title)}
       />
@@ -409,7 +406,7 @@ function ConversationRow({
         onOpenChange={close}
         title={t('newGroupTitle')}
         label={t('groupName')}
-        maxLength={GROUP_NAME_MAX}
+        maxLength={GROUP_NAME_MAX_LENGTH}
         submitLabel={t('create')}
         onSubmit={(name) => createGroupAction(name, item.id)}
       />
