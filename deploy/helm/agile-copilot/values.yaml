@@ -3,6 +3,10 @@
 
 # Images built from apps/web/Dockerfile (targets: runner, worker, migrate). Pin by digest in
 # production (`digest: sha256:…`; the image is then `repository:tag@digest`, and the digest decides).
+# These repositories are placeholders: CI publishes the images to
+# registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/{web,worker,migrate} (release
+# tags) and …/{web,worker,migrate}/snapshot (tag = branch, e.g. develop); see the README's Helm
+# section. That registry is private: add a pull Secret to imagePullSecrets.
 image:
   web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0", digest: "" }
   worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0", digest: "" }
@@ -94,20 +98,41 @@ ingress:
   annotations: {}
 
 # NetworkPolicies mirror the compose networks: ingress to every pod of the release is denied by
-# default (migration Job included); only web reaches mcp-atlassian; web and worker reach the
-# read-only twin; nothing connects to the worker; the mcp-atlassian pods reach cluster DNS and
-# public IPv4 addresses only (not Postgres, not the cluster), plus the CIDRs of self-hosted Jira
-# listed in `jiraPrivateCidrs`. Web and worker egress is open: Postgres, DNS, the identity
-# provider, Jira, LLM providers, Stripe, Langfuse, and user-supplied SMTP and webhook hosts (any
-# port); the app checks those destinations itself (DNS-pinned, private addresses only via
-# ALLOWED_PRIVATE_HOSTS).
+# default (migration Job included); only the ingress controller reaches web; only web reaches
+# mcp-atlassian; web and worker reach the read-only twin; nothing connects to the worker; the
+# mcp-atlassian pods reach cluster DNS and public IPv4 addresses only (not Postgres, not the
+# cluster), plus the CIDRs of self-hosted Jira listed in `jiraPrivateCidrs`. Web and worker reach
+# cluster DNS, Postgres, the mcp-atlassian services and public IPv4 addresses on any port (identity
+# provider, Jira, LLM providers, Stripe, Langfuse, user-supplied SMTP and webhook hosts), plus
+# `jiraPrivateCidrs` and `appEgress.extraCIDRs`; never the cloud metadata service, other private
+# addresses or the cluster (the app also checks those destinations itself: DNS-pinned, private
+# addresses only via ALLOWED_PRIVATE_HOSTS).
 networkPolicy:
   enabled: true
-  # Who may open the web app. Empty = every pod in the cluster (NOTES.txt warns). ingress-nginx:
-  #   webIngressFrom:
-  #     - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
-  #       podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
-  webIngressFrom: []
+  # Who may open the web app (port 3000): by default the ingress-nginx controller pods. Change it
+  # to your controller's namespace and pod labels (Traefik, HAProxy, a cloud load balancer's
+  # pods…). Set it to [] to let every pod in the cluster in (NOTES.txt warns), or to
+  #   - namespaceSelector: {}
+  # for every pod of every namespace, spelled out.
+  webIngressFrom:
+    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+      podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
+  # Egress of web and worker. `enabled: false` leaves it unrestricted.
+  appEgress:
+    enabled: true
+    # Postgres (DATABASE_URL). Empty `to`: that port on any address, private ones included; narrow
+    # it to the database, e.g. `to: [{ ipBlock: { cidr: 10.0.12.5/32 } }]` for a managed instance
+    # or a podSelector/namespaceSelector for an in-cluster one.
+    postgres:
+      port: 5432
+      to: []
+    # Private destinations web and worker may reach on any port: a Data Center Jira, an LLM
+    # gateway, an SMTP relay or an identity provider on a private address (the ones listed in
+    # config.allowedPrivateHosts). jiraPrivateCidrs are allowed as well.
+    extraCIDRs: []
+    # Further egress rules, as written in a NetworkPolicy (e.g. a podSelector for an in-cluster
+    # Keycloak or Langfuse).
+    extraRules: []
   # Where mcp-atlassian may resolve names (port 53): the cluster DNS pods, plus `cidrs` for a
   # node-local cache (NodeLocal DNSCache usually listens on 169.254.20.10/32).
   dns:
@@ -115,10 +140,12 @@ networkPolicy:
       - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
         podSelector: { matchLabels: { k8s-app: kube-dns } }
     cidrs: []
-  # Never reachable from mcp-atlassian: private, CGNAT, link-local, "this network", IETF protocol
+  # Never reachable from mcp-atlassian, nor from web and worker beyond the rules above: private,
+  # CGNAT, link-local (cloud metadata, 169.254.169.254), "this network", IETF protocol
   # assignments, benchmarking, multicast and reserved ranges. Your pod and service CIDRs must be
-  # inside these (add them here if the cluster uses other ranges), or mcp-atlassian reaches them.
-  # Only IPv4 is allowed out: IPv6 destinations are denied.
+  # inside these (add them here if the cluster uses other ranges), or the pods reach them; a
+  # Kubernetes API server on a public address is not covered. Only IPv4 is allowed out: IPv6
+  # destinations are denied.
   privateCidrs:
     - 0.0.0.0/8
     - 10.0.0.0/8

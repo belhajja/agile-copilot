@@ -106,7 +106,12 @@ render --set ingress.enabled=true --set ingress.tlsSecretName=agile-tls \
   --set 'networkPolicy.jiraPrivateCidrs[0]=10.20.0.0/16' \
   --set 'networkPolicy.dns.cidrs[0]=169.254.20.10/32' \
   --set image.web.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
-  --set 'networkPolicy.webIngressFrom[0].namespaceSelector.matchLabels.name=ingress' | validate
+  --set 'networkPolicy.webIngressFrom[0].namespaceSelector.matchLabels.name=ingress' \
+  --set 'networkPolicy.appEgress.extraCIDRs[0]=10.30.0.0/16' \
+  --set 'networkPolicy.appEgress.postgres.to[0].ipBlock.cidr=10.0.12.5/32' \
+  --set 'networkPolicy.appEgress.extraRules[0].to[0].podSelector.matchLabels.app=keycloak' \
+  --set 'networkPolicy.appEgress.extraRules[0].ports[0].port=8080' | validate
+render --set networkPolicy.webIngressFrom=null --set networkPolicy.appEgress.enabled=false | validate
 render --set mcpAtlassian.enabled=false --set networkPolicy.enabled=false | validate
 # Without a Secret name the chart refuses to render.
 if helm template agile "$CHART" >/dev/null 2>&1; then

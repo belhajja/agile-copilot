@@ -1,5 +1,19 @@
 Agile Copilot {{ .Chart.AppVersion }} is installed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
 Migrations ran in the pre-install/pre-upgrade Job; the app reads its secrets from "{{ .Values.secrets.existingSecret }}".
+{{- if contains "ghcr.io/example/" (print .Values.image.web.repository .Values.image.worker.repository .Values.image.migrate.repository) }}
+
+WARNING: image.*.repository still names the placeholder ghcr.io/example/agile-copilot-* images.
+Point them at the images CI publishes (GitLab registry; private, so add an imagePullSecret):
+
+  image:
+    web: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web, tag: <release tag> }
+    worker: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker, tag: <release tag> }
+    migrate: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate, tag: <release tag> }
+  imagePullSecrets: [{ name: <pull secret> }]
+
+Snapshots: .../web/snapshot (worker/snapshot, migrate/snapshot) with tag "develop". Pin
+image.*.digest in production.
+{{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 
 WARNING: networkPolicy.enabled=false. Nothing stops the worker or other pods from reaching the
@@ -13,4 +27,9 @@ port 3000. Restrict it to your ingress controller, for example with ingress-ngin
     webIngressFrom:
       - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
         podSelector: { matchLabels: { app.kubernetes.io/name: ingress-nginx } }
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.appEgress.enabled) }}
+
+WARNING: networkPolicy.appEgress.enabled=false: the web app and the worker can reach any address,
+the cloud metadata service and the Kubernetes API included.
 {{- end }}

@@ -34,6 +34,12 @@ include:
       context-path: .
       # The images need Postgres and secrets to start, and define no HEALTHCHECK.
       healthcheck-disabled: true
+      # The template's defaults plus an explicit gate: docker-trivy fails (it always passes
+      # --exit-code 1) on HIGH or CRITICAL OS vulnerabilities that have a fix, or an end-of-life
+      # base image. Lower severities are not reported; npm dependencies are covered by node-audit.
+      trivy-args: >-
+        --severity HIGH,CRITICAL --ignore-unfixed --pkg-types os --exit-on-eol 1
+        --detection-priority comprehensive --disable-telemetry --skip-version-check
   # The chart: `helm lint --strict`, package, and publish to this project's OCI registry from main.
   - component: $CI_SERVER_FQDN/to-be-continuous/helm/gitlab-ci-helm@9.7.0
     inputs:
@@ -79,6 +85,12 @@ node-build:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
     TESTCONTAINERS_HOST_OVERRIDE: docker
+  # The standalone build (the artifact) is served by e2e as the image serves it: with the static
+  # assets copied next to server.js (apps/web/Dockerfile, runner stage).
+  after_script:
+    - >-
+      if [ -f apps/web/.next/standalone/apps/web/server.js ] && [ -d apps/web/.next/static ]; then
+      cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/; fi
 
 # One image per Dockerfile target, named like the Helm chart's image.web/worker/migrate.
 # The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
@@ -102,6 +114,19 @@ node-build:
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
 
+# The docker template sets no timeouts: a stuck registry push or scan would hold a runner for the
+# project's default (60 min). A cold build installs every dependency and builds the web app.
+docker-hadolint:
+  timeout: 10 minutes
+docker-buildah-build:
+  timeout: 40 minutes
+docker-trivy:
+  timeout: 20 minutes
+docker-sbom:
+  timeout: 20 minutes
+docker-publish:
+  timeout: 15 minutes
+
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:
   image: $DOCKER_HUB_MIRROR/library/node:24-bookworm
@@ -121,6 +146,7 @@ node-build:
 helm-kubeconform:
   extends: .pnpm
   stage: test
+  timeout: 15 minutes
   variables:
     HELM_TOOLS_DIR: /tmp/helm-tools
     HELM_REQUIRED: "1"
@@ -128,13 +154,25 @@ helm-kubeconform:
     - sh deploy/helm/check.sh
     - PATH="$HELM_TOOLS_DIR:$PATH" pnpm vitest run packages/jira-tools/src/helm.test.ts
 
+# `pnpm dlx promptfoo` installs into the same store as the workspace (.pnpm-store), so the evals
+# jobs cache that store under their own key: promptfoo (~1.7 GB) is downloaded once per lockfile
+# and promptfoo pin (evals/package.json), and the other jobs' cache stays its usual size.
+.promptfoo-cache:
+  cache:
+    key:
+      prefix: evals
+      files: [pnpm-lock.yaml, evals/package.json]
+    paths: [.pnpm-store]
+
 # Agent evals (promptfoo): the real agent, tools, approvals and data envelopes against a scripted,
 # deterministic mock model on the demo Jira data. Every test must pass. These are plumbing checks
 # (tools offered, numbers flowing back from the metrics engine, approvals, envelopes), not a model
 # quality measure. No secret is configured or read here: no provider key, no Jira credential.
 evals:
-  extends: .pnpm
+  extends: [.pnpm, .promptfoo-cache]
   stage: test
+  # Install, the promptfoo download and the Testcontainers Postgres; the scripted runs are short.
+  timeout: 30 minutes
   tags: [graas-dind]
   services:
     - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
@@ -154,8 +192,10 @@ evals:
 # for all environments. Needs ANTHROPIC_API_KEY, OPENAI_API_KEY, EVAL_ANTHROPIC_MODEL and
 # EVAL_OPENAI_MODEL; passes at 90% of tests (stochastic models).
 evals-live:
-  extends: .pnpm
+  extends: [.pnpm, .promptfoo-cache]
   stage: test
+  # As evals, plus real provider calls (rate limits, retries).
+  timeout: 45 minutes
   tags: [graas-dind]
   environment:
     name: evals-live
@@ -177,10 +217,19 @@ evals-live:
 e2e:
   extends: .pnpm
   stage: acceptance
+  # Browser install, the web app build when there is none to reuse, then the suite.
+  timeout: 40 minutes
+  # node-build's standalone web app, served as is instead of building it again
+  # (E2E_PREBUILT_WEB, e2e/playwright.config.ts). Without that artifact the tests build it.
+  needs:
+    - job: node-build
+      artifacts: true
+      optional: true
   services:
     - name: $DOCKER_HUB_MIRROR/library/postgres:17-alpine
       alias: postgres
   variables:
+    E2E_PREBUILT_WEB: "1"
     POSTGRES_USER: agile
     POSTGRES_PASSWORD: agile_dev_password
     POSTGRES_DB: agile
@@ -189,7 +238,8 @@ e2e:
     CI: "true"
   script:
     - apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null
-    - until pg_isready -h postgres -U agile -d agile; do sleep 1; done
+    # The service normally answers within seconds; give up after a minute instead of hanging.
+    - timeout 60 sh -c 'until pg_isready -h postgres -U agile -d agile; do sleep 1; done'
     # Same non-owner role the compose init script creates, so RLS applies to the app.
     - >-
       PGPASSWORD=agile_dev_password psql -h postgres -U agile -d agile -v ON_ERROR_STOP=1 -c
