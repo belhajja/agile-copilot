@@ -1,12 +1,10 @@
 import { createHash } from 'node:crypto';
-import { recordAudit } from '@agile/connections';
-import { agentApprovals, type Db, type Tx, withOrg } from '@agile/db';
+import { type Actor, agentApprovals, type Db, recordAudit, type Tx, withOrg } from '@agile/db';
 import type { JiraToolErrorCode } from '@agile/jira-tools';
 import { ISSUE_KEY_PATTERN } from '@agile/jira-tools/catalog';
 import { getToolName, type ToolUIPart, type UIMessage } from 'ai';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { requireOwnConversation } from './conversations';
-import type { AgentActor } from './deps';
 import { type DecisionReason, REASON_TEXT } from './reasons';
 import { type CredentialErrorCode, toolErrorText } from './tool-errors';
 import { jiraWriteParts } from './tool-parts';
@@ -72,7 +70,7 @@ function respond(
  */
 export async function recordApprovalRequests(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   conversationId: string,
   messages: UIMessage[],
 ): Promise<void> {
@@ -137,7 +135,7 @@ export class DecisionError extends Error {
  */
 export async function applyDecisions(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   conversationId: string,
   messages: UIMessage[],
   decisions: { approvalId: string; approved: boolean; reason?: DecisionReason }[],
@@ -242,7 +240,7 @@ type ApprovalRow = typeof agentApprovals.$inferSelect;
 /** Closes an approved row that will never run as failed with `code` (audited); false if not approved. */
 async function failApprovedRow(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   row: Pick<ApprovalRow, 'id' | 'conversationId' | 'approvalId' | 'toolName' | 'input'>,
   code: Exclude<ExecutionResultCode, 'ok'>,
   extra: { reason?: DecisionReason } = {},
@@ -278,7 +276,7 @@ type ExecutionCall = {
 };
 
 /** The approved row of exactly this call: user, conversation, tool call, tool and input hash. */
-const approvedRowOf = (actor: AgentActor, call: ExecutionCall) =>
+const approvedRowOf = (actor: Actor, call: ExecutionCall) =>
   and(
     eq(agentApprovals.orgId, actor.orgId),
     eq(agentApprovals.conversationId, call.conversationId),
@@ -297,7 +295,7 @@ const approvedRowOf = (actor: AgentActor, call: ExecutionCall) =>
  */
 export async function claimApprovedExecution(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   call: ExecutionCall,
 ): Promise<{ approvalId: string; finish: (resultCode: ExecutionResultCode) => Promise<void> }> {
   const claimed = await withOrg(db, actor.orgId, (tx) =>
@@ -351,7 +349,7 @@ export async function claimApprovedExecution(
  */
 export async function refuseApprovedExecution(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   call: ExecutionCall,
   code: Exclude<ExecutionResultCode, 'ok'>,
 ): Promise<void> {
@@ -381,7 +379,7 @@ export const WRITE_DONE_UNREADABLE = 'The change was made in Jira; its result co
  */
 export async function settleApprovedParts(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   conversationId: string,
   messages: UIMessage[],
 ): Promise<UIMessage[]> {

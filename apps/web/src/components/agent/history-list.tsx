@@ -63,7 +63,7 @@ export interface HistoryItem {
   archived: boolean;
 }
 
-export interface HistoryFolder {
+interface HistoryFolder {
   id: string;
   name: string;
   items: HistoryItem[];

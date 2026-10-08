@@ -9,7 +9,7 @@
 //   days (×4) → cycle time p85 = 8 days; 12 finished in the last 28 days → 3 per week; the four
 //   8-day issues spent 4 days Blocked → flow efficiency (92 − 16) / 92 = 83%; 4 in progress now.
 
-export interface MockChangelogItem {
+interface MockChangelogItem {
   field: string;
   fieldId?: string;
   fieldtype: string;
@@ -98,7 +98,7 @@ export interface MockJiraDataset {
 
 export const DEMO_STORY_POINTS = 'customfield_10016';
 export const DEMO_SPRINT_FIELD = 'customfield_10020';
-export const DEMO_EPIC_LINK = 'customfield_10014';
+const DEMO_EPIC_LINK = 'customfield_10014';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;

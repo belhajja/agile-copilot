@@ -33,23 +33,26 @@ describe('agentDeps', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const line = String(spy.mock.calls[0]?.[0]);
     expect(JSON.parse(line)).toEqual({
+      time: expect.any(String),
       level: 'error',
       event: 'agent_error',
       code: 'tool_failed',
-      name: 'JiraToolError',
+      error: 'JiraToolError',
     });
     for (const leaked of [secret, 'acc-777', 'Candidate Name', 'boom', 'cause']) {
       expect(line).not.toContain(leaked);
     }
   });
 
-  it('logs a non-error value without a name', () => {
+  it('logs a non-error value as unknown', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     agentDeps().onError?.('secret string', 'x');
     expect(JSON.parse(String(spy.mock.calls[0]?.[0]))).toEqual({
+      time: expect.any(String),
       level: 'error',
       event: 'agent_error',
       code: 'x',
+      error: 'unknown',
     });
   });
 });

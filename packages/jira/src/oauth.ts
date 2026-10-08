@@ -24,12 +24,26 @@ export interface AtlassianOAuthClient {
   refreshAccessToken(refreshToken: string): Promise<AtlassianTokens>;
 }
 
-export function createAtlassianOAuth(cfg: {
+function createAtlassianOAuth(cfg: {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
 }): AtlassianOAuthClient {
   return new Atlassian(cfg.clientId, cfg.clientSecret, cfg.redirectUri);
+}
+
+/** The deployment's OAuth client (web and worker build the same one), or null when unconfigured. */
+export function atlassianOAuthFromEnv(env: {
+  ATLASSIAN_OAUTH_CLIENT_ID?: string;
+  ATLASSIAN_OAUTH_CLIENT_SECRET?: string;
+  BETTER_AUTH_URL: string;
+}): AtlassianOAuthClient | null {
+  if (!env.ATLASSIAN_OAUTH_CLIENT_ID || !env.ATLASSIAN_OAUTH_CLIENT_SECRET) return null;
+  return createAtlassianOAuth({
+    clientId: env.ATLASSIAN_OAUTH_CLIENT_ID,
+    clientSecret: env.ATLASSIAN_OAUTH_CLIENT_SECRET,
+    redirectUri: new URL('/api/jira/oauth/callback', env.BETTER_AUTH_URL).toString(),
+  });
 }
 
 export interface AtlassianSite {

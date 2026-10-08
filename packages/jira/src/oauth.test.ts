@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { listAccessibleJiraSites } from './oauth';
+import { atlassianOAuthFromEnv, listAccessibleJiraSites } from './oauth';
 
 describe('listAccessibleJiraSites', () => {
   let base = '';
@@ -53,6 +53,28 @@ describe('listAccessibleJiraSites', () => {
   it('does not follow redirects', async () => {
     await expect(listAccessibleJiraSites('at-1', { apiBase: `${base}/redir` })).rejects.toThrow(
       /302/,
+    );
+  });
+});
+
+describe('atlassianOAuthFromEnv', () => {
+  const base = { BETTER_AUTH_URL: 'https://copilot.example.com/' };
+
+  it('is null when the client id or secret is missing', () => {
+    expect(atlassianOAuthFromEnv(base)).toBeNull();
+    expect(atlassianOAuthFromEnv({ ...base, ATLASSIAN_OAUTH_CLIENT_ID: 'id' })).toBeNull();
+  });
+
+  it('sends users back to the app callback', () => {
+    const client = atlassianOAuthFromEnv({
+      ...base,
+      ATLASSIAN_OAUTH_CLIENT_ID: 'id',
+      ATLASSIAN_OAUTH_CLIENT_SECRET: 'secret',
+    });
+    const url = client?.createAuthorizationURL('state-1', ['read:jira-work']);
+    expect(url?.searchParams.get('client_id')).toBe('id');
+    expect(url?.searchParams.get('redirect_uri')).toBe(
+      'https://copilot.example.com/api/jira/oauth/callback',
     );
   });
 });

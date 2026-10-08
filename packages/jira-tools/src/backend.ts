@@ -1,7 +1,7 @@
 import type { JiraToolInput, JiraToolName } from './catalog';
 
 /** Per-call options: `signal` cancels the call (e.g. the chat request was aborted). */
-export interface JiraToolCallOptions {
+interface JiraToolCallOptions {
   signal?: AbortSignal;
 }
 

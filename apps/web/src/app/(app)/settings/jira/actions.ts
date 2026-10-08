@@ -9,6 +9,7 @@ import {
 import type { JiraCredentials } from '@agile/jira';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { formData, uuid } from '@/server/action-input';
 import { atlassianOAuth } from '@/server/atlassian';
 import { connectionDeps, requireActor } from '@/server/context';
 
@@ -35,10 +36,12 @@ const PATH = '/settings/jira';
 
 export async function createJiraConnectionAction(
   _prev: FormState,
-  form: FormData,
+  form: unknown,
 ): Promise<FormState> {
   const actor = await requireActor();
-  const parsed = schema.safeParse(Object.fromEntries(form));
+  const data = formData.safeParse(form);
+  if (!data.success) return { status: 'error', code: 'invalid_input' };
+  const parsed = schema.safeParse(Object.fromEntries(data.data));
   if (!parsed.success) return { status: 'error', code: 'invalid_input' };
   const { name, ...rest } = parsed.data;
   const credentials: JiraCredentials =
@@ -59,22 +62,22 @@ export async function createJiraConnectionAction(
   return { status: 'ok' };
 }
 
-const isId = (id: unknown) => z.uuid().safeParse(id).success;
-
-export async function retestJiraConnectionAction(id: string): Promise<void> {
+export async function retestJiraConnectionAction(id: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isId(id)) return;
+  const parsed = uuid.safeParse(id);
+  if (!parsed.success) return;
   await retestJiraConnection(
     { ...connectionDeps(), oauth: atlassianOAuth() ?? undefined },
     actor,
-    id,
+    parsed.data,
   );
   revalidatePath(PATH);
 }
 
-export async function deleteJiraConnectionAction(id: string): Promise<void> {
+export async function deleteJiraConnectionAction(id: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isId(id)) return;
-  await deleteJiraConnection(connectionDeps(), actor, id);
+  const parsed = uuid.safeParse(id);
+  if (!parsed.success) return;
+  await deleteJiraConnection(connectionDeps(), actor, parsed.data);
   revalidatePath(PATH);
 }

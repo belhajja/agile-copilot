@@ -1,4 +1,3 @@
-import type { Actor } from '@agile/connections';
 import type { LlmConfig } from '@agile/llm';
 import type { SyncDeps } from '@agile/sync';
 import type { LanguageModel } from 'ai';
@@ -16,5 +15,3 @@ export interface AgentDeps extends Omit<SyncDeps, 'onError'> {
   /** Log hook: only error names and codes, never messages (they can echo provider bodies). */
   onError?: (error: unknown, code: string) => void;
 }
-
-export type AgentActor = Pick<Actor, 'orgId' | 'userId' | 'roles'>;

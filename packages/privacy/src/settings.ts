@@ -1,5 +1,5 @@
 import { can } from '@agile/auth';
-import { type Db, orgSettings, recordAudit, withOrg } from '@agile/db';
+import { type Actor, type Db, orgSettings, recordAudit, withOrg } from '@agile/db';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -48,12 +48,6 @@ export const settingsPatchSchema = z
 
 export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
 
-export interface SettingsActor {
-  orgId: string;
-  userId: string;
-  roles: readonly string[];
-}
-
 export class SettingsError extends Error {
   override name = 'SettingsError';
   constructor(readonly code: 'forbidden_role' | 'invalid_input') {
@@ -82,7 +76,7 @@ export async function getWorkspaceSettings(db: Db, orgId: string): Promise<Works
  */
 export async function updateWorkspaceSettings(
   db: Db,
-  actor: SettingsActor,
+  actor: Actor,
   patch: unknown,
 ): Promise<WorkspaceSettings> {
   if (!can(actor.roles, 'workspace.settings')) throw new SettingsError('forbidden_role');

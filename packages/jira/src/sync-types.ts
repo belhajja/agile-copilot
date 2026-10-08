@@ -1,5 +1,5 @@
 export type JiraBoardType = 'scrum' | 'kanban' | 'simple';
-export type JiraStatusCategoryKey = 'new' | 'indeterminate' | 'done' | 'undefined';
+type JiraStatusCategoryKey = 'new' | 'indeterminate' | 'done' | 'undefined';
 
 export interface JiraBoardInfo {
   jiraBoardId: number;

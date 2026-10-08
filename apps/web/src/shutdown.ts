@@ -1,5 +1,5 @@
 /** Longest the exit waits for the flush: well inside the 30 s grace period (Helm, compose). */
-export const FLUSH_TIMEOUT_MS = 10_000;
+const FLUSH_TIMEOUT_MS = 10_000;
 
 interface ExitingProcess {
   once(event: 'SIGTERM', listener: () => void): unknown;

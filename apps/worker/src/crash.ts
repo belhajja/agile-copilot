@@ -1,4 +1,4 @@
-import type { Logger } from './log';
+import { errorName, type Logger } from '@agile/observability/log';
 
 interface ProcessEvents {
   on(
@@ -6,8 +6,6 @@ interface ProcessEvents {
     listener: (error: unknown) => void,
   ): unknown;
 }
-
-const errorName = (error: unknown) => (error instanceof Error ? error.name : 'unknown');
 
 /**
  * A stray rejection or exception must not leave the worker half-alive (or die without releasing

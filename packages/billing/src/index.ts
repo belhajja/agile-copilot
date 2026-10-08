@@ -1,5 +1,4 @@
 export {
-  type BillingActor,
   type BillingConfig,
   type BillingDeps,
   BillingError,

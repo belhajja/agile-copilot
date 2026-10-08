@@ -20,7 +20,6 @@
     "@agile/connections": "workspace:*",
     "@agile/dashboards": "workspace:*",
     "@agile/db": "workspace:*",
-    "@agile/jira": "workspace:*",
     "@agile/jira-tools": "workspace:*",
     "@agile/llm": "workspace:*",
     "@agile/net": "workspace:*",
@@ -38,7 +37,6 @@
     "@ai-sdk/google": "4.0.87",
     "@ai-sdk/mistral": "4.0.56",
     "@ai-sdk/openai": "4.0.83",
-    "@ai-sdk/openai-compatible": "3.0.62",
-    "@testcontainers/postgresql": "12.2.0"
+    "@ai-sdk/openai-compatible": "3.0.62"
   }
 }

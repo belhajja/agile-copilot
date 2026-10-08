@@ -61,6 +61,16 @@ describe('deleteAccountAction', () => {
     expect(privacy.deleteAccount).not.toHaveBeenCalled();
   });
 
+  it('treats anything but a posted form as a mismatch', async () => {
+    for (const form of [{ confirm: 'pat@example.com' }, 'pat@example.com', null]) {
+      expect(await deleteAccountAction(idle, form)).toEqual({
+        status: 'error',
+        code: 'confirm_mismatch',
+      });
+    }
+    expect(privacy.deleteAccount).not.toHaveBeenCalled();
+  });
+
   it('requires a sign-in less than 10 minutes old (L13)', async () => {
     session.current.session.createdAt = new Date(NOW.getTime() - 11 * MINUTE);
     expect(await deleteAccountAction(idle, confirm('pat@example.com'))).toEqual({

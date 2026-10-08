@@ -1,6 +1,5 @@
-import { recordAudit } from '@agile/connections';
 import { computeWidget, loadBoardDataset } from '@agile/dashboards';
-import { type Db, jiraBoards, member, skills, type Tx, withOrg } from '@agile/db';
+import { type Db, jiraBoards, member, recordAudit, skills, type Tx, withOrg } from '@agile/db';
 import type { BoardDataset } from '@agile/metrics';
 import {
   alertMatches,

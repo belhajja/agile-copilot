@@ -1,15 +1,18 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { can, parseRoles } from '@agile/auth';
-import { type Db, isUuid, mcpTokens, member, recordAudit, type Tx, withOrg } from '@agile/db';
+import {
+  type Actor,
+  type Db,
+  isUuid,
+  mcpTokens,
+  member,
+  recordAudit,
+  type Tx,
+  withOrg,
+} from '@agile/db';
 import { getWorkspaceSettings } from '@agile/privacy';
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
-
-export interface TokenActor {
-  orgId: string;
-  userId: string;
-  roles: readonly string[];
-}
 
 export interface GatewayDeps {
   db: Db;
@@ -112,7 +115,7 @@ export async function mcpAccessProblem(
 /** Creates a token for the actor; the plaintext is returned once and never stored. */
 export async function createMcpToken(
   deps: GatewayDeps,
-  actor: TokenActor,
+  actor: Actor,
   input: unknown,
 ): Promise<{ id: string; token: string; prefix: string; expiresAt: Date }> {
   // The token must carry the workspace id, or it would never authenticate.
@@ -181,7 +184,7 @@ export interface TokenView {
 }
 
 /** One's own tokens; owners and admins see everyone's (to revoke them). */
-export async function listMcpTokens(db: Db, actor: TokenActor): Promise<TokenView[]> {
+export async function listMcpTokens(db: Db, actor: Actor): Promise<TokenView[]> {
   const all = can(actor.roles, 'members.manage');
   return withOrg(db, actor.orgId, (tx) =>
     tx
@@ -202,7 +205,7 @@ export async function listMcpTokens(db: Db, actor: TokenActor): Promise<TokenVie
 }
 
 /** Revokes a token: its owner, or an owner/admin of the workspace. */
-export async function revokeMcpToken(db: Db, actor: TokenActor, tokenId: string): Promise<void> {
+export async function revokeMcpToken(db: Db, actor: Actor, tokenId: string): Promise<void> {
   if (!isUuid(tokenId)) throw new TokenError('not_found');
   const all = can(actor.roles, 'members.manage');
   const revoked = await withOrg(db, actor.orgId, async (tx) => {

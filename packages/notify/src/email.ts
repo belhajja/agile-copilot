@@ -59,7 +59,7 @@ export function resolvePinnedAddress(host: string, outbound: OutboundPolicy): Pr
  * The ports a mail server listens on. Anything else could aim the SMTP client at another internal
  * service on an allowlisted host; a server on this machine (development, tests) may use any port.
  */
-export const SMTP_PORTS: readonly number[] = [25, 465, 587, 2525];
+const SMTP_PORTS: readonly number[] = [25, 465, 587, 2525];
 
 async function transportFor(secret: SmtpSecret, opts: SmtpOptions) {
   let address: string;

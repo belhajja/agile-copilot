@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret } from '@agile/crypto';
-import { llmConnections, type Tx, withOrg } from '@agile/db';
+import { type Actor, llmConnections, recordAudit, type Tx, withOrg } from '@agile/db';
 import {
   createLanguageModel,
   type LlmConfig,
@@ -13,8 +13,7 @@ import {
 } from '@agile/llm';
 import { type BlockedUrlReason, checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { and, desc, eq, ne, type SQL, sql } from 'drizzle-orm';
-import { type Actor, assertCanManage } from './actor';
-import { recordAudit } from './audit';
+import { assertCanManage } from './actor';
 import type { ConnectionDeps } from './jira-connections';
 import { getOrgDek } from './vault';
 

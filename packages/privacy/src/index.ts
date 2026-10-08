@@ -1,6 +1,5 @@
 export {
   AUDIT_EXPORT_PAGE,
-  type AuditActor,
   type AuditEntry,
   AuditExportError,
   type AuditExportFormat,
@@ -41,7 +40,6 @@ export {
   DEFAULT_SETTINGS,
   getWorkspaceSettings,
   RETENTION_BOUNDS,
-  type SettingsActor,
   SettingsError,
   type SettingsPatch,
   settingsPatchSchema,

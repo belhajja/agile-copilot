@@ -22,7 +22,6 @@
     "@agile/jira-tools": "workspace:*",
     "@agile/llm": "workspace:*",
     "@agile/mcp-gateway": "workspace:*",
-    "@agile/metrics": "workspace:*",
     "@agile/net": "workspace:*",
     "@agile/notify": "workspace:*",
     "@agile/observability": "workspace:*",

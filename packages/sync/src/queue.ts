@@ -1,10 +1,12 @@
-import { type Actor, assertCanManage, recordAudit } from '@agile/connections';
+import { assertCanManage } from '@agile/connections';
 import {
+  type Actor,
   type Db,
   jiraBoards,
   jiraConnections,
   jiraSyncStates,
   organization,
+  recordAudit,
   withOrg,
 } from '@agile/db';
 import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';

@@ -28,6 +28,13 @@ interface SessionLike {
   [key: string]: unknown;
 }
 
+/**
+ * The session of the request a hook runs for. HookContext only declares what these hooks read;
+ * better-auth passes its full endpoint context, which is what getSessionFromCtx needs.
+ */
+const sessionOf = (ctx: HookContext) =>
+  getSessionFromCtx(ctx as unknown as Parameters<typeof getSessionFromCtx>[0]);
+
 /** Audit actions written for membership changes, whichever client made them. */
 export type MemberAuditAction = Extract<AuditAction, `member.${string}`>;
 
@@ -151,7 +158,7 @@ export async function auditMembership(db: Db, ctx: HookContext): Promise<void> {
   if (!entry) return;
   const write = async () => {
     // The endpoint's session is not on the hook context: read it from the request again.
-    const actorUserId = (await getSessionFromCtx(ctx as never))?.user.id ?? null;
+    const actorUserId = (await sessionOf(ctx))?.user.id ?? null;
     await withOrg(db, entry.orgId, (tx) =>
       recordAudit(tx, {
         orgId: entry.orgId,
@@ -188,7 +195,7 @@ function orgIdOf(ctx: HookContext, session: { session: SessionLike }): string | 
  */
 export async function guardInvitationList(db: Db, ctx: HookContext): Promise<void> {
   if (ctx.path !== '/organization/list-invitations') return;
-  const session = await getSessionFromCtx(ctx as never);
+  const session = await sessionOf(ctx);
   const orgId = session ? orgIdOf(ctx, session) : null;
   const roles = session && orgId ? await getMemberRoles(db, orgId, session.user.id) : [];
   if (!can(roles, 'members.manage')) {
@@ -210,7 +217,7 @@ export async function redactFullOrganization(
   if (ctx.path !== '/organization/get-full-organization') return null;
   const returned = ctx.context.returned;
   if (!isRecord(returned) || !Array.isArray(returned.invitations)) return null;
-  const userId = (await getSessionFromCtx(ctx as never))?.user.id;
+  const userId = (await sessionOf(ctx))?.user.id;
   const orgId = str(returned.id);
   const roles = userId && orgId ? await getMemberRoles(db, orgId, userId) : [];
   return can(roles, 'members.manage') ? null : { ...returned, invitations: [] };
@@ -224,7 +231,7 @@ export async function checkInvitationListScope(db: Db, ctx: HookContext): Promis
   if (ctx.path !== '/organization/list-invitations') return;
   const returned = ctx.context.returned;
   if (!Array.isArray(returned) || returned.length === 0) return;
-  const session = await getSessionFromCtx(ctx as never);
+  const session = await sessionOf(ctx);
   const orgId = session ? orgIdOf(ctx, session) : null;
   const roles = session && orgId ? await getMemberRoles(db, orgId, session.user.id) : [];
   const ok =

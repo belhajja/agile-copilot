@@ -2,7 +2,6 @@
 
 import { draftSkill, reserveBuilderCall, runSkill } from '@agile/agent';
 import { requestSkillRun } from '@agile/automation';
-import { isUuid } from '@agile/db';
 import {
   copyBuiltinSkill,
   createSkill,
@@ -20,6 +19,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
+import { uuid } from '@/server/action-input';
 import { skillQueue, skillRunDeps, skillRunsDailyLimit } from '@/server/automation';
 import { requireActor, services } from '@/server/context';
 import type { SkillTab } from './skill-errors';
@@ -34,10 +34,15 @@ const fail = (path: string, code: string, tab?: SkillTab): never =>
 const failSkill = (id: string, code: string, tab: SkillTab = 'mine'): never =>
   code === 'not_found' ? fail('/skills', code, tab) : fail(`/skills/${id}`, code);
 
+const builtinKey = z.string().min(1).max(100);
+const version = z.number().int().min(1);
+
 /** Copies a built-in skill into an editable one of the user's, and opens it. */
-export async function copyBuiltinSkillAction(key: string): Promise<void> {
+export async function copyBuiltinSkillAction(key: unknown): Promise<void> {
   const actor = await requireActor();
-  const r = await copyBuiltinSkill(services().db, actor, key, new Date(), await locale());
+  const parsed = builtinKey.safeParse(key);
+  if (!parsed.success) return fail('/skills', 'not_found', 'library');
+  const r = await copyBuiltinSkill(services().db, actor, parsed.data, new Date(), await locale());
   if (!r.ok) fail('/skills', r.code, 'library');
   else redirect(`/skills/${r.id}`);
 }
@@ -46,38 +51,44 @@ export async function copyBuiltinSkillAction(key: string): Promise<void> {
  * Copies a skill shared in the workspace into the user's own skills (disabled, P4-R8) and opens
  * the copy. Only the skill's own page offers it, where its full text is shown.
  */
-export async function forkSkillAction(id: string): Promise<void> {
+export async function forkSkillAction(id: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found', 'shared');
-  const r = await forkSkill(services().db, actor, id, new Date(), await locale());
-  if (!r.ok) failSkill(id, r.code, 'shared');
+  const parsed = uuid.safeParse(id);
+  if (!parsed.success) return fail('/skills', 'not_found', 'shared');
+  const r = await forkSkill(services().db, actor, parsed.data, new Date(), await locale());
+  if (!r.ok) failSkill(parsed.data, r.code, 'shared');
   else redirect(`/skills/${r.id}`);
 }
 
-export async function setSkillVisibilityAction(
-  id: string,
-  visibility: 'private' | 'workspace',
-): Promise<void> {
+export async function setSkillVisibilityAction(id: unknown, visibility: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
-  const r = await setSkillVisibility(services().db, actor, id, visibility);
-  if (!r.ok) return failSkill(id, r.code);
+  const parsedId = uuid.safeParse(id);
+  if (!parsedId.success) return fail('/skills', 'not_found');
+  const parsed = z.enum(['private', 'workspace']).safeParse(visibility);
+  if (!parsed.success) return failSkill(parsedId.data, 'invalid');
+  const r = await setSkillVisibility(services().db, actor, parsedId.data, parsed.data);
+  if (!r.ok) return failSkill(parsedId.data, r.code);
   revalidatePath('/skills');
-  revalidatePath(`/skills/${id}`);
+  revalidatePath(`/skills/${parsedId.data}`);
 }
 
-export async function setSkillEnabledAction(id: string, enabled: boolean): Promise<void> {
+export async function setSkillEnabledAction(id: unknown, enabled: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
-  const r = await setSkillEnabled(services().db, actor, id, enabled, new Date());
-  if (!r.ok) return failSkill(id, r.code);
+  const parsedId = uuid.safeParse(id);
+  if (!parsedId.success) return fail('/skills', 'not_found');
+  const parsed = z.boolean().safeParse(enabled);
+  if (!parsed.success) return failSkill(parsedId.data, 'invalid');
+  const r = await setSkillEnabled(services().db, actor, parsedId.data, parsed.data, new Date());
+  if (!r.ok) return failSkill(parsedId.data, r.code);
   revalidatePath('/skills');
-  revalidatePath(`/skills/${id}`);
+  revalidatePath(`/skills/${parsedId.data}`);
 }
 
-export async function deleteSkillAction(id: string): Promise<void> {
+export async function deleteSkillAction(rawId: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
+  const parsed = uuid.safeParse(rawId);
+  if (!parsed.success) return fail('/skills', 'not_found');
+  const id = parsed.data;
   const r = await deleteSkill(services().db, actor, id);
   if (!r.ok) return failSkill(id, r.code);
   revalidatePath('/skills');
@@ -85,9 +96,11 @@ export async function deleteSkillAction(id: string): Promise<void> {
 }
 
 /** "Run now": queues one run of a scheduled or alert skill, then shows its page. */
-export async function runSkillNowAction(id: string): Promise<void> {
+export async function runSkillNowAction(rawId: unknown): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
+  const parsed = uuid.safeParse(rawId);
+  if (!parsed.success) return fail('/skills', 'not_found');
+  const id = parsed.data;
   const r = await requestSkillRun(
     {
       db: services().db,
@@ -102,7 +115,7 @@ export async function runSkillNowAction(id: string): Promise<void> {
   redirect(`/skills/${id}?run=${r.ok ? (r.queued ? 'queued' : r.skipped) : r.code}`);
 }
 
-export type SkillIssueView = { code: string; field?: string };
+type SkillIssueView = { code: string; field?: string };
 export type EditorResult =
   | { ok: true; document?: string; text?: string; id?: string; version?: number }
   | { ok: false; code: string; issues?: SkillIssueView[] };
@@ -121,12 +134,12 @@ async function overBuilderLimit(actor: Awaited<ReturnType<typeof requireActor>>)
  * The skill builder: the user's request → a draft SKILL.md. Nothing is saved: the draft lands in
  * the editor, where the user reads and edits the full text before saving it.
  */
-export async function draftSkillAction(request: string): Promise<EditorResult> {
+export async function draftSkillAction(request: unknown): Promise<EditorResult> {
   const actor = await requireActor();
-  const text = String(request ?? '').trim();
-  if (!text || text.length > MAX_REQUEST) return { ok: false, code: 'invalid_request' };
+  const parsed = z.string().trim().min(1).max(MAX_REQUEST).safeParse(request);
+  if (!parsed.success) return { ok: false, code: 'invalid_request' };
   if (await overBuilderLimit(actor)) return { ok: false, code: 'rate_limited' };
-  const r = await draftSkill(skillRunDeps(), actor, text);
+  const r = await draftSkill(skillRunDeps(), actor, parsed.data);
   return r.ok ? { ok: true, document: r.document } : { ok: false, code: r.code };
 }
 
@@ -134,9 +147,12 @@ export async function draftSkillAction(request: string): Promise<EditorResult> {
  * Preview on real data: runs the document once, as the user, read-only (the same run a schedule
  * makes, without delivery). Metered like any reply; not counted against the daily run limit.
  */
-export async function previewSkillAction(document: string): Promise<EditorResult> {
+export async function previewSkillAction(document: unknown): Promise<EditorResult> {
   const actor = await requireActor();
-  const parsed = parseSkillDocument(String(document ?? ''));
+  // Not capped here: the parser reports a document that is too long as an issue.
+  const input = z.string().safeParse(document);
+  if (!input.success) return { ok: false, code: 'invalid_request' };
+  const parsed = parseSkillDocument(input.data);
   if (!parsed.ok) return { ok: false, code: 'invalid', issues: parsed.issues };
   if (await overBuilderLimit(actor)) return { ok: false, code: 'rate_limited' };
   const r = await runSkill(skillRunDeps(), actor, { skill: parsed.skill });
@@ -154,10 +170,10 @@ function channelFor(document: string, channelId: string | null): string | null {
 }
 
 const saveSchema = z.object({
-  id: z.string().refine(isUuid).optional(),
+  id: uuid.optional(),
   document: z.string().max(30_000),
-  channelId: z.string().refine(isUuid).nullable(),
-  baseVersion: z.number().int().min(1).optional(),
+  channelId: uuid.nullable(),
+  baseVersion: version.optional(),
 });
 
 /** Creates the skill (then opens it) or saves a new version of it from the version loaded. */
@@ -196,15 +212,20 @@ export async function saveSkillAction(input: {
  * version the page showed (`version_conflict` if another tab saved meanwhile).
  */
 export async function restoreSkillVersionAction(
-  id: string,
-  version: number,
-  baseVersion: number,
+  rawId: unknown,
+  rawVersion: unknown,
+  rawBaseVersion: unknown,
 ): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(id)) return fail('/skills', 'not_found');
+  const parsedId = uuid.safeParse(rawId);
+  if (!parsedId.success) return fail('/skills', 'not_found');
+  const id = parsedId.data;
+  const parsed = z.tuple([version, version]).safeParse([rawVersion, rawBaseVersion]);
+  if (!parsed.success) return failSkill(id, 'invalid');
+  const [restored, baseVersion] = parsed.data;
   const detail = await getSkill(services().db, actor, id);
   if (!detail) return failSkill(id, 'not_found');
-  const document = await getSkillVersion(services().db, actor, id, version);
+  const document = await getSkillVersion(services().db, actor, id, restored);
   if (document === null) return fail(`/skills/${id}`, 'not_found');
   const r = await updateSkill(services().db, actor, id, {
     document,

@@ -1,8 +1,7 @@
 import { parseKeyring } from '@agile/crypto';
-import { createDb } from '@agile/db';
+import { type Actor, createDb } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { JiraCredentials, JiraTestResult } from '@agile/jira';
-import type { Actor } from './actor';
 
 export const keyring = parseKeyring(`v1:${Buffer.alloc(32, 7).toString('base64')}`);
 export const owner = (orgId = 'org_a'): Actor => ({

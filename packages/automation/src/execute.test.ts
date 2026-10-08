@@ -1,4 +1,5 @@
 import {
+  type Actor,
   agentUsage,
   deliveryChannels,
   member as memberTable,
@@ -6,7 +7,7 @@ import {
   skills,
   withOrg,
 } from '@agile/db';
-import { createSkill, type SkillActor, serializeSkill } from '@agile/skills';
+import { createSkill, serializeSkill } from '@agile/skills';
 import { member, owner } from '@agile/sync/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -53,7 +54,7 @@ describe('executing a run: owner, read-only report, delivery', () => {
   afterAll(async () => h?.stop());
 
   const skillFor = async (
-    actor: SkillActor,
+    actor: Actor,
     name: string,
     output: string,
     opts: { channelId?: string; locale?: 'en' | 'fr' } = {},

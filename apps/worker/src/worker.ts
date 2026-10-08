@@ -2,12 +2,12 @@ import { type AutomationDeps, SKILL_RUN_QUEUE, startSkillWorker } from '@agile/a
 import type { WorkerEnv } from '@agile/config';
 import { parseKeyring } from '@agile/crypto';
 import { createDb } from '@agile/db';
-import { createAtlassianOAuth } from '@agile/jira';
+import { atlassianOAuthFromEnv } from '@agile/jira';
+import { errorName, type Logger } from '@agile/observability/log';
 import { RETENTION_QUEUE, startRetentionWorker } from '@agile/privacy';
 import { SYNC_QUEUE, type SyncDeps, startSyncQueue, startSyncWorker } from '@agile/sync';
 import { sql } from 'drizzle-orm';
 import { startHealthServer } from './health';
-import type { Logger } from './log';
 
 /**
  * On stop, how long pg-boss waits for running jobs: above the longest skill run plus delivery
@@ -24,8 +24,6 @@ export interface RunningWorker {
   stop(): Promise<void>;
 }
 
-const errorName = (error: unknown) => (error instanceof Error ? error.name : 'unknown');
-
 /** Wires the sync, skill and retention workers (pg-boss) and the health endpoint. */
 export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningWorker> {
   const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
@@ -33,19 +31,11 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
   let boss: Awaited<ReturnType<typeof startSyncQueue>> | undefined;
   let health: Awaited<ReturnType<typeof startHealthServer>> | undefined;
   try {
-    const oauth =
-      env.ATLASSIAN_OAUTH_CLIENT_ID && env.ATLASSIAN_OAUTH_CLIENT_SECRET
-        ? createAtlassianOAuth({
-            clientId: env.ATLASSIAN_OAUTH_CLIENT_ID,
-            clientSecret: env.ATLASSIAN_OAUTH_CLIENT_SECRET,
-            redirectUri: new URL('/api/jira/oauth/callback', env.BETTER_AUTH_URL).toString(),
-          })
-        : undefined;
     const deps: SyncDeps = {
       db,
       keyring: parseKeyring(env.ENCRYPTION_KEYS),
       allowedPrivateHosts: env.ALLOWED_PRIVATE_HOSTS,
-      oauth,
+      oauth: atlassianOAuthFromEnv(env) ?? undefined,
       signal: shutdown.signal,
       // Code and error name only: messages may carry Jira tokens or URLs.
       onError: (error, code) => log('warn', 'sync_error', { code, error: errorName(error) }),
@@ -122,7 +112,7 @@ export async function startWorker(env: WorkerEnv, log: Logger): Promise<RunningW
     log('info', 'worker_started', {
       healthPort: health.port,
       syncIntervalMinutes: env.SYNC_INTERVAL_MINUTES,
-      oauth: Boolean(oauth),
+      oauth: Boolean(deps.oauth),
       liveJiraInRuns: Boolean(env.MCP_ATLASSIAN_READONLY_URL),
       skillRunsDailyLimit: env.SKILL_RUNS_DAILY_LIMIT,
     });

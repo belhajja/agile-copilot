@@ -1,5 +1,6 @@
 import { handleStripeWebhook, WebhookSignatureError } from '@agile/billing';
 import { BodyTooLargeError, readBodyCapped } from '@agile/net';
+import { errorName, log } from '@agile/observability/log';
 import { billingDeps } from '@/server/billing';
 
 // Stripe's SDK verifies the signature with Node's crypto.
@@ -28,13 +29,7 @@ export async function POST(request: Request) {
     if (e instanceof BodyTooLargeError) {
       return Response.json({ error: 'payload_too_large' }, { status: 413 });
     }
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        event: 'stripe_webhook_body_unreadable',
-        name: e instanceof Error ? e.name : 'unknown',
-      }),
-    );
+    log('error', 'stripe_webhook_body_unreadable', { error: errorName(e) });
     return Response.json({ error: 'bad_request' }, { status: 400 });
   }
   try {
@@ -44,13 +39,7 @@ export async function POST(request: Request) {
     if (e instanceof WebhookSignatureError) {
       return Response.json({ error: 'invalid_signature' }, { status: 400 });
     }
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        event: 'stripe_webhook_failed',
-        name: e instanceof Error ? e.name : 'unknown',
-      }),
-    );
+    log('error', 'stripe_webhook_failed', { error: errorName(e) });
     return Response.json({ error: 'internal_error' }, { status: 500 });
   }
 }

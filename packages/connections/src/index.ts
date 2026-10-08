@@ -1,5 +1,4 @@
-export { type Actor, assertCanManage } from './actor';
-export { type AuditAction, recordAudit } from './audit';
+export { assertCanManage } from './actor';
 export { ForbiddenError } from './errors';
 export {
   type ConnectionDeps,

@@ -1,5 +1,5 @@
-import { type Db, skillRuns, skills, withOrg } from '@agile/db';
-import { loadSkillsWithDocuments, type SkillActor } from '@agile/skills';
+import { type Actor, type Db, skillRuns, skills, withOrg } from '@agile/db';
+import { loadSkillsWithDocuments } from '@agile/skills';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
 export interface Insight {
@@ -16,7 +16,7 @@ export interface Insight {
  * skills with the `dashboard_card` output whose scope includes the board (or has no scope).
  * Reports are owner-only (P4-R1): another member's shared skill never produces a card here.
  */
-export async function insightsFor(db: Db, actor: SkillActor, boardId: string): Promise<Insight[]> {
+export async function insightsFor(db: Db, actor: Actor, boardId: string): Promise<Insight[]> {
   return withOrg(db, actor.orgId, async (tx) => {
     const loaded = await loadSkillsWithDocuments(
       tx,

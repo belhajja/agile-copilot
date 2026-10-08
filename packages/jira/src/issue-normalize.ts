@@ -39,7 +39,7 @@ export function parseSprintField(value: unknown): number[] {
 }
 
 /** Sprint ids in a changelog value such as "12, 13". */
-export const parseSprintIds = (value: string | null | undefined): number[] => [
+const parseSprintIds = (value: string | null | undefined): number[] => [
   ...new Set((value ?? '').match(/\d+/g)?.map(Number) ?? []),
 ];
 
@@ -152,7 +152,7 @@ function epicOf(
 }
 
 /** Oldest first; ties keep Jira's id order. */
-export function sortHistories(histories: RawChangelogHistory[]): RawChangelogHistory[] {
+function sortHistories(histories: RawChangelogHistory[]): RawChangelogHistory[] {
   return [...histories]
     .map((h) => ({ h, at: parseJiraDate(h.created)?.getTime() ?? 0, id: Number(h.id ?? 0) }))
     .sort((a, b) => a.at - b.at || a.id - b.id)

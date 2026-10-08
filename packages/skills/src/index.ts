@@ -58,7 +58,6 @@ export {
   type LoadedSkill,
   listSkills,
   loadSkillsWithDocuments,
-  type SkillActor,
   type SkillDetail,
   type SkillFailure,
   type SkillLocale,

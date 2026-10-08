@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs';
 import { SKILL_RUN_MAX_MS, SKILL_TICK_CRON, SKILL_TICK_QUEUE } from '@agile/automation';
 import { parseWorkerEnv } from '@agile/config';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
+import type { Logger } from '@agile/observability/log';
 import { RETENTION_CRON, RETENTION_QUEUE } from '@agile/privacy';
 import { SYNC_TICK_QUEUE, startSyncQueue } from '@agile/sync';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Logger } from './log';
 import {
   type RunningWorker,
   startWorker,

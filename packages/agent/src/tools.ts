@@ -1,6 +1,6 @@
 import { createAnalyticsMcpServer } from '@agile/analytics-mcp';
 import { can } from '@agile/auth';
-import { jiraConnections, withOrg } from '@agile/db';
+import { type Actor, jiraConnections, withOrg } from '@agile/db';
 import {
   createJiraToolBackend,
   JIRA_TOOL_NAMES,
@@ -23,7 +23,7 @@ import {
   refuseApprovedExecution,
   WRITE_DONE_UNREADABLE,
 } from './approvals';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
 import type { JiraAccess, PromptSite } from './prompt';
 import { EMPTY_SKILL_SET, skillContext, skillTools } from './skills';
 import {
@@ -76,7 +76,7 @@ function frame(name: string, value: unknown, kind: 'jira' | 'analytics'): string
  * The analytics MCP server, in process: bound to the actor's workspace on the server, reached
  * through the AI SDK MCP client over a linked in-memory transport (no network, no port).
  */
-export async function analyticsTools(deps: AgentDeps, actor: AgentActor) {
+export async function analyticsTools(deps: AgentDeps, actor: Actor) {
   const server = createAnalyticsMcpServer(
     { db: deps.db, orgId: actor.orgId, now: deps.now ?? (() => new Date()) },
     { onError: (e, code) => deps.onError?.(e, code) },
@@ -132,7 +132,7 @@ export interface JiraSite extends PromptSite {
  */
 export async function jiraSites(
   deps: AgentDeps,
-  actor: AgentActor,
+  actor: Actor,
   mcpUrl: string | undefined,
 ): Promise<JiraSite[]> {
   const rows = await withOrg(deps.db, actor.orgId, (tx) =>
@@ -158,17 +158,17 @@ export async function jiraSites(
  * credentials, which can reach beyond the boards an admin selected, so the role is granted
  * explicitly; viewers get the analytics tools (synced, selected boards) only.
  */
-export function canUseLiveJira(actor: AgentActor): boolean {
+function canUseLiveJira(actor: Actor): boolean {
   return can(actor.roles, 'jira.read');
 }
 
 /** Proposing Jira changes (`jira.write`); each proposal still waits for the user's approval. */
-export function canProposeJiraChanges(actor: AgentActor): boolean {
+export function canProposeJiraChanges(actor: Actor): boolean {
   return can(actor.roles, 'jira.write');
 }
 
 /** The stored outcome of a failed Jira call (one of `ExecutionResultCode`). */
-export const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
+const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
   if (e instanceof JiraToolError) return e.code;
   if (e instanceof SyncError && (CREDENTIAL_ERROR_CODES as readonly string[]).includes(e.code)) {
     return e.code as CredentialErrorCode;
@@ -199,7 +199,7 @@ export type JiraToolMode =
  */
 export function buildJiraToolSet(
   deps: AgentDeps,
-  actor: AgentActor,
+  actor: Actor,
   sites: JiraSite[],
   mode: JiraToolMode,
 ): ToolSet {
@@ -312,7 +312,7 @@ export function buildJiraToolSet(
 }
 
 /** What the system prompt says about live Jira for this user. */
-export function jiraAccessOf(actor: AgentActor, hasUsableSite: boolean): JiraAccess {
+export function jiraAccessOf(actor: Actor, hasUsableSite: boolean): JiraAccess {
   if (!hasUsableSite) return 'unavailable';
   if (!canUseLiveJira(actor)) return 'forbidden_role';
   return canProposeJiraChanges(actor) ? 'full' : 'read_only';
@@ -321,7 +321,7 @@ export function jiraAccessOf(actor: AgentActor, hasUsableSite: boolean): JiraAcc
 /** The chat's Jira tools: reads, and writes behind approval, through the read-write instance. */
 export function jiraTools(
   deps: AgentDeps,
-  actor: AgentActor,
+  actor: Actor,
   conversationId: string,
   sites: JiraSite[],
 ): ToolSet {
@@ -336,7 +336,7 @@ export function jiraTools(
  * The user's skill set, or none when the skills store cannot be read: a skills failure must
  * never break the chat, nor an approvals turn (P4-R6, P3-R26). Logged by code (and error name).
  */
-async function skillSetOrEmpty(deps: AgentDeps, actor: AgentActor): Promise<SkillSet> {
+async function skillSetOrEmpty(deps: AgentDeps, actor: Actor): Promise<SkillSet> {
   try {
     return await loadSkillSet(deps.db, actor);
   } catch (e) {
@@ -349,7 +349,7 @@ async function skillSetOrEmpty(deps: AgentDeps, actor: AgentActor): Promise<Skil
  * The live Jira side of a reply or a run: its tools, the sites the model may name (none when it has
  * no Jira tools) and what the system prompt says about Jira.
  */
-export async function liveJira(deps: AgentDeps, actor: AgentActor, mode: JiraToolMode) {
+export async function liveJira(deps: AgentDeps, actor: Actor, mode: JiraToolMode) {
   const sites = await jiraSites(deps, actor, mode.mcpUrl);
   const tools = buildJiraToolSet(deps, actor, sites, mode);
   const offered = sites.filter((s) => s.usable);
@@ -364,7 +364,7 @@ export async function liveJira(deps: AgentDeps, actor: AgentActor, mode: JiraToo
 }
 
 /** All tools of one reply, plus what the system prompt says about Jira and skills. */
-export async function buildAgentTools(deps: AgentDeps, actor: AgentActor, conversationId: string) {
+export async function buildAgentTools(deps: AgentDeps, actor: Actor, conversationId: string) {
   const analytics = await analyticsTools(deps, actor);
   try {
     const jira = await liveJira(deps, actor, {

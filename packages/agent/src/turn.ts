@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loadDefaultLlm, loadUsableLlm } from '@agile/connections';
-import { withOrg } from '@agile/db';
+import { type Actor, withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import {
   convertToModelMessages,
@@ -35,7 +35,8 @@ import {
   TurnInProgressError,
   unarchiveConversation,
 } from './conversations';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
+import { MESSAGE_MAX_LENGTH } from './limits';
 import { languageModelFor, usesInsecureTransport } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import {
@@ -62,7 +63,7 @@ export const agentRequestSchema = z
     message: z
       .object({
         id: z.string().regex(/^[\w-]{1,100}$/),
-        text: z.string().trim().min(1).max(8_000),
+        text: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH),
       })
       .strict()
       .optional(),
@@ -75,7 +76,7 @@ export const agentRequestSchema = z
   .strict()
   .refine((b) => Boolean(b.message) !== Boolean(b.approvals), 'message xor approvals');
 
-export type AgentErrorCode =
+type AgentErrorCode =
   | 'invalid_request'
   | 'not_found'
   | 'no_llm'
@@ -134,7 +135,7 @@ function refusalOf(e: unknown): AgentErrorCode | null {
  */
 export async function handleAgentRequest(
   deps: AgentDeps,
-  actor: AgentActor,
+  actor: Actor,
   body: unknown,
 ): Promise<Response> {
   const parsed = agentRequestSchema.safeParse(body);
@@ -343,7 +344,7 @@ class TurnResources {
 
   constructor(
     private readonly deps: AgentDeps,
-    private readonly actor: AgentActor,
+    private readonly actor: Actor,
     private readonly conversationId: string,
     private readonly turnId: string,
   ) {}

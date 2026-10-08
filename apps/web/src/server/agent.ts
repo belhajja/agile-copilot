@@ -1,5 +1,6 @@
 import 'server-only';
 import type { AgentDeps } from '@agile/agent';
+import { errorName, log } from '@agile/observability/log';
 import { services } from './context';
 import { syncDeps } from './sync';
 
@@ -13,15 +14,7 @@ export function agentDeps(): AgentDeps {
     ...sync,
     // Code and error name only: messages, causes and tool data can carry provider bodies, Jira
     // content or secrets (a JiraToolError carries user candidates).
-    onError: (error, code) =>
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          event: 'agent_error',
-          code,
-          name: error instanceof Error ? error.name : undefined,
-        }),
-      ),
+    onError: (error, code) => log('error', 'agent_error', { code, error: errorName(error) }),
     // Deployment-trusted: credentials are sent to this URL and it is not checked against the
     // outbound policy. It must point at the internal compose service only, never a tenant value.
     mcpAtlassianUrl: services().env.MCP_ATLASSIAN_URL,

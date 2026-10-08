@@ -3,6 +3,7 @@
 import { can } from '@agile/auth';
 import { getWorkspaceSettings, SettingsError, updateWorkspaceSettings } from '@agile/privacy';
 import { revalidatePath } from 'next/cache';
+import { formData } from '@/server/action-input';
 import { entitlements } from '@/server/billing';
 import { requireActor, services } from '@/server/context';
 
@@ -16,10 +17,13 @@ const int = (v: FormDataEntryValue | null) => (v === null || v === '' ? Number.N
 /** Retention periods and external MCP access (owners and admins; bounds checked by the service). */
 export async function saveWorkspaceSettingsAction(
   _prev: SettingsState,
-  form: FormData,
+  form: unknown,
 ): Promise<SettingsState> {
   const actor = await requireActor();
-  const externalMcpEnabled = form.get('externalMcpEnabled') === 'on';
+  const parsed = formData.safeParse(form);
+  if (!parsed.success) return { status: 'error', code: 'invalid_input' };
+  const data = parsed.data;
+  const externalMcpEnabled = data.get('externalMcpEnabled') === 'on';
   try {
     // External MCP is a paid feature in SaaS: turning it on needs the plan (turning it off never).
     if (externalMcpEnabled && can(actor.roles, 'workspace.settings')) {
@@ -29,9 +33,9 @@ export async function saveWorkspaceSettingsAction(
       }
     }
     await updateWorkspaceSettings(services().db, actor, {
-      conversationRetentionDays: int(form.get('conversationRetentionDays')),
-      usageRetentionDays: int(form.get('usageRetentionDays')),
-      auditRetentionDays: int(form.get('auditRetentionDays')),
+      conversationRetentionDays: int(data.get('conversationRetentionDays')),
+      usageRetentionDays: int(data.get('usageRetentionDays')),
+      auditRetentionDays: int(data.get('auditRetentionDays')),
       externalMcpEnabled,
     });
   } catch (e) {

@@ -19,8 +19,8 @@ export interface PaginationLimits {
   maxItems?: number;
 }
 
-export const MAX_PAGES = 1000;
-export const MAX_ITEMS = 200_000;
+const MAX_PAGES = 1000;
+const MAX_ITEMS = 200_000;
 
 interface PageMeta {
   isLast?: boolean | undefined;

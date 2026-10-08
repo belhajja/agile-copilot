@@ -1,6 +1,6 @@
-import { type Actor, ForbiddenError, getOrgDek } from '@agile/connections';
+import { ForbiddenError, getOrgDek } from '@agile/connections';
 import { encryptSecret, parseKeyring } from '@agile/crypto';
-import { auditLog, createDb, deliveryChannels, skills, withOrg } from '@agile/db';
+import { type Actor, auditLog, createDb, deliveryChannels, skills, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { asc, eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

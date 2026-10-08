@@ -1,11 +1,13 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { LOCALES, type Locale } from '@/i18n/request';
+import { z } from 'zod';
+import { LOCALES } from '@/i18n/request';
 
-export async function setLocale(locale: Locale) {
-  if (!LOCALES.includes(locale)) return;
-  (await cookies()).set('locale', locale, {
+export async function setLocale(locale: unknown) {
+  const parsed = z.enum(LOCALES).safeParse(locale);
+  if (!parsed.success) return;
+  (await cookies()).set('locale', parsed.data, {
     path: '/',
     maxAge: 60 * 60 * 24 * 365,
     sameSite: 'lax',

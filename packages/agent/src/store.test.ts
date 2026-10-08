@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { ForbiddenError } from '@agile/connections';
-import { agentApprovals, agentMessages, auditLog, createDb, user, withOrg } from '@agile/db';
+import {
+  type Actor,
+  agentApprovals,
+  agentMessages,
+  auditLog,
+  createDb,
+  user,
+  withOrg,
+} from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
 import { and, asc, eq } from 'drizzle-orm';
@@ -22,14 +30,13 @@ import {
   openOrCreateConversation,
   saveConversation,
 } from './conversations';
-import type { AgentActor } from './deps';
 import { toolErrorText } from './tool-errors';
 import { parseUntrustedData } from './untrusted';
 import { recordUsage, reserveBuilderCall, usageSummary } from './usage';
 
-const alice: AgentActor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
-const bob: AgentActor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
-const eve: AgentActor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
+const alice: Actor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
+const bob: Actor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
+const eve: Actor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
 
 const INPUT = { issueKey: 'DEMO-1', body: 'Looks good' };
 
@@ -100,7 +107,7 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
   };
 
   /** A conversation of `actor` holding one stored pending proposal. */
-  async function proposed(actor: AgentActor, approvalId = 'ap1', toolCallId = 'tc1') {
+  async function proposed(actor: Actor, approvalId = 'ap1', toolCallId = 'tc1') {
     const id = randomUUID();
     await openOrCreateConversation(app.db, actor, id);
     const messages = [userText('u1', 'Comment on DEMO-1'), proposal(approvalId, toolCallId)];
@@ -720,7 +727,7 @@ describe('agent store (conversations, approvals, usage) as app_user', () => {
     });
 
     it('reserves at most 20 builder calls per member and hour, even in a burst (P4-R29)', async () => {
-      const dave: AgentActor = { orgId: 'org_a', userId: 'user_dave', roles: ['viewer'] };
+      const dave: Actor = { orgId: 'org_a', userId: 'user_dave', roles: ['viewer'] };
       const now = new Date();
       const results = await Promise.all(
         Array.from({ length: 25 }, () => reserveBuilderCall(app.db, dave, now)),

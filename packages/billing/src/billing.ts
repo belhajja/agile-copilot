@@ -1,5 +1,6 @@
 import { can } from '@agile/auth';
 import {
+  type Actor,
   type AuditAction,
   billingSubscriptions,
   type Db,
@@ -19,8 +20,8 @@ import { type Entitlements, entitlementsOf, SELFHOST } from './plans';
  * an app marker and the workspace id under an app-specific key. Other products on the same Stripe
  * account cannot be mistaken for ours by a common key such as `orgId`.
  */
-export const STRIPE_APP_MARKER = 'agile-copilot';
-export const STRIPE_ORG_KEY = 'agile_copilot_org_id';
+const STRIPE_APP_MARKER = 'agile-copilot';
+const STRIPE_ORG_KEY = 'agile_copilot_org_id';
 /** The workspace key used before P5-R46; still read (never written). */
 const LEGACY_ORG_KEY = 'orgId';
 
@@ -45,12 +46,6 @@ export interface BillingDeps {
   billing: BillingConfig | null;
   /** Injected in tests; otherwise built from `billing`. */
   stripe?: Stripe;
-}
-
-export interface BillingActor {
-  orgId: string;
-  userId: string;
-  roles: readonly string[];
 }
 
 export class BillingError extends Error {
@@ -141,7 +136,7 @@ export async function billingView(deps: BillingDeps, orgId: string): Promise<Bil
   };
 }
 
-const assertOwner = (actor: BillingActor) => {
+const assertOwner = (actor: Actor) => {
   if (!can(actor.roles, 'billing.manage')) throw new BillingError('forbidden_role');
 };
 
@@ -212,7 +207,7 @@ const audit = (
  */
 export async function startCheckout(
   deps: BillingDeps,
-  actor: BillingActor,
+  actor: Actor,
   urls: { successUrl: string; cancelUrl: string },
 ): Promise<string> {
   const config = enabled(deps);
@@ -259,7 +254,7 @@ export async function startCheckout(
 /** Stripe's customer portal (payment method, invoices, cancellation). Owners only. */
 export async function openBillingPortal(
   deps: BillingDeps,
-  actor: BillingActor,
+  actor: Actor,
   returnUrl: string,
 ): Promise<string> {
   enabled(deps);

@@ -15,10 +15,6 @@
     "@agile/jira": "workspace:*",
     "@agile/llm": "workspace:*",
     "@agile/net": "workspace:*",
-    "arctic": "3.7.0",
     "drizzle-orm": "0.45.3"
-  },
-  "devDependencies": {
-    "@testcontainers/postgresql": "12.2.0"
   }
 }

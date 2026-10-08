@@ -23,7 +23,6 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "12.2.0",
     "@types/mailparser": "3.9.0",
     "@types/nodemailer": "8.0.2",
     "@types/react": "19.3.0",

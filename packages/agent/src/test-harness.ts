@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { type Actor, createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import { createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import type { Actor } from '@agile/db';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from '@agile/jira-tools/testing';
 import { type MockScript, startMockOpenAI } from '@agile/llm/testing';
 import { discoverBoards, listBoards, runSync, setBoardSelection } from '@agile/sync';
@@ -8,7 +9,7 @@ import type { AgentDeps } from './deps';
 import { handleAgentRequest } from './turn';
 
 /** Reads an AI SDK UI message stream (SSE) into its chunks. */
-export async function readChunks(res: Response): Promise<Record<string, unknown>[]> {
+async function readChunks(res: Response): Promise<Record<string, unknown>[]> {
   const text = await res.text();
   return text
     .split('\n\n')

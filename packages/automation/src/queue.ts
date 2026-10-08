@@ -1,8 +1,6 @@
 import { SKILL_RUN_TIMEOUT_MS } from '@agile/agent';
-import { recordAudit } from '@agile/connections';
-import { type Db, isUuid, organization, skills, withOrg } from '@agile/db';
+import { type Actor, type Db, isUuid, organization, recordAudit, skills, withOrg } from '@agile/db';
 import { EMAIL_DEADLINE_MS } from '@agile/notify';
-import type { SkillActor } from '@agile/skills';
 import { and, eq } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { z } from 'zod';
@@ -32,7 +30,7 @@ export const SKILL_RUN_MAX_MS = SKILL_RUN_TIMEOUT_MS + EMAIL_DEADLINE_MS;
 const RUN_JOB_EXPIRE_SECONDS = 600;
 
 /** What a queued job may carry: ids only; the worker re-reads everything under RLS. */
-export const skillJobSchema = z
+const skillJobSchema = z
   .object({ orgId: z.string().min(1), runId: z.string().refine(isUuid) })
   .strict();
 export type SkillJob = z.infer<typeof skillJobSchema>;
@@ -72,7 +70,7 @@ const send = sendSkillRun;
  */
 export async function requestSkillRun(
   deps: { db: Db; boss: PgBoss; dailyLimit: number; now: Date },
-  actor: SkillActor,
+  actor: Actor,
   skillId: string,
 ): Promise<
   | { ok: true; runId: string; queued: true; skipped: null }

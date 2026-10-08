@@ -55,7 +55,7 @@ const widget = <M extends string, C extends readonly [string, ...string[]], P ex
   });
 
 /** What a stored query widget holds once its query no longer validates (shown as unavailable). */
-export const UNAVAILABLE_QUERY = { unavailable: true } as const;
+const UNAVAILABLE_QUERY = { unavailable: true } as const;
 const storedQuery = z
   .union([boardQuerySchema, z.strictObject({ unavailable: z.literal(true) })])
   .catch(UNAVAILABLE_QUERY);

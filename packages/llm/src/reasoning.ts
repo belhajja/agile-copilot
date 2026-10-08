@@ -13,7 +13,7 @@ const isJson = (s: string) => {
  * Tool arguments without the reasoning some models put in front of them (MiniMax M2 behind a
  * gateway, on a forced tool call: `<think>…</think>{"name":…}`). Valid JSON is left alone.
  */
-export function stripThinking(input: string): string {
+function stripThinking(input: string): string {
   if (isJson(input)) return input;
   const end = input.lastIndexOf('</think>');
   if (end === -1) return input;

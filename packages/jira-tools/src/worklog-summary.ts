@@ -27,10 +27,10 @@ export interface WorklogSummary {
   topIssues: { key: string; summary: string | null; hours: number }[];
 }
 
-export const WORKLOG_SUMMARY_MAX_ISSUES = 50;
+const WORKLOG_SUMMARY_MAX_ISSUES = 50;
 /** Jira Data Center rate limits are token buckets (e.g. 60 then 1 per second): stay well below. */
-export const WORKLOG_SUMMARY_CONCURRENCY = 3;
-export const WORKLOG_COMMENT_MAX = 500;
+const WORKLOG_SUMMARY_CONCURRENCY = 3;
+const WORKLOG_COMMENT_MAX = 500;
 const TOP_ISSUES = 10;
 const UNKNOWN_AUTHOR = 'Unknown';
 

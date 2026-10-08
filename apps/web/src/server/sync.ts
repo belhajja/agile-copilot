@@ -1,4 +1,5 @@
 import 'server-only';
+import { errorName, log } from '@agile/observability/log';
 import type { SyncDeps } from '@agile/sync';
 import { startSyncQueue } from '@agile/sync';
 import type { PgBoss } from 'pg-boss';
@@ -11,15 +12,7 @@ export function syncDeps(): SyncDeps {
     ...connectionDeps(),
     oauth: atlassianOAuth() ?? undefined,
     // Code and error name only: Jira error messages may carry tokens or URLs.
-    onError: (error, code) =>
-      console.error(
-        JSON.stringify({
-          level: 'warn',
-          event: 'sync_error',
-          code,
-          error: error instanceof Error ? error.name : 'unknown',
-        }),
-      ),
+    onError: (error, code) => log('warn', 'sync_error', { code, error: errorName(error) }),
   };
 }
 
@@ -30,8 +23,7 @@ const g = globalThis as unknown as { __agileSyncQueue?: Promise<PgBoss> };
 export function syncQueue(): Promise<PgBoss> {
   g.__agileSyncQueue ??= startSyncQueue(services().env.DATABASE_URL, {
     role: 'producer',
-    onError: (error) =>
-      console.error(JSON.stringify({ level: 'error', event: 'queue_error', error: error.name })),
+    onError: (error) => log('error', 'queue_error', { error: error.name }),
   }).catch((error: unknown) => {
     g.__agileSyncQueue = undefined; // retry on the next request
     throw error;

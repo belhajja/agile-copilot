@@ -29,7 +29,7 @@ export {
   type AtlassianOAuthClient,
   type AtlassianSite,
   type AtlassianTokens,
-  createAtlassianOAuth,
+  atlassianOAuthFromEnv,
   listAccessibleJiraSites,
 } from './oauth';
 export { JiraPaginationError, JiraPaginationLimitError } from './pagination';
