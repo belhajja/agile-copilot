@@ -53,11 +53,15 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm --filter @agile/web exec next dev --port 3200',
+      // CI serves a production build: `next dev` compiles each route on its first request, which
+      // under every worker at once outlasted a test's 30 s on the shared runners.
+      command: process.env.CI
+        ? 'pnpm --filter @agile/web build && pnpm --filter @agile/web exec next start --port 3200'
+        : 'pnpm --filter @agile/web exec next dev --port 3200',
       url: 'http://localhost:3200/login',
       env,
       reuseExistingServer: !process.env.CI,
-      timeout: 180_000,
+      timeout: process.env.CI ? 600_000 : 180_000,
     },
   ],
 });

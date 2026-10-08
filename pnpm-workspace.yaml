@@ -3,6 +3,11 @@ packages:
   - packages/*
   - e2e
   - evals
+updateConfig:
+  ignoreDependencies:
+    # Matches the Node.js the app runs on (24, in CI and the images): newer types would allow APIs
+    # that do not exist at runtime. Raise it together with the runtime.
+    - '@types/node'
 auditConfig:
   ignoreGhsas:
     # esbuild <=0.25: its dev server answers cross-origin requests. Only reached through
