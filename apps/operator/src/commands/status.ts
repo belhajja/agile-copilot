@@ -14,6 +14,7 @@ import {
 import { imagesFor } from '../stack';
 import { pathsOf, readState } from '../state';
 import { listBackups } from './backup';
+import { intervalMinutes, readLastCheck } from './watch';
 
 /**
  * Version, services (with the image each app service runs), last backup and upgrade. `check`
@@ -41,6 +42,16 @@ export async function status(ctx: Context, opts: { check?: boolean } = {}): Prom
   ctx.out(`Backup   ${(await listBackups(p.backups)).at(-1) ?? 'none'}`);
   const last = state.history.at(-1);
   if (last) ctx.out(`Upgrade  ${last.from} → ${last.to}: ${last.result} (${last.at})`);
+  if (env.get('AUTO_UPGRADE') === 'off') ctx.out('Auto     off');
+  else if (env.has('OPERATOR_IMAGE')) {
+    const check = await readLastCheck(ctx.dataDir);
+    ctx.out(
+      `Auto     on, every ${intervalMinutes(env)} min` +
+        (check
+          ? `; last check ${check.at}: ${check.result}${check.detail ? ` (${check.detail})` : ''}`
+          : ''),
+    );
+  }
   if (!opts.check) return;
 
   const target = ctx.build.ref;

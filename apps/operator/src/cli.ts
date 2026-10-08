@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from './context';
@@ -23,6 +24,8 @@ const ctx: Context = {
   now: () => new Date(),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   healthTimeoutMs: 5 * 60 * 1000,
+  // Docker names a container's host after its ID.
+  self: existsSync('/.dockerenv') ? process.env.HOSTNAME : undefined,
 };
 
 process.exitCode = await main(process.argv.slice(2), ctx);

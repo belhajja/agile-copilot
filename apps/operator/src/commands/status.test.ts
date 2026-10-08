@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { StepError } from '../errors';
 import { tempContext } from '../testing';
@@ -55,6 +57,23 @@ describe('status', () => {
     await status(ctx, { check: true });
     expect(out.at(-1)).toBe(
       'Images   a newer develop build is available (bbbbbbbbbbbb): run `upgrade`',
+    );
+  });
+
+  it('shows whether automatic upgrades are on and what the last check did', async () => {
+    const { ctx, out, dataDir } = await tempContext();
+    await install(ctx, {}, { yes: true, resume: false });
+    out.length = 0;
+    await status(ctx);
+    expect(out.at(-1)).toBe('Auto     on, every 60 min');
+    await writeFile(
+      join(dataDir, 'watch.json'),
+      JSON.stringify({ at: '2026-10-08T10:00:00.000Z', result: 'up_to_date', detail: '' }),
+    );
+    out.length = 0;
+    await status(ctx);
+    expect(out.at(-1)).toBe(
+      'Auto     on, every 60 min; last check 2026-10-08T10:00:00.000Z: up_to_date',
     );
   });
 

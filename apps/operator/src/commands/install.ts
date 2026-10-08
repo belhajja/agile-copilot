@@ -13,6 +13,7 @@ import {
 } from '../settings';
 import { imagesFor, writeStack } from '../stack';
 import { acquireLock, pathsOf, readState, writeSecretFile, writeState } from '../state';
+import { updaterEnv } from '../updater';
 
 /**
  * On `--resume` only the registry credentials may change (a missing or wrong deploy token is a
@@ -62,7 +63,10 @@ export async function install(
       await writeStack(ctx.dataDir, mode, ctx.assetsDir);
       await writeSecretFile(
         p.env,
-        renderEnv(envFor(settings, generateSecrets(), imagesFor(ctx.build))),
+        renderEnv({
+          ...envFor(settings, generateSecrets(), imagesFor(ctx.build)),
+          ...(await updaterEnv(ctx)),
+        }),
       );
       await writeState(ctx.dataDir, {
         version: ctx.build.ref,
@@ -73,6 +77,9 @@ export async function install(
       ctx.out('✓ settings and secrets written');
     } else {
       await resumeSettings(ctx, raw);
+      // An install started before the updater existed gets it on resume.
+      const text = await readFile(p.env, 'utf8');
+      await writeSecretFile(p.env, renderEnv(await updaterEnv(ctx, parseEnv(text)), text));
     }
 
     const env = parseEnv(await readFile(p.env, 'utf8'));

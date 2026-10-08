@@ -30,6 +30,7 @@ import {
   writeSecretFile,
   writeState,
 } from '../state';
+import { updaterEnv } from '../updater';
 import { restoreDatabase, takeBackup } from './backup';
 
 async function record(
@@ -149,7 +150,8 @@ export async function upgrade(ctx: Context): Promise<void> {
     }
     const latest = await localImages(ctx.docker, images);
     const sameNames = APP_SERVICES.every((s) => env.get(`${s.toUpperCase()}_IMAGE`) === images[s]);
-    if (sameNames && runsLatest(previous, latest)) {
+    // An install from before the updater existed takes a full upgrade once, which adds it.
+    if (sameNames && env.has('OPERATOR_IMAGE') && runsLatest(previous, latest)) {
       ctx.out(`Already up to date: ${target} (${shortId(latest.get('web') ?? '')})`);
       return;
     }
@@ -177,7 +179,12 @@ export async function upgrade(ctx: Context): Promise<void> {
       await writeSecretFile(
         p.env,
         renderEnv(
-          { WEB_IMAGE: images.web, WORKER_IMAGE: images.worker, MIGRATE_IMAGE: images.migrate },
+          {
+            WEB_IMAGE: images.web,
+            WORKER_IMAGE: images.worker,
+            MIGRATE_IMAGE: images.migrate,
+            ...(await updaterEnv(ctx, env)),
+          },
           envText,
         ),
       );

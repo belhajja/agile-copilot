@@ -6,6 +6,7 @@ import { install } from './commands/install';
 import { logs } from './commands/logs';
 import { status } from './commands/status';
 import { upgrade } from './commands/upgrade';
+import { watch } from './commands/watch';
 import type { Context } from './context';
 import { parseEnv, redact, secretValues } from './env-file';
 import { StepError, UsageError } from './errors';
@@ -21,6 +22,8 @@ export const USAGE = `Usage: operator <command> [options]
                        on a moving tag (develop) only when the registry has a newer build
   status [--check]     version, services and their images, last backup and upgrade; --check
                        pulls this operator's images and tells whether \`upgrade\` would change anything
+  watch                the updater service: every AUTO_UPGRADE_INTERVAL_MINUTES (60), runs a
+                       freshly pulled operator's \`upgrade\`; \`config auto-upgrade off\` pauses it
   backup               back up the database with .env and the compose files
   restore <name|latest> [--yes]
   config <setting> <value>
@@ -79,6 +82,9 @@ export async function main(
       }
       case 'upgrade':
         await upgrade(ctx);
+        return 0;
+      case 'watch':
+        await watch(ctx);
         return 0;
       case 'status':
         await status(ctx, { check: Boolean(values.check) });

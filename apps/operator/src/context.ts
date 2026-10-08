@@ -13,4 +13,6 @@ export interface Context {
   now: () => Date;
   sleep: (ms: number) => Promise<void>;
   healthTimeoutMs: number;
+  /** This operator's container (ID), when it runs in one: to find its install folder's host path. */
+  self?: string;
 }

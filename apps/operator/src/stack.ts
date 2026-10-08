@@ -38,6 +38,13 @@ export function imagesFor(build: Build): Images {
   return { web: image('web'), worker: image('worker'), migrate: image('migrate') };
 }
 
+/** The operator's own image for this build: what the updater service runs. */
+export function operatorImage(build: Build): string {
+  return isRelease(build.ref)
+    ? `${build.imageBase}/operator:${build.ref}`
+    : `${build.imageBase}/operator/snapshot:${refSlug(build.ref)}`;
+}
+
 /** Compares release versions by their numbers (a leading "v" and any suffix ignored). */
 export function compareVersions(a: string, b: string): number {
   const parts = (v: string) => (/^v?(\d+)\.(\d+)\.(\d+)/.exec(v) ?? []).slice(1).map(Number);
@@ -104,6 +111,17 @@ export function renderOverride(mode: Mode, assets: { pgInit: string; caddyfile: 
     // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
     '    image: ${WORKER_IMAGE:?set WORKER_IMAGE}',
     '    build: !reset null',
+    // Automatic upgrades: checks the registry every AUTO_UPGRADE_INTERVAL_MINUTES and runs a
+    // freshly pulled operator's `upgrade` (a no-op when nothing is newer).
+    '  updater:',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+    '    image: ${OPERATOR_IMAGE:?set OPERATOR_IMAGE}',
+    '    command: [watch]',
+    '    restart: unless-stopped',
+    '    volumes:',
+    '      - /var/run/docker.sock:/var/run/docker.sock',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+    '      - ${OPERATOR_DATA_SOURCE:?set OPERATOR_DATA_SOURCE}:/data',
     ...(mode === 'server'
       ? [
           '  caddy:',

@@ -112,8 +112,16 @@ stores the new deploy token and carries on; no other setting changes on resume.
   compares the pulled images with the running ones and only upgrades when the registry has a
   newer build; a rollback puts the previous build back under the tag. Run it with
   `docker run --pull always ...` so the operator itself is the latest build of its tag.
-- `status [--check]`: version, services with the image each one runs, last backup and upgrade;
-  `--check` pulls this operator's images and says whether `upgrade` would change anything.
+- Automatic upgrades: the stack includes an `updater` service (the operator image running
+  `watch`). Every hour it runs a freshly pulled operator's `upgrade`, so a new `develop` build is
+  installed within the hour (with the backup and rollback above), the operator included. A
+  release tag never changes, so a release install stays on its version until you run a newer
+  operator. `config auto-upgrade off` pauses it, `config auto-upgrade-interval <minutes>`
+  (15–1440) changes the period. An install made before the updater existed gets it on its next
+  `upgrade`.
+- `status [--check]`: version, services with the image each one runs, last backup and upgrade,
+  and the updater's last check; `--check` pulls this operator's images and says whether
+  `upgrade` would change anything.
 - `backup`, `restore <name|latest>`, `config <setting> <value>`, `logs [service]`.
 - Keep the folder backed up: its `.env` holds `ENCRYPTION_KEYS`, without which the stored Jira and
   AI credentials cannot be read.
