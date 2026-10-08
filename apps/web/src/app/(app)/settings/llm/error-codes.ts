@@ -5,6 +5,7 @@
 export const LLM_ERROR_CODES = [
   'invalid_input',
   'blocked_url',
+  'insecure_transport',
   'unauthorized',
   'forbidden',
   'model_not_found',

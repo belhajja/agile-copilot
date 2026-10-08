@@ -42,7 +42,7 @@ const config: NextConfig = {
   transpilePackages: workspacePackages(),
   // Node-only clients (database, queue, SMTP, email rendering): loaded at runtime, not bundled.
   serverExternalPackages: ['postgres', 'pg-boss', 'nodemailer', '@react-email/render'],
-  // No other origin for images or connections (see src/csp.ts).
+  // Static security headers; the CSP and HSTS are set per request by src/proxy.ts.
   headers: async () => securityHeaders(),
 };
 

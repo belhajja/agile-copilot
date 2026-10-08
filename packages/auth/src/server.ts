@@ -26,11 +26,14 @@ import {
 import { seatsInUse } from './members';
 import {
   addressLimitOptions,
+  CLIENT_ADDRESS_HEADER,
   clearSignInAttempts,
   takeSignInAttempt,
   withClientAddress,
 } from './sign-in-limits';
+import { guardInviteOnlySignUp, mayCreateWorkspace, type SignupPolicy } from './signup';
 import {
+  breakGlassCreation,
   guardPasswordLogin,
   guardSsoStart,
   isBreakGlass,
@@ -55,6 +58,12 @@ export interface AuthOptions {
   passwordLogin?: PasswordLogin;
   /** Platform admin accounts that sign in with a password (break-glass when the IdP is down). */
   breakGlassEmails?: readonly string[];
+  /**
+   * SIGNUP. Default `open`. `invite`: password sign-ups only for an address with a pending
+   * invitation (or the instance's first account), and new workspaces only for the first one,
+   * existing owners and SSO users. SSO sign-ups follow the identity provider either way.
+   */
+  signup?: SignupPolicy;
   /**
    * Runs first when a workspace is deleted, before anything is purged (SaaS: cancel its Stripe
    * subscriptions and expire its open Checkout sessions). Throwing keeps the workspace.
@@ -92,6 +101,7 @@ export function createAuth(
     sso,
     passwordLogin = 'all',
     breakGlassEmails = [],
+    signup = 'open',
     beforeWorkspaceDeleted = async () => {},
     seatLimit = async () => null,
     trustedProxyHops = 0,
@@ -140,11 +150,22 @@ export function createAuth(
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
         guardSsoStart(ctx);
-        // Before the policy guard, which may point a refused address elsewhere.
-        if (ctx.path === '/sign-in/email' && typeof ctx.body?.email === 'string') {
-          await takeSignInAttempt(db, secret, ctx.body.email);
+        // Only accounts that may use a password are counted: with PASSWORD_LOGIN=admin_only the
+        // policy guard below sends every other address to an account that cannot sign in.
+        const email: unknown = ctx.body?.email;
+        if (
+          ctx.path === '/sign-in/email' &&
+          typeof email === 'string' &&
+          (passwordLogin !== 'admin_only' || isBreakGlass(email, breakGlassEmails))
+        ) {
+          await takeSignInAttempt(db, secret, email, clientAddressOf(ctx.request));
         }
         guardPasswordLogin(ctx, policy);
+        // The operator's break-glass CLI creates its accounts without an invitation.
+        const operator = !ctx.request && breakGlassCreation.getStore() === true;
+        if (ctx.path === '/sign-up/email' && signup === 'invite' && !operator) {
+          await guardInviteOnlySignUp(db, ctx.body?.email);
+        }
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
         await guardInvitationList(db, ctx);
         await rememberBeforeState(db, ctx);
@@ -155,7 +176,7 @@ export function createAuth(
           ctx.context.newSession &&
           typeof ctx.body?.email === 'string'
         ) {
-          await clearSignInAttempts(db, secret, ctx.body.email);
+          await clearSignInAttempts(db, secret, ctx.body.email, clientAddressOf(ctx.request));
         }
         await checkInvitationListScope(db, ctx);
         await auditMembership(db, ctx);
@@ -214,7 +235,10 @@ export function createAuth(
       // Always present (an empty list without SSO) so the auth API keeps one static type.
       genericOAuth({ config: sso && ssoProvider ? [ssoProviderConfig(sso)] : [] }),
       organization({
-        allowUserToCreateOrganization: true,
+        allowUserToCreateOrganization:
+          signup === 'open'
+            ? true
+            : (user) => mayCreateWorkspace(db, user.id, sso ? ssoProviderId(sso) : null),
         // With SSO, accepting an invitation needs an address the identity provider verified.
         // Without SSO no address is ever verified: link possession is the proof (M5 residual).
         requireEmailVerificationOnInvitation: Boolean(sso),
@@ -304,6 +328,10 @@ export function createAuth(
     handler: (request: Request) => handler(withClientAddress(request, trustedProxyHops)),
   });
 }
+
+/** The trusted client address `withClientAddress` put on the request (none for server calls). */
+const clientAddressOf = (request: Request | undefined) =>
+  request?.headers.get(CLIENT_ADDRESS_HEADER) ?? null;
 
 async function firstOrgId(db: Db, userId: string): Promise<string | null> {
   const [row] = await db

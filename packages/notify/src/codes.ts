@@ -7,6 +7,8 @@
 export const DELIVERY_CODES = [
   'blocked_url',
   'insecure_transport',
+  /** An SMTP port other than 25, 465, 587 or 2525 (off this machine). */
+  'blocked_port',
   'unreachable',
   'rejected',
   'timeout',

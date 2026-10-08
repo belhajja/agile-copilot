@@ -37,6 +37,7 @@ export {
   type Role,
 } from './roles';
 export { type Auth, type AuthOptions, createAuth } from './server';
+export { mayCreateWorkspace, type SignupPolicy } from './signup';
 export {
   ID_TOKEN_SIGN_IN_DISABLED,
   isBreakGlass,

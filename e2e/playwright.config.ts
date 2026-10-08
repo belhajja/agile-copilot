@@ -38,6 +38,8 @@ const env = {
   OIDC_CLIENT_SECRET: 'agile-e2e-secret',
   OIDC_DISPLAY_NAME: 'Acme SSO',
   PASSWORD_LOGIN: 'all',
+  // The specs sign people up without invitations.
+  SIGNUP: 'open',
 };
 
 export default defineConfig({

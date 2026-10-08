@@ -26,7 +26,8 @@ describe('Jira requests are pinned to the address that passed the URL policy', (
     await dc?.close();
     await cloud?.close();
   });
-  const rebound = (mock: MockJira) => mock.url.replace('127.0.0.1', 'jira.rebind.example');
+  const rebound = (mock: MockJira) =>
+    mock.url.replace('http://127.0.0.1', 'https://jira.rebind.example');
 
   it('Data Center test connection (jira.js v5 / axios) refuses the rebound address', async () => {
     const result = await testJiraConnection(
@@ -56,6 +57,20 @@ describe('Jira requests are pinned to the address that passed the URL policy', (
     expect(mapJiraError(error).code).toBe('blocked_url');
     expect(error).toMatchObject({ name: 'BlockedAddressError' });
     expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain('pat');
+    expect(dc.requests).toEqual([]);
+  });
+
+  it('Data Center data source never sends the token over plain http to a public host', async () => {
+    const source = createJiraDataSource(
+      {
+        kind: 'datacenter_pat',
+        baseUrl: dc.url.replace('127.0.0.1', 'jira.example.com'),
+        token: 'pat',
+      },
+      { outbound: { allowedPrivateHosts: [], resolve: async () => ['93.184.216.34'] } },
+    );
+    const error = await source.listBoards().catch((e: unknown) => e);
+    expect(mapJiraError(error).code).toBe('insecure_transport');
     expect(dc.requests).toEqual([]);
   });
 

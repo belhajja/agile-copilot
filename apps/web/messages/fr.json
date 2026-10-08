@@ -5,6 +5,7 @@
     "loginDescription": "Connectez-vous à votre espace",
     "signupTitle": "Créer votre compte",
     "signupDescription": "Suivez vos livraisons en quelques minutes",
+    "signupInviteOnly": "L'inscription se fait sur invitation. Utilisez l'adresse à laquelle votre invitation a été envoyée.",
     "name": "Nom complet",
     "email": "E-mail",
     "password": "Mot de passe",
@@ -102,7 +103,8 @@
     "title": "Créer votre espace de travail",
     "description": "Un espace regroupe les connexions Jira, le modèle d'IA et les réglages de votre équipe.",
     "workspaceName": "Nom de l'espace",
-    "submit": "Créer l'espace"
+    "submit": "Créer l'espace",
+    "inviteOnly": "Les nouveaux espaces de travail sont créés par un administrateur. Demandez à un administrateur d'un espace de travail de vous inviter."
   },
   "nav": {
     "platform": "Espace",
@@ -172,6 +174,7 @@
     "errors": {
       "invalid_input": "Vérifiez l'URL et les champs.",
       "blocked_url": "Cette adresse est privée. Demandez à votre administrateur de l'autoriser.",
+      "insecure_transport": "Le http:// simple n'est autorisé que vers des serveurs Jira internes autorisés par votre administrateur. Utilisez https://.",
       "unauthorized": "Jira a refusé ces identifiants.",
       "forbidden": "Jira a refusé l'accès avec ce jeton.",
       "not_found": "Connexion introuvable.",
@@ -243,6 +246,7 @@
     "errors": {
       "invalid_input": "Vérifiez les champs.",
       "blocked_url": "Cette adresse est privée. Demandez à votre administrateur de l'autoriser.",
+      "insecure_transport": "Le http:// simple n'est autorisé que vers des hôtes internes autorisés par votre administrateur. Utilisez https:// pour que la clé d'API ne circule pas en clair.",
       "unauthorized": "Le fournisseur a refusé cette clé d'API.",
       "forbidden": "Cette clé n'a pas accès à ce modèle.",
       "model_not_found": "Le fournisseur ne connaît pas ce modèle.",
@@ -347,6 +351,7 @@
       "no_boards": "Sélectionnez d'abord au moins un tableau.",
       "already_running": "Une synchronisation est déjà en cours.",
       "blocked_url": "Cette adresse Jira n'est plus autorisée. Contactez votre administrateur.",
+      "insecure_transport": "Cette connexion Jira utilise du http:// simple, qui n'est plus autorisé. Reconnectez-la en https://.",
       "unauthorized": "Jira a refusé les identifiants enregistrés. Mettez à jour la connexion.",
       "forbidden": "Jira refuse l'accès à ces tableaux.",
       "not_jira": "Jira n'a pas répondu comme prévu.",
@@ -732,12 +737,14 @@
       "alreadyDecided": "Cette modification a déjà été approuvée ou refusée. Rechargez la page pour voir où elle en est.",
       "approvalNotFound": "Cette modification proposée n’attend plus de décision. Rechargez la page pour voir où elle en est.",
       "noLlm": "Aucun modèle d’IA par défaut n’est défini pour cet espace. Demandez à un administrateur d’en connecter un.",
+      "insecureLlm": "Le modèle d'IA de l'espace de travail utilise du http:// simple, qui n'est pas autorisé. Demandez à un administrateur de le reconnecter en https://.",
       "duplicateMessage": "Ce message a déjà été envoyé. Rechargez la page pour voir la conversation."
     },
     "toolErrors": {
       "generic": "La requête a échoué.",
       "ambiguous_user": "Plusieurs personnes correspondent à ce responsable.",
       "blocked_url": "L’adresse Jira n’est pas autorisée.",
+      "insecure_transport": "La connexion Jira utilise du http:// simple, qui n'est pas autorisé. Demandez à un administrateur de la reconnecter en https://.",
       "forbidden": "Accès refusé.",
       "invalid_request": "Jira a refusé la requête.",
       "not_found": "Introuvable dans Jira, ou la connexion Jira n’existe plus.",
@@ -916,10 +923,12 @@
       "invalid_input": "Vérifiez les champs.",
       "duplicate": "Un canal porte déjà ce nom, ou l'espace a déjà un serveur SMTP.",
       "insecure_transport": "Le http:// simple et le SMTP non chiffré ne sont autorisés que vers des hôtes internes autorisés par votre administrateur. Utilisez https:// ou TLS.",
+      "blocked_port": "Les serveurs SMTP ne sont joignables que sur les ports 25, 465, 587 ou 2525.",
       "blocked_url": "Cette adresse n'est pas autorisée.",
       "unreachable": "Impossible de joindre le service.",
       "rejected": "Le service a refusé le message (HTTP {status}).",
       "rejectedNoStatus": "Le service a refusé le message.",
+      "test_failed": "Le message de test n'a pas pu être remis. Vérifiez l'URL du webhook.",
       "timeout": "Le service n'a pas répondu à temps.",
       "auth_failed": "Le serveur SMTP a refusé l'identification.",
       "invalid_channel": "Les réglages enregistrés du canal sont illisibles. Supprimez le canal et ajoutez-le à nouveau.",
@@ -1145,6 +1154,7 @@
       "no_recipient": "aucun destinataire",
       "blocked_url": "adresse non autorisée",
       "insecure_transport": "connexion non chiffrée refusée",
+      "blocked_port": "port SMTP non autorisé",
       "unreachable": "injoignable",
       "rejected": "refusé",
       "timeout": "délai dépassé",

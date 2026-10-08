@@ -8,6 +8,7 @@ import { RedirectBlockedError } from './http';
 import {
   isAllowlistedHost,
   isAlwaysBlockedHost,
+  isInsecureTransport,
   isPublicAddress,
   normalizeHost,
   type Resolver,
@@ -26,6 +27,15 @@ export class BlockedAddressError extends Error {
   readonly code = 'blocked_url';
   constructor(readonly host: string) {
     super(`Connection to ${host} blocked: it resolves to a private or reserved address`);
+  }
+}
+
+/** A request was about to send plain http to a host that is not allowlisted as internal. */
+export class InsecureTransportError extends Error {
+  override name = 'InsecureTransportError';
+  readonly code = 'insecure_transport';
+  constructor(readonly host: string) {
+    super(`Plain http to ${host} refused: use https`);
   }
 }
 
@@ -94,6 +104,22 @@ export function createPinnedLookup(policy: OutboundPolicy): LookupFunction {
   };
 }
 
+/**
+ * Refuses plain http to a host that is not allowlisted, before anything is sent. A host that
+ * resolves to a private address is reported as blocked (that is what the admin has to fix).
+ */
+export async function assertSecureTransport(url: URL, policy: OutboundPolicy): Promise<void> {
+  if (!isInsecureTransport(url, policy.allowedPrivateHosts)) return;
+  assertLiteralAllowed(url.hostname, policy);
+  const host = normalizeHost(url.hostname);
+  if (!ipaddr.isValid(host)) {
+    await new Promise<void>((resolve, reject) =>
+      createPinnedLookup(policy)(host, {}, (error) => (error ? reject(error) : resolve())),
+    );
+  }
+  throw new InsecureTransportError(host);
+}
+
 /** IP literals never reach `lookup`: check them against the same rule up front. */
 function assertLiteralAllowed(hostname: string, policy: OutboundPolicy) {
   const host = normalizeHost(hostname);
@@ -137,6 +163,7 @@ export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
       throw new TypeError('createOutboundFetch takes a URL, not a Request');
     const url = new URL(String(input));
     assertLiteralAllowed(url.hostname, policy);
+    await assertSecureTransport(url, policy);
     const res = await undiciFetch(url, {
       ...(init as Parameters<typeof undiciFetch>[1]),
       redirect: 'manual',
@@ -157,6 +184,7 @@ export function createOutboundFetch(policy: OutboundPolicy): typeof fetch {
 function guardLiteral<T extends { createConnection: (...args: never[]) => unknown }>(
   agent: T,
   policy: OutboundPolicy,
+  plaintext = false,
 ): T {
   const original = agent.createConnection.bind(agent) as (...args: unknown[]) => unknown;
   (agent as { createConnection: unknown }).createConnection = (...args: unknown[]) => {
@@ -167,7 +195,11 @@ function guardLiteral<T extends { createConnection: (...args: never[]) => unknow
       | ((err: Error) => void)
       | undefined;
     try {
-      assertLiteralAllowed(options?.host ?? options?.hostname ?? '', policy);
+      const host = options?.host ?? options?.hostname ?? '';
+      assertLiteralAllowed(host, policy);
+      if (plaintext && !isAllowlistedHost(normalizeHost(host), policy.allowedPrivateHosts)) {
+        throw new InsecureTransportError(normalizeHost(host));
+      }
     } catch (error) {
       if (!callback) throw error;
       callback(error as Error);
@@ -178,23 +210,33 @@ function guardLiteral<T extends { createConnection: (...args: never[]) => unknow
   return agent;
 }
 
-/** Node http(s) agents with the pinned lookup, for axios-based clients (jira.js v5). */
+/**
+ * Node http(s) agents with the pinned lookup, for axios-based clients (jira.js v5). The http agent
+ * only connects to allowlisted hosts: plain http elsewhere would expose the credentials.
+ */
 export function createPinnedAgents(policy: OutboundPolicy): {
   httpAgent: HttpAgent;
   httpsAgent: HttpsAgent;
 } {
   const lookup = createPinnedLookup(policy);
   return {
-    httpAgent: guardLiteral(new HttpAgent({ lookup }), policy),
+    httpAgent: guardLiteral(new HttpAgent({ lookup }), policy, true),
     httpsAgent: guardLiteral(new HttpsAgent({ lookup }), policy),
   };
 }
 
-/** True when `e` (or an error in its `cause` chain) is a blocked connection. */
-export function isBlockedAddressError(e: unknown): boolean {
+function hasErrorNamed(e: unknown, name: string): boolean {
   for (let cur: unknown = e, depth = 0; cur && depth < 5; depth++) {
-    if ((cur as { name?: unknown }).name === 'BlockedAddressError') return true;
+    if ((cur as { name?: unknown }).name === name) return true;
     cur = (cur as { cause?: unknown }).cause;
   }
   return false;
 }
+
+/** True when `e` (or an error in its `cause` chain) is a blocked connection. */
+export const isBlockedAddressError = (e: unknown): boolean =>
+  hasErrorNamed(e, 'BlockedAddressError');
+
+/** True when `e` (or an error in its `cause` chain) is a refused plain-http request. */
+export const isInsecureTransportError = (e: unknown): boolean =>
+  hasErrorNamed(e, 'InsecureTransportError');

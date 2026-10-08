@@ -25,6 +25,9 @@ const emailList = z
   .transform((l) => [...new Set(l)])
   .pipe(z.array(z.email()));
 
+/** Self-service sign-up is the SaaS product; a self-hosted instance is closed by default. */
+const defaultSignup = (mode: 'saas' | 'selfhost') => (mode === 'saas' ? 'open' : 'invite');
+
 export const serverEnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -59,6 +62,12 @@ export const serverEnvSchema = z
     PASSWORD_LOGIN: z.preprocess(emptyToUndefined, z.enum(['all', 'admin_only']).default('all')),
     /** Platform admin (break-glass) accounts, comma-separated. */
     BREAK_GLASS_EMAILS: emailList,
+    /**
+     * `invite`: password accounts only through a pending invitation (the instance's first account
+     * excepted), new workspaces only for existing owners and SSO users. `open`: self-service.
+     * Default: `invite` for self-host, `open` for SaaS.
+     */
+    SIGNUP: z.preprocess(emptyToUndefined, z.enum(['open', 'invite']).optional()),
     /** Stripe billing (DEPLOYMENT_MODE=saas only; ignored by self-host builds). */
     STRIPE_SECRET_KEY: optionalString,
     STRIPE_WEBHOOK_SECRET: optionalString,
@@ -80,8 +89,9 @@ export const serverEnvSchema = z
     /**
      * Reverse proxies in front of the app that append the client address to X-Forwarded-For
      * (1 = an ingress or load balancer; 2 = a CDN, then the ingress). 0 (default): the header is
-     * never trusted, so a client cannot choose its own address. Used by the pre-auth limit of
-     * `/api/mcp`.
+     * never trusted, so a client cannot choose its own address. Used by the sign-in limits and
+     * the pre-auth limit of `/api/mcp`. Behind a TLS reverse proxy it must be 1 (or more): with 0
+     * every client shares one sign-in bucket per account.
      */
     TRUSTED_PROXY_HOPS: z.preprocess(
       emptyToUndefined,
@@ -148,7 +158,8 @@ export const serverEnvSchema = z
         path: [key],
       });
     }
-  });
+  })
+  .transform((e) => ({ ...e, SIGNUP: e.SIGNUP ?? defaultSignup(e.DEPLOYMENT_MODE) }));
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 

@@ -1,4 +1,4 @@
-import { listInvitationsForEmail } from '@agile/auth';
+import { listInvitationsForEmail, mayCreateWorkspace, ssoProviderId } from '@agile/auth';
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from '@/components/ui/item';
-import { requireSignedIn, services } from '@/server/context';
+import { requireSignedIn, services, ssoConfigOf } from '@/server/context';
 import { InvitationButtons } from '../invitations/invitation-buttons';
 import { CreateWorkspaceForm } from './create-workspace-form';
 
@@ -26,6 +26,11 @@ export default async function OnboardingPage() {
   const invitations = session.user.emailVerified
     ? await listInvitationsForEmail(services().db, session.user.email)
     : [];
+  const { db, env } = services();
+  const sso = ssoConfigOf(env);
+  const canCreate =
+    env.SIGNUP === 'open' ||
+    (await mayCreateWorkspace(db, session.user.id, sso ? ssoProviderId(sso) : null));
   return (
     <>
       {invitations.length > 0 && (
@@ -57,7 +62,11 @@ export default async function OnboardingPage() {
           <CardDescription>{t('description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <CreateWorkspaceForm />
+          {canCreate ? (
+            <CreateWorkspaceForm />
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">{t('inviteOnly')}</p>
+          )}
         </CardContent>
       </Card>
       {/* The account (sign-in methods, the person's data) is reachable without a workspace (M3). */}

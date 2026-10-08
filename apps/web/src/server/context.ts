@@ -50,6 +50,7 @@ export function services(): Services {
       sso: ssoConfigOf(env),
       passwordLogin: env.PASSWORD_LOGIN,
       breakGlassEmails: env.BREAK_GLASS_EMAILS,
+      signup: env.SIGNUP,
       // The per-address sign-in limit reads the client address the way /api/mcp does.
       trustedProxyHops: env.TRUSTED_PROXY_HOPS,
       // SaaS: a deleted workspace is never billed again (no-op when billing is off). A Stripe

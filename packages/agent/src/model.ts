@@ -1,6 +1,6 @@
 import type { LlmConfig } from '@agile/llm';
 import { createLanguageModel } from '@agile/llm';
-import { createOutboundFetch } from '@agile/net';
+import { checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import type { LanguageModel } from 'ai';
 import type { AgentDeps } from './deps';
 
@@ -17,4 +17,14 @@ export function languageModelFor(deps: AgentDeps, config: LlmConfig): LanguageMo
       resolve: deps.resolve,
     }),
   });
+}
+
+/**
+ * An OpenAI-compatible URL stored before plain http to public hosts was refused: its API key must
+ * not be sent. Anything else the URL policy refuses is left to the pinned fetch to report.
+ */
+export async function usesInsecureTransport(deps: AgentDeps, config: LlmConfig): Promise<boolean> {
+  if (config.provider !== 'openai_compatible') return false;
+  const check = await checkOutboundUrl(config.baseUrl, deps);
+  return !check.ok && check.code === 'insecure_transport';
 }

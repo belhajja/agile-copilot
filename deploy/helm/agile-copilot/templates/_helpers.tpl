@@ -84,6 +84,7 @@ setting is valid (L16: the worker never gets the web app's secrets).
 - { name: OIDC_DISPLAY_NAME, value: {{ .Values.config.oidc.displayName | quote }} }
 - { name: PASSWORD_LOGIN, value: {{ .Values.config.passwordLogin | quote }} }
 - { name: BREAK_GLASS_EMAILS, value: {{ .Values.config.breakGlassEmails | quote }} }
+- { name: SIGNUP, value: {{ .Values.config.signup | quote }} }
 - { name: MCP_RATE_LIMIT_PER_MINUTE, value: {{ .Values.config.mcpRateLimitPerMinute | quote }} }
 - { name: TRUSTED_PROXY_HOPS, value: {{ include "agile.trustedProxyHops" . | quote }} }
 - { name: STRIPE_PRICE_TEAM, value: {{ .Values.config.stripePriceTeam | quote }} }

@@ -1,4 +1,4 @@
-import { isBlockedAddressError } from '@agile/net';
+import { isBlockedAddressError, isInsecureTransportError } from '@agile/net';
 import {
   APICallError,
   generateText,
@@ -18,6 +18,7 @@ export type ProbeFailureCode =
   | 'no_tool_calling'
   | 'unreachable'
   | 'blocked_url'
+  | 'insecure_transport'
   | 'provider_error';
 
 export type LlmProbeResult =
@@ -36,6 +37,9 @@ function mapLlmError(e: unknown): LlmProbeResult {
   const err = RetryError.isInstance(e) ? e.lastError : e;
   if (isBlockedAddressError(err)) {
     return fail('blocked_url', 'This host now points to a private or reserved address.');
+  }
+  if (isInsecureTransportError(err)) {
+    return fail('insecure_transport', 'Plain http to this host is not allowed; use https.');
   }
   if (
     isRedirectBlocked(err) ||

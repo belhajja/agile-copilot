@@ -70,7 +70,7 @@ export function isBreakGlass(email: string, breakGlassEmails: readonly string[])
 const NO_PASSWORD_ACCOUNT = `no-password-login-${randomUUID()}@password-login.invalid`;
 
 /** The answer to a sign-up refused by policy, the same for every address (P5-R39). */
-const signUpRefused = () =>
+export const signUpRefused = () =>
   new APIError('FORBIDDEN', { code: SIGN_UP_NOT_ALLOWED, message: 'Sign-up is not available.' });
 
 /**

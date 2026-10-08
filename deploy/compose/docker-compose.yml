@@ -77,6 +77,7 @@ services:
       OIDC_DISPLAY_NAME: ${OIDC_DISPLAY_NAME:-SSO}
       PASSWORD_LOGIN: ${PASSWORD_LOGIN:-all}
       BREAK_GLASS_EMAILS: ${BREAK_GLASS_EMAILS:-}
+      SIGNUP: ${SIGNUP:-invite}
       # External AI clients (README "External AI clients (MCP)"): requests per person per minute,
       # and the proxies in front of the app that append the client address to X-Forwarded-For
       # (0: the app is published directly, as here; 1 behind one reverse proxy).

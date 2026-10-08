@@ -3,7 +3,7 @@ import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type AuthOptions, createAuth } from './server';
-import { ACCOUNT_SIGN_IN_ATTEMPTS } from './sign-in-limits';
+import { ACCOUNT_SIGN_IN_CEILING, ADDRESS_SIGN_IN_ATTEMPTS } from './sign-in-limits';
 
 const BASE = 'http://localhost:3000';
 const PASSWORD = 'correct-horse-1';
@@ -49,7 +49,13 @@ describe('sign-in limits', () => {
     tdb = await startTestDatabase();
     conn = createDb(tdb.appUrl, { max: 4 });
     const auth = make();
-    for (const email of ['victim@example.com', 'bystander@example.com', 'reset@example.com']) {
+    for (const email of [
+      'victim@example.com',
+      'bystander@example.com',
+      'reset@example.com',
+      'distributed@example.com',
+      'root@example.com',
+    ]) {
       await auth.api.signUpEmail({ body: { email, password: PASSWORD, name: 'n' } });
     }
   });
@@ -105,21 +111,22 @@ describe('sign-in limits', () => {
     });
   });
 
-  describe('per account, from any address', () => {
-    const rotating = () => ({ 'x-forwarded-for': freshAddress() });
+  describe('per account', () => {
+    const from = (address: string) => ({ 'x-forwarded-for': address });
 
-    it(`refuses the attempt after ${ACCOUNT_SIGN_IN_ATTEMPTS} for that address only`, async () => {
-      const auth = make({ trustedProxyHops: 1, rateLimit: { enabled: true } });
+    it(`refuses an address after ${ADDRESS_SIGN_IN_ATTEMPTS} attempts, and only that address`, async () => {
+      const auth = make({ trustedProxyHops: 1 });
+      const attacker = freshAddress();
       const statuses = [];
-      for (let i = 0; i < ACCOUNT_SIGN_IN_ATTEMPTS; i++) {
+      for (let i = 0; i < ADDRESS_SIGN_IN_ATTEMPTS; i++) {
         statuses.push(
-          await statusOf(signIn(auth, 'victim@example.com', 'wrong-password', rotating())),
+          await statusOf(signIn(auth, 'victim@example.com', 'wrong-password', from(attacker))),
         );
       }
-      expect(count(statuses)).toEqual({ 401: ACCOUNT_SIGN_IN_ATTEMPTS });
+      expect(count(statuses)).toEqual({ 401: ADDRESS_SIGN_IN_ATTEMPTS });
 
       // The next one is refused even with the right password, and the spelling does not matter.
-      const refused = await signIn(auth, 'Victim@Example.COM', PASSWORD, rotating());
+      const refused = await signIn(auth, 'Victim@Example.COM', PASSWORD, from(attacker));
       expect(refused.status).toBe(429);
       expect(Number(refused.headers.get('x-retry-after'))).toBeGreaterThan(0);
       expect(Number(refused.headers.get('x-retry-after'))).toBeLessThanOrEqual(15 * 60);
@@ -128,26 +135,77 @@ describe('sign-in limits', () => {
         message: 'Too many requests. Please try again later.',
       });
 
-      expect(await statusOf(signIn(auth, 'bystander@example.com', PASSWORD, rotating()))).toBe(200);
+      // The owner, from their own address, is not locked out.
+      expect(
+        await statusOf(signIn(auth, 'victim@example.com', PASSWORD, from(freshAddress()))),
+      ).toBe(200);
+      expect(await statusOf(signIn(auth, 'bystander@example.com', PASSWORD, from(attacker)))).toBe(
+        200,
+      );
+    });
+
+    it('caps guesses spread over many addresses, except from an address the owner used', async () => {
+      const auth = make({ trustedProxyHops: 1 });
+      const home = freshAddress();
+      expect(await statusOf(signIn(auth, 'distributed@example.com', PASSWORD, from(home)))).toBe(
+        200,
+      );
+      // The owner's sign-in counted too: the attackers get the rest of the window's ceiling.
+      const statuses: number[] = [];
+      for (let left = ACCOUNT_SIGN_IN_CEILING - 1; left > 0; left -= 10) {
+        statuses.push(
+          ...(await Promise.all(
+            Array.from({ length: Math.min(10, left) }, () =>
+              statusOf(
+                signIn(auth, 'distributed@example.com', 'wrong-password', from(freshAddress())),
+              ),
+            ),
+          )),
+        );
+      }
+      expect(count(statuses)).toEqual({ 401: ACCOUNT_SIGN_IN_CEILING - 1 });
+      expect(
+        await statusOf(signIn(auth, 'distributed@example.com', PASSWORD, from(freshAddress()))),
+      ).toBe(429);
+      expect(await statusOf(signIn(auth, 'distributed@example.com', PASSWORD, from(home)))).toBe(
+        200,
+      );
+    });
+
+    it('does not count accounts that may not use a password (PASSWORD_LOGIN=admin_only)', async () => {
+      const auth = make({ passwordLogin: 'admin_only', breakGlassEmails: ['root@example.com'] });
+      const before = await conn.db.select().from(signInAttempts);
+      const statuses = [];
+      for (let i = 0; i < ADDRESS_SIGN_IN_ATTEMPTS + 2; i++) {
+        statuses.push(await statusOf(signIn(auth, 'bystander@example.com', PASSWORD)));
+      }
+      expect(count(statuses)).toEqual({ 401: ADDRESS_SIGN_IN_ATTEMPTS + 2 });
+      const after = await conn.db.select().from(signInAttempts);
+      expect(after.length).toBeLessThanOrEqual(before.length);
+      // The break-glass account keeps its limit.
+      for (let i = 0; i < ADDRESS_SIGN_IN_ATTEMPTS; i++) {
+        expect(await statusOf(signIn(auth, 'root@example.com', 'wrong-password'))).toBe(401);
+      }
+      expect(await statusOf(signIn(auth, 'root@example.com', PASSWORD))).toBe(429);
     });
 
     it('holds under parallel guesses (counted before the password is checked)', async () => {
       const auth = make();
       const statuses = await Promise.all(
-        Array.from({ length: ACCOUNT_SIGN_IN_ATTEMPTS + 5 }, () =>
+        Array.from({ length: ADDRESS_SIGN_IN_ATTEMPTS + 5 }, () =>
           statusOf(signIn(auth, 'parallel@example.com', 'wrong-password')),
         ),
       );
-      expect(count(statuses)).toEqual({ 401: ACCOUNT_SIGN_IN_ATTEMPTS, 429: 5 });
+      expect(count(statuses)).toEqual({ 401: ADDRESS_SIGN_IN_ATTEMPTS, 429: 5 });
     });
 
     it('a successful sign-in starts the count over', async () => {
       const auth = make();
-      for (let i = 0; i < ACCOUNT_SIGN_IN_ATTEMPTS - 1; i++) {
+      for (let i = 0; i < ADDRESS_SIGN_IN_ATTEMPTS - 1; i++) {
         expect(await statusOf(signIn(auth, 'reset@example.com', 'wrong-password'))).toBe(401);
       }
       expect(await statusOf(signIn(auth, 'reset@example.com', PASSWORD))).toBe(200);
-      for (let i = 0; i < ACCOUNT_SIGN_IN_ATTEMPTS; i++) {
+      for (let i = 0; i < ADDRESS_SIGN_IN_ATTEMPTS; i++) {
         expect(await statusOf(signIn(auth, 'reset@example.com', 'wrong-password'))).toBe(401);
       }
       expect(await statusOf(signIn(auth, 'reset@example.com', 'wrong-password'))).toBe(429);

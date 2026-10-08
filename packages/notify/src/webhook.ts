@@ -2,6 +2,7 @@ import {
   createOutboundFetch,
   isAllowlistedHost,
   isBlockedAddressError,
+  isInsecureTransportError,
   normalizeHost,
   type OutboundPolicy,
   RedirectBlockedError,
@@ -143,6 +144,7 @@ function deliveryErrorOf(e: unknown, onError?: DeliveryErrorHook): DeliveryError
   let error: DeliveryError;
   if (e instanceof DeliveryError) error = e;
   else if (isBlockedAddressError(e)) error = new DeliveryError('blocked_url');
+  else if (isInsecureTransportError(e)) error = new DeliveryError('insecure_transport');
   else if (e instanceof RedirectBlockedError) error = new DeliveryError('rejected', e.status);
   else if ((e as { name?: string } | null)?.name === 'TimeoutError')
     error = new DeliveryError('timeout');

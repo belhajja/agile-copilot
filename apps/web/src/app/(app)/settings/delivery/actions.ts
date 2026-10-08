@@ -11,12 +11,18 @@ import { requireActor } from '@/server/context';
 export type ChannelFormState =
   | { status: 'idle' }
   | { status: 'ok' }
-  | { status: 'error'; code: string; reason?: string; host?: string; httpStatus?: number };
+  | { status: 'error'; code: string; reason?: string; host?: string };
 
 /** The outcome of removing a channel: a code the UI translates (never silent). */
 export type DeleteChannelResult = { ok: true } | { ok: false; code: string };
 
 const PATH = '/settings/delivery';
+
+/**
+ * How a webhook answered its test message, reduced to "it failed": the HTTP status, or telling a
+ * refused connection from a timeout, would let an admin probe internal services through it.
+ */
+const WEBHOOK_TEST_FAILURES = new Set(['rejected', 'unreachable', 'timeout']);
 
 /** Only the fields of the chosen kind are sent on; the service validates them (zod, strict). */
 function inputFrom(form: FormData): Record<string, unknown> {
@@ -46,18 +52,16 @@ export async function createChannelAction(
 ): Promise<ChannelFormState> {
   const actor = await requireActor();
   const labels = digestLabels(await getLocale());
+  const input = inputFrom(form);
   try {
-    const result = await createDeliveryChannel(notifyDeps(), actor, inputFrom(form), {
+    const result = await createDeliveryChannel(notifyDeps(), actor, input, {
       testMessage: { title: labels.testTitle, text: labels.testText },
     });
     if (!result.ok) {
-      return {
-        status: 'error',
-        code: result.code,
-        reason: result.reason,
-        host: result.host,
-        httpStatus: result.status,
-      };
+      if (input.kind !== 'smtp' && WEBHOOK_TEST_FAILURES.has(result.code)) {
+        return { status: 'error', code: 'test_failed' };
+      }
+      return { status: 'error', code: result.code, reason: result.reason, host: result.host };
     }
   } catch (e) {
     if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };

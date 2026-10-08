@@ -19,6 +19,7 @@ const JIRA = [
   'rate_limited',
   'unavailable',
   'blocked_url',
+  'insecure_transport',
   'jira_error',
   'unknown_outcome',
   'not_supported',
@@ -31,6 +32,7 @@ export const CREDENTIAL_ERROR_CODES = [
   'oauth_unavailable',
   'unreachable',
   'blocked_url',
+  'insecure_transport',
 ] as const satisfies readonly SyncFailureCode[];
 
 /** The agent's own refusals. */

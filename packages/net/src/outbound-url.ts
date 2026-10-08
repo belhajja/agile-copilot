@@ -12,7 +12,8 @@ export type BlockedUrlReason =
   | 'blocked_host'
   | 'localhost'
   | 'private_address'
-  | 'unresolvable';
+  | 'unresolvable'
+  | 'insecure_transport';
 /** `reason` is English for logs/tests; UIs translate `code` (with `host`) instead. */
 export type OutboundUrlCheck =
   | { ok: true; url: URL }
@@ -37,13 +38,25 @@ export const isAlwaysBlockedHost = (host: string) => ALWAYS_BLOCKED.has(host);
 export const isAllowlistedHost = (host: string, allowed: readonly string[]) =>
   allowed.some((d) => host === d || host.endsWith(`.${d}`));
 
+/**
+ * Plain http only towards the operator's allowlisted internal hosts: credentials (Jira tokens,
+ * API keys, webhook URLs) must not cross a public network unencrypted.
+ */
+export const isInsecureTransport = (url: URL, allowed: readonly string[]) =>
+  url.protocol === 'http:' && !isAllowlistedHost(normalizeHost(url.hostname), allowed);
+
+/** A loopback address (this machine): 127.0.0.0/8, ::1. */
+export const isLoopbackAddress = (address: string): boolean =>
+  ipaddr.isValid(address) && ipaddr.process(address).range() === 'loopback';
+
 /** A globally routable unicast address (not private, loopback, link-local, reserved…). */
 export const isPublicAddress = (address: string): boolean =>
   ipaddr.isValid(address) && ipaddr.process(address).range() === 'unicast';
 
 /**
  * Guards server-side requests to user-supplied URLs (SSRF): only http(s), no embedded
- * credentials, and no private/reserved addresses unless the operator allowlisted the host.
+ * credentials, no private/reserved addresses unless the operator allowlisted the host, and
+ * plain http only for allowlisted hosts.
  */
 export async function checkOutboundUrl(
   raw: string,
@@ -99,6 +112,14 @@ export async function checkOutboundUrl(
         reason: `${host} points to a private or reserved address (${range}); ask your administrator to allow this host`,
       };
     }
+  }
+  if (url.protocol === 'http:') {
+    return {
+      ok: false,
+      code: 'insecure_transport',
+      reason: 'Plain http is only allowed for allowlisted internal hosts; use https',
+      host,
+    };
   }
   return { ok: true, url };
 }

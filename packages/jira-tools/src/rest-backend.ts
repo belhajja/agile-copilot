@@ -1,5 +1,10 @@
 import { type JiraCredentials, ResponseTooLargeError, readCapped } from '@agile/jira';
-import { createOutboundFetch, isBlockedAddressError, type OutboundPolicy } from '@agile/net';
+import {
+  createOutboundFetch,
+  isBlockedAddressError,
+  isInsecureTransportError,
+  type OutboundPolicy,
+} from '@agile/net';
 import {
   callSignal,
   codeForStatus,
@@ -128,6 +133,7 @@ export function createRestJiraBackend(
       });
     } catch (e) {
       if (isBlockedAddressError(e)) throw new JiraToolError('blocked_url');
+      if (isInsecureTransportError(e)) throw new JiraToolError('insecure_transport');
       // A write cut off once its request may have left (reset, abort, deadline) can have run in
       // Jira: say so. Only a failure to connect at all proves it was never sent.
       throw new JiraToolError(write && !neverSent(e) ? 'unknown_outcome' : 'unavailable');
