@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { joinAsMember, orgIdOf, signUp, signUpWithWorkspace } from '../helpers';
 
+// Two people sign up and act in turn: on a loaded CI runner that alone can take the default 30 s.
+test.describe.configure({ timeout: 120_000 });
+
 test('an owner invites with a role, changes a role and removes a member', async ({
   page,
   browser,

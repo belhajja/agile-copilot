@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { ask, setUpWorkspace } from '../helpers';
 
+// A synced board, a chat turn and a dashboard: longer than the default 30 s on CI runners.
+test.describe.configure({ timeout: 240_000 });
+
 test('pin an assistant query to the dashboard', async ({ page }) => {
   await setUpWorkspace(page);
   await page.goto('/agent');
