@@ -9,7 +9,7 @@ import type { AgentDeps } from './deps';
 import { handleAgentRequest } from './turn';
 
 /** Reads an AI SDK UI message stream (SSE) into its chunks. */
-export async function readChunks(res: Response): Promise<Record<string, unknown>[]> {
+async function readChunks(res: Response): Promise<Record<string, unknown>[]> {
   const text = await res.text();
   return text
     .split('\n\n')

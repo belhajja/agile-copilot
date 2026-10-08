@@ -28,7 +28,7 @@ const everyRunFailureListed: [MissingRunFailure] extends [never] ? true : Missin
 void everyRunFailureListed;
 
 /** What the worker ends a run with by itself (`executeSkillRun`, `closeStaleRuns`, the planner). */
-export const EXECUTION_RESULT_CODES = [
+const EXECUTION_RESULT_CODES = [
   'disabled',
   'skill_deleted',
   'owner_left',

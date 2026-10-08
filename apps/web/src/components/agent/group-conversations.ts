@@ -1,4 +1,4 @@
-export const HISTORY_GROUPS = ['today', 'yesterday', 'week', 'month', 'older'] as const;
+const HISTORY_GROUPS = ['today', 'yesterday', 'week', 'month', 'older'] as const;
 export type HistoryGroup = (typeof HISTORY_GROUPS)[number];
 
 /** Days since the epoch for the calendar day `date` falls on in `timeZone`. */

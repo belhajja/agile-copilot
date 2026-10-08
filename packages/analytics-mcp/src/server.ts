@@ -22,7 +22,7 @@ const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
 });
 /** What a failed tool reports: a fixed `error` sentence (the model may act on it) and its `code`. */
-export type AnalyticsFailureCode =
+type AnalyticsFailureCode =
   | 'internal_error'
   | 'unknown_board'
   | 'invalid_params'
@@ -34,7 +34,7 @@ const failure = (code: AnalyticsFailureCode, message: string) => ({
 });
 
 /** The only error code a tool reports for an unexpected failure. */
-export type AnalyticsErrorCode = 'internal_error';
+type AnalyticsErrorCode = 'internal_error';
 
 export interface AnalyticsServerOptions {
   /**

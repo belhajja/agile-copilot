@@ -89,7 +89,7 @@ export async function recordUsage(
 }
 
 /** Skill-builder drafts and previews per member and rolling hour (P4-R16): BYOK spend bound. */
-export const SKILL_BUILDER_HOURLY_LIMIT = 20;
+const SKILL_BUILDER_HOURLY_LIMIT = 20;
 const BUILDER_WINDOW_MS = 3_600_000;
 
 /**

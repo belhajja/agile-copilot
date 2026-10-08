@@ -115,7 +115,7 @@ export async function runSkillNowAction(rawId: unknown): Promise<void> {
   redirect(`/skills/${id}?run=${r.ok ? (r.queued ? 'queued' : r.skipped) : r.code}`);
 }
 
-export type SkillIssueView = { code: string; field?: string };
+type SkillIssueView = { code: string; field?: string };
 export type EditorResult =
   | { ok: true; document?: string; text?: string; id?: string; version?: number }
   | { ok: false; code: string; issues?: SkillIssueView[] };

@@ -14,12 +14,12 @@ import type { RunResultCode, RunSkipCode } from './codes';
 /** Background runs per workspace and rolling 24 hours (schedules, alerts and "Run now"). */
 export const DEFAULT_DAILY_RUN_LIMIT = 50;
 /** A run still queued or running after this long was lost (worker crash): it is closed as failed. */
-export const STALE_RUN_MINUTES = 30;
+const STALE_RUN_MINUTES = 30;
 /**
  * A run still queued after this long was probably never sent to the queue (the send failed after
  * the commit): each tick sends it again until it is claimed or closed as stale (P4-R19).
  */
-export const RESEND_QUEUED_MINUTES = 10;
+const RESEND_QUEUED_MINUTES = 10;
 
 export type RunTrigger = 'schedule' | 'alert' | 'manual';
 

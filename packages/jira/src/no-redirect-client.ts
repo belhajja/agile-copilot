@@ -1,7 +1,7 @@
 import { fetchNoRedirect } from '@agile/net';
 import type { Client, SendRequestOptions } from 'jira.js/core';
 
-export type JiraAuth =
+type JiraAuth =
   | { type: 'basic'; email: string; apiToken: string }
   | { type: 'bearer'; token: string };
 

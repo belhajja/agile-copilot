@@ -29,14 +29,14 @@ import { normalizeEmail } from './sso';
 /** The header carrying the client address to better-auth; whatever a client sends is replaced. */
 export const CLIENT_ADDRESS_HEADER = 'x-agile-client-address';
 /** Requests per minute per path shared by everyone when there is no trusted client address. */
-export const SHARED_REQUESTS_PER_MINUTE = 600;
+const SHARED_REQUESTS_PER_MINUTE = 600;
 /** Password sign-ins per account and client address per window, failed or not yet known. */
 export const ADDRESS_SIGN_IN_ATTEMPTS = 10;
 /** Password sign-ins per account per window from all addresses together (known ones excepted). */
 export const ACCOUNT_SIGN_IN_CEILING = 100;
-export const ACCOUNT_WINDOW_MINUTES = 15;
+const ACCOUNT_WINDOW_MINUTES = 15;
 /** How long an address that signed in successfully stays exempt from the account ceiling. */
-export const KNOWN_ADDRESS_DAYS = 30;
+const KNOWN_ADDRESS_DAYS = 30;
 /** Expired rows deleted per attempt (keeps the table small without a scheduled job). */
 const PRUNE_BATCH = 100;
 

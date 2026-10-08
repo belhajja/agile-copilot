@@ -156,7 +156,7 @@ export class TurnInProgressError extends Error {
 }
 
 /** The turn's lease was taken over (it ran past the lease): its reply is not stored. */
-export class TurnLostError extends Error {
+class TurnLostError extends Error {
   override name = 'TurnLostError';
   readonly code = 'turn_lost';
   constructor() {

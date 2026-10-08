@@ -24,7 +24,7 @@ export interface AtlassianOAuthClient {
   refreshAccessToken(refreshToken: string): Promise<AtlassianTokens>;
 }
 
-export function createAtlassianOAuth(cfg: {
+function createAtlassianOAuth(cfg: {
   clientId: string;
   clientSecret: string;
   redirectUri: string;

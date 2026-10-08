@@ -13,9 +13,9 @@ import { GROUP_NAME_MAX_LENGTH } from './limits';
 /** Groups one person can have in a workspace. */
 export const MAX_GROUPS = 50;
 /** Recent ungrouped conversations listed in the sidebar. */
-export const RECENT_LIMIT = 30;
+const RECENT_LIMIT = 30;
 /** Conversations listed per group, and archived conversations listed. */
-export const SECTION_LIMIT = 100;
+const SECTION_LIMIT = 100;
 
 const cleanName = (name: string) =>
   name.replace(/\s+/g, ' ').trim().slice(0, GROUP_NAME_MAX_LENGTH);
@@ -129,7 +129,7 @@ export async function moveConversationToGroup(
   });
 }
 
-export interface HistoryGroupSummary {
+interface HistoryGroupSummary {
   id: string;
   name: string;
   conversations: ConversationSummary[];

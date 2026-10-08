@@ -32,7 +32,7 @@ const valuesOrNone = (values: readonly string[] | undefined) =>
   values && values.length > 0 ? [...new Set(values)] : [NONE];
 
 /** The groups an issue falls in. [] leaves it out (a time dimension without its date). */
-export function groupsOf(issue: MetricIssue, dim: Dimension, ctx: GroupContext): string[] {
+function groupsOf(issue: MetricIssue, dim: Dimension, ctx: GroupContext): string[] {
   switch (dim) {
     case 'type':
       return [issue.type];

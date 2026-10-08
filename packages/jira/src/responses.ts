@@ -44,7 +44,7 @@ export const historySchema = z
     }),
   );
 
-export const rawIssueSchema = z
+const rawIssueSchema = z
   .looseObject({
     id: z.union([z.string(), z.number()]),
     key: z.string(),

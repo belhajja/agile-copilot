@@ -10,7 +10,7 @@ import type {
 const t = (d: Date) => d.getTime();
 
 /** The status period the issue was in at `at`; undefined before the issue existed. */
-export function periodAt(issue: MetricIssue, at: Date): StatusPeriod | undefined {
+function periodAt(issue: MetricIssue, at: Date): StatusPeriod | undefined {
   let found: StatusPeriod | undefined;
   for (const p of issue.statusPeriods) {
     if (t(p.from) <= t(at)) found = p;

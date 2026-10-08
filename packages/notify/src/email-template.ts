@@ -19,7 +19,7 @@ const text = { fontSize: 14, lineHeight: '22px', margin: '0 0 12px', color: '#11
  * text (React escapes it), there are no images or remote styles, so opening it loads nothing.
  * Written with `createElement` so this server-only package needs no JSX toolchain.
  */
-export function DigestEmail({ lang, title, body, link, linkLabel, footer }: DigestEmailProps) {
+function DigestEmail({ lang, title, body, link, linkLabel, footer }: DigestEmailProps) {
   const paragraphs = body
     .split(/\n{2,}/)
     .map((p) => p.trim())

@@ -26,7 +26,7 @@ const sprint = (
 
 export const S1 = sprint('s1', 'Sprint 1', 'closed', 0, 10, 10, ['A']);
 export const S2 = sprint('s2', 'Sprint 2', 'closed', 14, 24, 24, ['B', 'C']);
-export const S3 = sprint('s3', 'Sprint 3', 'active', 28, 42, null, ['C', 'D']);
+const S3 = sprint('s3', 'Sprint 3', 'active', 28, 42, null, ['C', 'D']);
 
 /**
  * A  Bug    Done         pat  3 pts  ui      Web  E-1 Checkout  High    created d-2, in progress d1, done d4   S1

@@ -49,7 +49,7 @@ export const PASSWORD_LOGIN_DISABLED = 'PASSWORD_LOGIN_DISABLED';
 export const ID_TOKEN_SIGN_IN_DISABLED = 'ID_TOKEN_SIGN_IN_DISABLED';
 export const SCOPES_NOT_ALLOWED = 'SCOPES_NOT_ALLOWED';
 export const SIGN_UP_NOT_ALLOWED = 'SIGN_UP_NOT_ALLOWED';
-export const SSO_UNLINK_NOT_ALLOWED = 'SSO_UNLINK_NOT_ALLOWED';
+const SSO_UNLINK_NOT_ALLOWED = 'SSO_UNLINK_NOT_ALLOWED';
 
 /** Endpoints that start an SSO sign-in or link. */
 const SSO_START_PATHS = new Set(['/sign-in/social', '/link-social']);

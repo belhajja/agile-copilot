@@ -35,9 +35,9 @@ export const SYNC_RUNS_RETENTION_DAYS = 90;
 /** Sessions and verifications are deleted this long after they expired. */
 export const EXPIRED_AUTH_GRACE_DAYS = 1;
 /** External MCP rate windows only matter for the current minute; a day covers any clock skew. */
-export const MCP_RATE_WINDOWS_RETENTION_DAYS = 1;
+const MCP_RATE_WINDOWS_RETENTION_DAYS = 1;
 /** MCP tokens are deleted this long after they were revoked or expired (lists show them meanwhile). */
-export const MCP_TOKENS_RETENTION_DAYS = 90;
+const MCP_TOKENS_RETENTION_DAYS = 90;
 /**
  * Invitations (they hold the invitee's e-mail address, P5-R45) are deleted this long after they
  * were answered or withdrawn (any status but pending; counted from when they were sent), and

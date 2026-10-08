@@ -3,7 +3,7 @@ import { z } from 'zod';
 // A board query: data the assistant writes and the dashboard re-runs on synced data. Every time
 // reference is relative to "now", so a pinned query stays live.
 
-export const DIMENSIONS = [
+const DIMENSIONS = [
   'type',
   'status',
   'statusCategory',
@@ -19,9 +19,9 @@ export const DIMENSIONS = [
   'resolvedWeek',
   'resolvedMonth',
 ] as const;
-export const MEASURES = ['count', 'points', 'avg_cycle_time', 'p85_cycle_time', 'avg_age'] as const;
+const MEASURES = ['count', 'points', 'avg_cycle_time', 'p85_cycle_time', 'avg_age'] as const;
 export const DISPLAYS = ['kpi', 'table', 'bar', 'stacked_bar', 'line', 'pie', 'list'] as const;
-export const COLUMNS = [
+const COLUMNS = [
   'key',
   'summary',
   'type',
@@ -49,7 +49,7 @@ export const TIME_DIMENSIONS: ReadonlySet<Dimension> = new Set<Dimension>([
 ]);
 
 /** Largest serialized query (it is stored in the dashboard row and sent to the model). */
-export const MAX_QUERY_BYTES = 4096;
+const MAX_QUERY_BYTES = 4096;
 
 const text = (max: number) =>
   z

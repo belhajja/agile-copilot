@@ -25,7 +25,7 @@ export const MCP_GLOBAL_REQUESTS_PER_MINUTE = 1200;
  */
 export const MCP_TOTAL_REQUESTS_PER_MINUTE = 10 * MCP_IP_REQUESTS_PER_MINUTE;
 /** Addresses kept in memory at most (least recently used dropped first, idle before busy). */
-export const MAX_TRACKED_CLIENTS = 10_000;
+const MAX_TRACKED_CLIENTS = 10_000;
 /** The shared bucket's key (never an address: `isIP` refuses it). */
 export const GLOBAL_KEY = 'global';
 

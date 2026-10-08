@@ -76,7 +76,7 @@ export const agentRequestSchema = z
   .strict()
   .refine((b) => Boolean(b.message) !== Boolean(b.approvals), 'message xor approvals');
 
-export type AgentErrorCode =
+type AgentErrorCode =
   | 'invalid_request'
   | 'not_found'
   | 'no_llm'

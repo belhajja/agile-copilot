@@ -20,8 +20,8 @@ import { type Entitlements, entitlementsOf, SELFHOST } from './plans';
  * an app marker and the workspace id under an app-specific key. Other products on the same Stripe
  * account cannot be mistaken for ours by a common key such as `orgId`.
  */
-export const STRIPE_APP_MARKER = 'agile-copilot';
-export const STRIPE_ORG_KEY = 'agile_copilot_org_id';
+const STRIPE_APP_MARKER = 'agile-copilot';
+const STRIPE_ORG_KEY = 'agile_copilot_org_id';
 /** The workspace key used before P5-R46; still read (never written). */
 const LEGACY_ORG_KEY = 'orgId';
 

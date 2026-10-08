@@ -158,7 +158,7 @@ export async function jiraSites(
  * credentials, which can reach beyond the boards an admin selected, so the role is granted
  * explicitly; viewers get the analytics tools (synced, selected boards) only.
  */
-export function canUseLiveJira(actor: Actor): boolean {
+function canUseLiveJira(actor: Actor): boolean {
   return can(actor.roles, 'jira.read');
 }
 
@@ -168,7 +168,7 @@ export function canProposeJiraChanges(actor: Actor): boolean {
 }
 
 /** The stored outcome of a failed Jira call (one of `ExecutionResultCode`). */
-export const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
+const codeOf = (e: unknown): Exclude<ExecutionResultCode, 'ok'> => {
   if (e instanceof JiraToolError) return e.code;
   if (e instanceof SyncError && (CREDENTIAL_ERROR_CODES as readonly string[]).includes(e.code)) {
     return e.code as CredentialErrorCode;

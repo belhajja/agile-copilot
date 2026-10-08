@@ -30,7 +30,7 @@ export const SKILL_RUN_MAX_MS = SKILL_RUN_TIMEOUT_MS + EMAIL_DEADLINE_MS;
 const RUN_JOB_EXPIRE_SECONDS = 600;
 
 /** What a queued job may carry: ids only; the worker re-reads everything under RLS. */
-export const skillJobSchema = z
+const skillJobSchema = z
   .object({ orgId: z.string().min(1), runId: z.string().refine(isUuid) })
   .strict();
 export type SkillJob = z.infer<typeof skillJobSchema>;
