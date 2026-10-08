@@ -1,8 +1,8 @@
-import { type Db, skills, withOrg } from '@agile/db';
+import { type Actor, type Db, skills, withOrg } from '@agile/db';
 import { and, eq } from 'drizzle-orm';
 import type { SkillDocument } from './document';
 import { BUILTIN_SKILLS } from './library';
-import { loadSkillsWithDocuments, type SkillActor } from './store';
+import { loadSkillsWithDocuments } from './store';
 
 export interface CatalogEntry {
   name: string;
@@ -21,7 +21,7 @@ export const MAX_PREFERENCES = 10;
  * and the built-ins they copied, whether that copy is on or off: a copy replaces the stock skill,
  * so turning the copy off never brings the stock one back (P4-R23).
  */
-async function ownSkills(db: Db, actor: SkillActor) {
+async function ownSkills(db: Db, actor: Actor) {
   const loaded = await withOrg(db, actor.orgId, (tx) =>
     loadSkillsWithDocuments(
       tx,
@@ -51,7 +51,7 @@ export interface SkillSet {
  * the built-in library, minus the built-ins they copied (their copy replaces it). Other members'
  * shared skills are not included: they reach a user's assistant only once that user copies them.
  */
-export async function loadSkillSet(db: Db, actor: SkillActor): Promise<SkillSet> {
+export async function loadSkillSet(db: Db, actor: Actor): Promise<SkillSet> {
   const { enabled: own, copiedBuiltins } = await ownSkills(db, actor);
   const preferences = own
     .filter((s) => s.frontmatter.trigger === 'always')

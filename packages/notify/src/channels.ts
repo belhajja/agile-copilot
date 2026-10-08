@@ -1,17 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import {
-  type Actor,
-  assertCanManage,
-  type ConnectionDeps,
-  getOrgDek,
-  recordAudit,
-} from '@agile/connections';
+import { assertCanManage, type ConnectionDeps, getOrgDek } from '@agile/connections';
 import { decryptSecret, encryptSecret } from '@agile/crypto';
 import {
+  type Actor,
   type Db,
   deliveryChannels,
   isUniqueViolation,
   isUuid,
+  recordAudit,
   skills,
   type Tx,
   withOrg,

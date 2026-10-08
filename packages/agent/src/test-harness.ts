@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { type Actor, createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import { createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import type { Actor } from '@agile/db';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from '@agile/jira-tools/testing';
 import { type MockScript, startMockOpenAI } from '@agile/llm/testing';
 import { discoverBoards, listBoards, runSync, setBoardSelection } from '@agile/sync';

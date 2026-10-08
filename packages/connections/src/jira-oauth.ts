@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { jiraConnections, withOrg } from '@agile/db';
+import { type Actor, jiraConnections, recordAudit, withOrg } from '@agile/db';
 import {
   type AtlassianOAuthClient,
   type JiraCredentials,
@@ -8,9 +8,7 @@ import {
 } from '@agile/jira';
 import { withDeadline } from '@agile/net';
 import { and, eq, sql } from 'drizzle-orm';
-import type { Actor } from './actor';
 import { assertCanManage } from './actor';
-import { recordAudit } from './audit';
 import {
   type ConnectionDeps,
   clearSyncError,

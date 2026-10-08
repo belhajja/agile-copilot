@@ -1,10 +1,12 @@
-import { type Actor, assertCanManage, recordAudit } from '@agile/connections';
+import { assertCanManage } from '@agile/connections';
 import {
+  type Actor,
   isUuid,
   jiraBoards,
   jiraConnections,
   jiraStatusMappings,
   jiraSyncStates,
+  recordAudit,
   withOrg,
 } from '@agile/db';
 import {

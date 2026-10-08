@@ -1,4 +1,5 @@
 import { can } from '@agile/auth';
+import type { Actor } from '@agile/db';
 import {
   type AuditAction,
   billingSubscriptions,
@@ -45,12 +46,6 @@ export interface BillingDeps {
   billing: BillingConfig | null;
   /** Injected in tests; otherwise built from `billing`. */
   stripe?: Stripe;
-}
-
-export interface BillingActor {
-  orgId: string;
-  userId: string;
-  roles: readonly string[];
 }
 
 export class BillingError extends Error {
@@ -141,7 +136,7 @@ export async function billingView(deps: BillingDeps, orgId: string): Promise<Bil
   };
 }
 
-const assertOwner = (actor: BillingActor) => {
+const assertOwner = (actor: Actor) => {
   if (!can(actor.roles, 'billing.manage')) throw new BillingError('forbidden_role');
 };
 
@@ -212,7 +207,7 @@ const audit = (
  */
 export async function startCheckout(
   deps: BillingDeps,
-  actor: BillingActor,
+  actor: Actor,
   urls: { successUrl: string; cancelUrl: string },
 ): Promise<string> {
   const config = enabled(deps);
@@ -259,7 +254,7 @@ export async function startCheckout(
 /** Stripe's customer portal (payment method, invoices, cancellation). Owners only. */
 export async function openBillingPortal(
   deps: BillingDeps,
-  actor: BillingActor,
+  actor: Actor,
   returnUrl: string,
 ): Promise<string> {
   enabled(deps);

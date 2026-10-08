@@ -8,9 +8,9 @@ import {
 } from '@agile/auth';
 import { cancelSubscriptionForOrg, getEntitlements } from '@agile/billing';
 import { billingConfigOf, type ServerEnv, serverEnv } from '@agile/config';
-import type { Actor, LlmDeps } from '@agile/connections';
+import type { LlmDeps } from '@agile/connections';
 import { type Keyring, parseKeyring } from '@agile/crypto';
-import { createDb, type Db } from '@agile/db';
+import { type Actor, createDb, type Db } from '@agile/db';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';

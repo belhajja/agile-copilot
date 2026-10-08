@@ -1,8 +1,9 @@
+import type { Actor } from '@agile/db';
 import { describe, expect, it } from 'vitest';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
 import { buildJiraToolSet, type JiraSite, type JiraToolMode } from './tools';
 
-const manager = { orgId: 'org', userId: 'u', roles: ['manager'] } as AgentActor;
+const manager = { orgId: 'org', userId: 'u', roles: ['manager'] } as Actor;
 const site = (id: string, authType: JiraSite['authType']): JiraSite => ({
   id,
   name: id,
@@ -65,7 +66,7 @@ describe('offering the Jira read tools', () => {
   });
 
   it('gives viewers none of them', () => {
-    const viewer = { ...manager, roles: ['viewer'] } as AgentActor;
+    const viewer = { ...manager, roles: ['viewer'] } as Actor;
     expect(
       Object.keys(buildJiraToolSet({} as AgentDeps, viewer, [site('a', 'pat')], mode)),
     ).toEqual([]);

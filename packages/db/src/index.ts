@@ -1,3 +1,4 @@
+export type { Actor } from './actor';
 export { type AuditAction, recordAudit } from './audit';
 export { createDb, type Db, isUniqueViolation, rows, type Tx, withOrg } from './client';
 export { isUuid, UUID_PATTERN } from './ids';

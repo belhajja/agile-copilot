@@ -19,7 +19,6 @@ export {
   mcpAccessProblem,
   parseToken,
   revokeMcpToken,
-  type TokenActor,
   TokenError,
   type TokenErrorCode,
   type TokenIdentity,

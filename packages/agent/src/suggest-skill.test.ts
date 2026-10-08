@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
+import type { Actor } from '@agile/db';
 import { parseSkillDocument } from '@agile/skills';
 import { describe, expect, it } from 'vitest';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
 import { skillRunPrompt, systemPrompt } from './prompt';
 import { EMPTY_SKILL_SET, skillTools } from './skills';
 import { parseUntrustedData } from './untrusted';
 
-const actor = { orgId: 'org', userId: 'user', roles: ['viewer'] } as unknown as AgentActor;
+const actor = { orgId: 'org', userId: 'user', roles: ['viewer'] } as unknown as Actor;
 const tools = skillTools({} as AgentDeps, actor, EMPTY_SKILL_SET);
 
 const base = {

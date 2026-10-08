@@ -12,7 +12,6 @@
   "dependencies": {
     "@agile/agent": "workspace:*",
     "@agile/auth": "workspace:*",
-    "@agile/connections": "workspace:*",
     "@agile/dashboards": "workspace:*",
     "@agile/db": "workspace:*",
     "@agile/metrics": "workspace:*",

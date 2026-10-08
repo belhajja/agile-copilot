@@ -1,8 +1,9 @@
 import { METRIC_KEYS, pinWidget } from '@agile/dashboards';
+import type { Actor } from '@agile/db';
 import { parseSkillDocument, type SkillSet } from '@agile/skills';
 import { type ModelMessage, type Tool, type ToolSet, tool } from 'ai';
 import { z } from 'zod';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
 import { draftSchema, draftToDocument } from './skill-draft';
 import { AgentToolError } from './tool-errors';
 import { asUntrustedData } from './untrusted';
@@ -89,7 +90,7 @@ const CHARTS = ['kpi', 'bar', 'line', 'area', 'table', 'stacked_bar', 'pie', 'li
  * none touches Jira, a pin only writes to the caller's dashboard, and a suggestion only builds a
  * document for the user to review in the skill builder.
  */
-export function skillTools(deps: AgentDeps, actor: AgentActor, set: SkillSet): ToolSet {
+export function skillTools(deps: AgentDeps, actor: Actor, set: SkillSet): ToolSet {
   const tools: ToolSet = {};
   const names = set.catalog.map((c) => c.name);
   if (names.length > 0) {

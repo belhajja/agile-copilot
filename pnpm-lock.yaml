@@ -448,9 +448,6 @@ importers:
       '@agile/auth':
         specifier: workspace:*
         version: link:../auth
-      '@agile/connections':
-        specifier: workspace:*
-        version: link:../connections
       '@agile/dashboards':
         specifier: workspace:*
         version: link:../dashboards
@@ -555,9 +552,6 @@ importers:
 
   packages/dashboards:
     dependencies:
-      '@agile/connections':
-        specifier: workspace:*
-        version: link:../connections
       '@agile/db':
         specifier: workspace:*
         version: link:../db
@@ -841,9 +835,6 @@ importers:
       '@agile/auth':
         specifier: workspace:*
         version: link:../auth
-      '@agile/connections':
-        specifier: workspace:*
-        version: link:../connections
       '@agile/dashboards':
         specifier: workspace:*
         version: link:../dashboards

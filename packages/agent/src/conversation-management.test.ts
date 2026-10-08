@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Actor } from '@agile/db';
 import { agentConversations, createDb, llmConnections, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
@@ -23,11 +24,10 @@ import {
   setConversationArchived,
   setConversationModel,
 } from './conversations';
-import type { AgentActor } from './deps';
 
-const alice: AgentActor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
-const bob: AgentActor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
-const eve: AgentActor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
+const alice: Actor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
+const bob: Actor = { orgId: 'org_a', userId: 'user_bob', roles: ['owner'] };
+const eve: Actor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
 
 const question = (text: string): UIMessage[] => [
   { id: randomUUID(), role: 'user', parts: [{ type: 'text', text }] },
@@ -50,7 +50,7 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
   });
 
   /** A conversation of `actor` with one question (so it has a title and shows in lists). */
-  const started = async (actor: AgentActor, text = 'What is our velocity?') => {
+  const started = async (actor: Actor, text = 'What is our velocity?') => {
     const id = randomUUID();
     await openOrCreateConversation(app.db, actor, id);
     await withOrg(app.db, actor.orgId, (tx) => saveConversation(tx, actor, id, question(text)));
@@ -174,7 +174,7 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
   });
 
   it('caps the number of groups per person', async () => {
-    const carol: AgentActor = { orgId: 'org_a', userId: 'user_carol', roles: ['viewer'] };
+    const carol: Actor = { orgId: 'org_a', userId: 'user_carol', roles: ['viewer'] };
     for (let i = 0; i < MAX_GROUPS; i++) {
       expect((await createGroup(app.db, carol, `Group ${i}`)).ok).toBe(true);
     }
@@ -199,7 +199,7 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
   });
 
   it('lists groups by their latest activity', async () => {
-    const dan: AgentActor = { orgId: 'org_a', userId: 'user_dan', roles: ['viewer'] };
+    const dan: Actor = { orgId: 'org_a', userId: 'user_dan', roles: ['viewer'] };
     const older = await createGroup(app.db, dan, 'Older');
     const newer = await createGroup(app.db, dan, 'Newer');
     if (!older.ok || !newer.ok) throw new Error('groups not created');

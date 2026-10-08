@@ -25,7 +25,7 @@ export {
   setConversationArchived,
   setConversationModel,
 } from './conversations';
-export type { AgentActor, AgentDeps } from './deps';
+export type { AgentDeps } from './deps';
 export { GROUP_NAME_MAX_LENGTH, TITLE_MAX_LENGTH } from './limits';
 export { systemPrompt } from './prompt';
 export {

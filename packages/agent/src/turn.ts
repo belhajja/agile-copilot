@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loadDefaultLlm, loadUsableLlm } from '@agile/connections';
+import type { Actor } from '@agile/db';
 import { withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import {
@@ -35,7 +36,7 @@ import {
   TurnInProgressError,
   unarchiveConversation,
 } from './conversations';
-import type { AgentActor, AgentDeps } from './deps';
+import type { AgentDeps } from './deps';
 import { languageModelFor, usesInsecureTransport } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import {
@@ -134,7 +135,7 @@ function refusalOf(e: unknown): AgentErrorCode | null {
  */
 export async function handleAgentRequest(
   deps: AgentDeps,
-  actor: AgentActor,
+  actor: Actor,
   body: unknown,
 ): Promise<Response> {
   const parsed = agentRequestSchema.safeParse(body);
@@ -343,7 +344,7 @@ class TurnResources {
 
   constructor(
     private readonly deps: AgentDeps,
-    private readonly actor: AgentActor,
+    private readonly actor: Actor,
     private readonly conversationId: string,
     private readonly turnId: string,
   ) {}

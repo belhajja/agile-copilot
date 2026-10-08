@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret, type Keyring } from '@agile/crypto';
 import {
+  type Actor,
   type Db,
   isUniqueViolation,
   jiraConnections,
   jiraSyncStates,
+  recordAudit,
   type Tx,
   withOrg,
 } from '@agile/db';
@@ -19,8 +21,7 @@ import {
 } from '@agile/jira';
 import type { Resolver } from '@agile/net';
 import { desc, eq, sql } from 'drizzle-orm';
-import { type Actor, assertCanManage } from './actor';
-import { recordAudit } from './audit';
+import { assertCanManage } from './actor';
 import { getFreshJiraCredentials, OAuthRefreshError, OAuthTimeoutError } from './jira-oauth';
 import { getOrgDek } from './vault';
 

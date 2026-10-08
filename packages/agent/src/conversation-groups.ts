@@ -1,7 +1,7 @@
+import type { Actor } from '@agile/db';
 import { agentConversationGroups, agentConversations, type Db, isUuid, withOrg } from '@agile/db';
 import { and, desc, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import type { ConversationSummary } from './conversations';
-import type { AgentActor } from './deps';
 import { GROUP_NAME_MAX_LENGTH } from './limits';
 
 /** Groups one person can have in a workspace. */
@@ -14,14 +14,14 @@ export const SECTION_LIMIT = 100;
 const cleanName = (name: string) =>
   name.replace(/\s+/g, ' ').trim().slice(0, GROUP_NAME_MAX_LENGTH);
 
-const ownGroup = (actor: AgentActor, id: string) =>
+const ownGroup = (actor: Actor, id: string) =>
   and(
     eq(agentConversationGroups.id, id),
     eq(agentConversationGroups.orgId, actor.orgId),
     eq(agentConversationGroups.userId, actor.userId),
   );
 
-const ownConversations = (actor: AgentActor) =>
+const ownConversations = (actor: Actor) =>
   and(
     eq(agentConversations.orgId, actor.orgId),
     eq(agentConversations.userId, actor.userId),
@@ -31,7 +31,7 @@ const ownConversations = (actor: AgentActor) =>
 
 export async function createGroup(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   name: string,
 ): Promise<{ ok: true; id: string } | { ok: false; code: 'invalid_name' | 'too_many' }> {
   const clean = cleanName(name);
@@ -60,7 +60,7 @@ export async function createGroup(
 /** False when the group is not the user's or the name is blank. */
 export async function renameGroup(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   name: string,
 ): Promise<boolean> {
@@ -77,7 +77,7 @@ export async function renameGroup(
 }
 
 /** Deletes one of the user's groups; its conversations go back to the ungrouped list. */
-export async function deleteGroup(db: Db, actor: AgentActor, id: string): Promise<boolean> {
+export async function deleteGroup(db: Db, actor: Actor, id: string): Promise<boolean> {
   if (!isUuid(id)) return false;
   const rows = await withOrg(db, actor.orgId, (tx) =>
     tx
@@ -94,7 +94,7 @@ export async function deleteGroup(db: Db, actor: AgentActor, id: string): Promis
  */
 export async function moveConversationToGroup(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   conversationId: string,
   groupId: string | null,
 ): Promise<boolean> {
@@ -145,10 +145,7 @@ const summary = {
 };
 
 /** What the assistant's sidebar lists for the user. */
-export async function listConversationHistory(
-  db: Db,
-  actor: AgentActor,
-): Promise<ConversationHistory> {
+export async function listConversationHistory(db: Db, actor: Actor): Promise<ConversationHistory> {
   return withOrg(db, actor.orgId, async (tx) => {
     const groups = await tx
       .select({

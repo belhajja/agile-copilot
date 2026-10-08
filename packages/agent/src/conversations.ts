@@ -1,3 +1,4 @@
+import type { Actor } from '@agile/db';
 import {
   agentConversations,
   agentMessages,
@@ -9,7 +10,6 @@ import {
 } from '@agile/db';
 import type { UIMessage } from 'ai';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import type { AgentActor } from './deps';
 import { TITLE_MAX_LENGTH } from './limits';
 
 export interface ConversationSummary {
@@ -30,7 +30,7 @@ export class ConversationNotFoundError extends Error {
 /** Conversation ids are uuids the browser chooses: anything else is refused before any query. */
 export const isConversationId = isUuid;
 
-const ownedBy = (actor: AgentActor, id: string) =>
+const ownedBy = (actor: Actor, id: string) =>
   and(
     eq(agentConversations.id, id),
     eq(agentConversations.orgId, actor.orgId),
@@ -45,7 +45,7 @@ const ownedBy = (actor: AgentActor, id: string) =>
  */
 export async function requireOwnConversation(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
 ): Promise<{ title: string }> {
   if (!isConversationId(id)) throw new ConversationNotFoundError();
@@ -61,7 +61,7 @@ export async function requireOwnConversation(
 /** The user's own conversations, most recent first. */
 export async function listConversations(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   limit = 30,
 ): Promise<ConversationSummary[]> {
   return withOrg(db, actor.orgId, (tx) =>
@@ -102,7 +102,7 @@ export interface LoadedConversation {
 /** The messages of one of the user's conversations; null when it is not theirs (or unknown). */
 export async function loadConversation(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
 ): Promise<LoadedConversation | null> {
   if (!isConversationId(id)) return null;
@@ -126,7 +126,7 @@ export async function loadConversation(
  */
 export async function openOrCreateConversation(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
 ): Promise<{ id: string; messages: UIMessage[] } | null> {
   if (!isConversationId(id)) return null;
@@ -171,7 +171,7 @@ export class TurnLostError extends Error {
  */
 export async function beginTurn(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   turnId: string,
 ): Promise<UIMessage[]> {
@@ -196,7 +196,7 @@ export async function beginTurn(
  * Ends a chat turn inside the caller's transaction (before storing its reply there): throws
  * `TurnLostError` if the turn no longer holds the conversation, otherwise releases it.
  */
-export async function endTurn(tx: Tx, actor: AgentActor, id: string, turnId: string) {
+export async function endTurn(tx: Tx, actor: Actor, id: string, turnId: string) {
   const released = await tx
     .update(agentConversations)
     .set({ turnId: null, turnStartedAt: null })
@@ -212,7 +212,7 @@ export async function endTurn(tx: Tx, actor: AgentActor, id: string, turnId: str
  */
 export async function heldHistory(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   turnId: string,
 ): Promise<UIMessage[] | null> {
@@ -227,7 +227,7 @@ export async function heldHistory(
 /** Whether the turn still holds its conversation (checked between model steps). */
 export async function holdsTurn(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   turnId: string,
 ): Promise<boolean> {
@@ -241,7 +241,7 @@ export async function holdsTurn(
 }
 
 /** Best-effort release of a turn that ends without storing a reply (setup or storage failed). */
-export async function releaseTurn(db: Db, actor: AgentActor, id: string, turnId: string) {
+export async function releaseTurn(db: Db, actor: Actor, id: string, turnId: string) {
   await withOrg(db, actor.orgId, (tx) =>
     tx
       .update(agentConversations)
@@ -261,7 +261,7 @@ const titleOf = (messages: UIMessage[]) => {
  */
 export async function saveConversation(
   tx: Tx,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   messages: UIMessage[],
 ): Promise<void> {
@@ -294,7 +294,7 @@ const unchangedDate = { updatedAt: sql`${agentConversations.updatedAt}` };
 /** Renames one of the user's conversations. False when it is not theirs or the title is blank. */
 export async function renameConversation(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   title: string,
 ): Promise<boolean> {
@@ -313,7 +313,7 @@ export async function renameConversation(
 /** Archives (or brings back) one of the user's conversations. False when it is not theirs. */
 export async function setConversationArchived(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   archived: boolean,
 ): Promise<boolean> {
@@ -329,7 +329,7 @@ export async function setConversationArchived(
 }
 
 /** A new question brings an archived conversation back (in the caller's transaction). */
-export async function unarchiveConversation(tx: Tx, actor: AgentActor, id: string) {
+export async function unarchiveConversation(tx: Tx, actor: Actor, id: string) {
   await tx
     .update(agentConversations)
     .set({ archivedAt: null })
@@ -342,7 +342,7 @@ export async function unarchiveConversation(tx: Tx, actor: AgentActor, id: strin
  */
 export async function deleteConversation(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
 ): Promise<'deleted' | 'not_found' | 'turn_in_progress'> {
   if (!isConversationId(id)) return 'not_found';
@@ -368,7 +368,7 @@ export async function deleteConversation(
  */
 export async function setConversationModel(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
   llmConnectionId: string | null,
 ): Promise<'ok' | 'not_found' | 'unknown_model'> {
@@ -399,7 +399,7 @@ export async function setConversationModel(
 /** The model picked for one of the user's conversations; null = the default (or not theirs). */
 export async function conversationModelId(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   id: string,
 ): Promise<string | null> {
   if (!isConversationId(id)) return null;

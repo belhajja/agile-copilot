@@ -1,8 +1,6 @@
 import { SKILL_RUN_TIMEOUT_MS } from '@agile/agent';
-import { recordAudit } from '@agile/connections';
-import { type Db, isUuid, organization, skills, withOrg } from '@agile/db';
+import { type Actor, type Db, isUuid, organization, recordAudit, skills, withOrg } from '@agile/db';
 import { EMAIL_DEADLINE_MS } from '@agile/notify';
-import type { SkillActor } from '@agile/skills';
 import { and, eq } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { z } from 'zod';
@@ -72,7 +70,7 @@ const send = sendSkillRun;
  */
 export async function requestSkillRun(
   deps: { db: Db; boss: PgBoss; dailyLimit: number; now: Date },
-  actor: SkillActor,
+  actor: Actor,
   skillId: string,
 ): Promise<
   | { ok: true; runId: string; queued: true; skipped: null }

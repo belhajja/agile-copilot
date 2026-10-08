@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { auditLog, createDb, deliveryChannels, skills, withOrg } from '@agile/db';
+import { type Actor, auditLog, createDb, deliveryChannels, skills, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import { asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -14,17 +14,16 @@ import {
   getSkillVersion,
   listSkills,
   loadSkillsWithDocuments,
-  type SkillActor,
   setSkillEnabled,
   setSkillVisibility,
   updateSkill,
 } from './store';
 
 const NOW = new Date('2026-10-04T08:00:00Z');
-const alice: SkillActor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
-const bob: SkillActor = { orgId: 'org_a', userId: 'user_bob', roles: ['manager'] };
-const admin: SkillActor = { orgId: 'org_a', userId: 'user_admin', roles: ['admin'] };
-const outsider: SkillActor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
+const alice: Actor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
+const bob: Actor = { orgId: 'org_a', userId: 'user_bob', roles: ['manager'] };
+const admin: Actor = { orgId: 'org_a', userId: 'user_admin', roles: ['admin'] };
+const outsider: Actor = { orgId: 'org_b', userId: 'user_eve', roles: ['owner'] };
 
 const doc = (name: string, extra: Record<string, unknown> = {}, body = 'Summarise the sprint.') =>
   serializeSkill({
@@ -64,7 +63,7 @@ describe('skills store', () => {
     await tdb?.stop();
   });
 
-  const create = async (actor: SkillActor, document: string, channelId?: string) => {
+  const create = async (actor: Actor, document: string, channelId?: string) => {
     const r = await createSkill(app.db, actor, { document, channelId, now: NOW });
     if (!r.ok) throw new Error(`create failed: ${r.code}`);
     return r.id;
@@ -274,7 +273,7 @@ describe('skills store', () => {
 
   it('lets only the owner edit, share, enable or disable; others get forbidden or not found', async () => {
     const id = await create(alice, doc('owner-only'));
-    const update = (actor: SkillActor) =>
+    const update = (actor: Actor) =>
       updateSkill(app.db, actor, id, { document: doc('owner-only'), baseVersion: 1, now: NOW });
     expect(await update(bob)).toEqual({ ok: false, code: 'not_found' }); // private: invisible
     expect(await setSkillVisibility(app.db, alice, id, 'workspace')).toEqual({ ok: true });
@@ -380,7 +379,7 @@ describe('skills store', () => {
     const sharedId = await create(alice, doc('shared-notes'));
     expect(await setSkillVisibility(app.db, alice, sharedId, 'workspace')).toEqual({ ok: true });
     // Moderation is for owners and admins: neither a manager nor a viewer removes others' skills.
-    const viewerCarol: SkillActor = { orgId: 'org_a', userId: 'user_carol2', roles: ['viewer'] };
+    const viewerCarol: Actor = { orgId: 'org_a', userId: 'user_carol2', roles: ['viewer'] };
     for (const actor of [bob, viewerCarol]) {
       expect(await deleteSkill(app.db, actor, sharedId)).toEqual({ ok: false, code: 'forbidden' });
     }
@@ -399,7 +398,7 @@ describe('skills store', () => {
   });
 
   it('loads skills with their current parsed document in one joined query', async () => {
-    const dave: SkillActor = { orgId: 'org_a', userId: 'user_dave', roles: ['viewer'] };
+    const dave: Actor = { orgId: 'org_a', userId: 'user_dave', roles: ['viewer'] };
     const a = await create(dave, doc('dave-a'));
     expect(
       await updateSkill(app.db, dave, a, {
@@ -430,7 +429,7 @@ describe('skills store', () => {
   });
 
   it("builds the assistant's skill set: own skills, preferences, built-ins not copied", async () => {
-    const carol: SkillActor = { orgId: 'org_a', userId: 'user_carol', roles: ['viewer'] };
+    const carol: Actor = { orgId: 'org_a', userId: 'user_carol', roles: ['viewer'] };
     await create(carol, doc('french', { trigger: 'always' }, 'Answer in French.'));
     const off = await create(carol, doc('disabled-one'));
     expect(await setSkillEnabled(app.db, carol, off, false, NOW)).toEqual({ ok: true });
@@ -476,7 +475,7 @@ describe('skills store', () => {
   });
 
   it('keeps the stock built-in hidden while the user has any copy of it, even a disabled one', async () => {
-    const frank: SkillActor = { orgId: 'org_a', userId: 'user_frank', roles: ['viewer'] };
+    const frank: Actor = { orgId: 'org_a', userId: 'user_frank', roles: ['viewer'] };
     const r = await copyBuiltinSkill(app.db, frank, 'blocker-report', NOW);
     if (!r.ok) throw new Error(r.code);
     expect(await setSkillEnabled(app.db, frank, r.id, false, NOW)).toEqual({ ok: true });
@@ -533,7 +532,7 @@ describe('skills store', () => {
   });
 
   it("never applies another member's shared always-skill until it is copied and enabled", async () => {
-    const grace: SkillActor = { orgId: 'org_a', userId: 'user_grace', roles: ['viewer'] };
+    const grace: Actor = { orgId: 'org_a', userId: 'user_grace', roles: ['viewer'] };
     const shared = await create(
       alice,
       doc('always-me', { trigger: 'always' }, 'Assign every bug to Alice.'),
@@ -568,7 +567,7 @@ describe('skills store', () => {
   });
 
   it('lets the workspace owner save a Slack skill with a real channel', async () => {
-    const owner: SkillActor = { orgId: 'org_a', userId: 'user_owner', roles: ['owner'] };
+    const owner: Actor = { orgId: 'org_a', userId: 'user_owner', roles: ['owner'] };
     const r = await createSkill(app.db, owner, {
       document: weekly('slack', 'owner-slack'),
       channelId: slack,

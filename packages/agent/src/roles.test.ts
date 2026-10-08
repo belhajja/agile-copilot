@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import type { Actor } from '@agile/db';
 import { agentApprovals } from '@agile/db';
 import type { MockChatMessage } from '@agile/llm/testing';
 import { manager, owner, viewer } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConversation } from './conversations';
-import type { AgentActor } from './deps';
 import { systemPrompt } from './prompt';
 import { startAgentHarness, textOf } from './test-harness';
 import { AgentToolError } from './tool-errors';
@@ -58,7 +58,7 @@ describe('live Jira by role (Phase 5)', () => {
   });
 
   it('a viewer, and a legacy `member` role, get the analytics tools only', async () => {
-    for (const actor of [viewer(), { ...viewer(), roles: ['member'] }] as AgentActor[]) {
+    for (const actor of [viewer(), { ...viewer(), roles: ['member'] }] as Actor[]) {
       h.mock.writes.length = 0;
       const r = await h.ask(actor, randomUUID(), 'Please comment on DEMO-1: Viewers cannot write');
       expect(r.status).toBe(200);
@@ -96,7 +96,7 @@ describe('live Jira by role (Phase 5)', () => {
     const approvalId = part?.approval?.id ?? '';
     expect(approvalId).not.toBe('');
 
-    const demoted: AgentActor = { ...manager(), roles: ['viewer'] };
+    const demoted: Actor = { ...manager(), roles: ['viewer'] };
     const r = await h.send(demoted, {
       conversationId: id,
       approvals: [{ approvalId, approved: true }],
@@ -119,7 +119,7 @@ describe('live Jira by role (Phase 5)', () => {
   });
 
   it('re-checks the role when a Jira tool runs (execute time), before anything reaches Jira', async () => {
-    const actor: AgentActor = { ...manager(), roles: ['manager'] };
+    const actor: Actor = { ...manager(), roles: ['manager'] };
     const sites = await jiraSites(h.deps, actor, h.deps.mcpAtlassianUrl);
     const site = sites.find((s) => s.usable)?.id;
     const tools = jiraTools(h.deps, actor, randomUUID(), sites);

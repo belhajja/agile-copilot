@@ -1,10 +1,11 @@
 import { canManageConnections } from '@agile/auth';
-import { type Actor, recordAudit } from '@agile/connections';
 import {
+  type Actor,
   type Db,
   deliveryChannels,
   isUniqueViolation,
   isUuid,
+  recordAudit,
   skillRuns,
   skills,
   skillVersions,
@@ -24,7 +25,6 @@ import {
 import { builtinSkill } from './library';
 import type { SkillOutput, SkillTrigger } from './schema';
 
-export type SkillActor = Pick<Actor, 'orgId' | 'userId' | 'roles'>;
 export type SkillLocale = 'en' | 'fr';
 
 export interface SkillView {
@@ -77,7 +77,7 @@ const columns = {
 };
 
 /** Readable by the actor: their own skills and the ones shared with the workspace. */
-const readableBy = (actor: SkillActor) =>
+const readableBy = (actor: Actor) =>
   and(
     eq(skills.orgId, actor.orgId),
     or(eq(skills.ownerUserId, actor.userId), eq(skills.visibility, 'workspace')),
@@ -139,7 +139,7 @@ async function lastRuns(tx: Tx, ids: string[]) {
 /** The actor's skills, and the ones other members shared with the workspace. */
 export async function listSkills(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
 ): Promise<{ mine: SkillView[]; shared: SkillView[] }> {
   return withOrg(db, actor.orgId, async (tx) => {
     const rows = await tx
@@ -168,12 +168,12 @@ export interface SkillDetail {
   canDelete: boolean;
 }
 
-const canDelete = (actor: SkillActor, row: { ownerUserId: string; visibility: string }) =>
+const canDelete = (actor: Actor, row: { ownerUserId: string; visibility: string }) =>
   row.ownerUserId === actor.userId ||
   (row.visibility === 'workspace' && canManageConnections(actor.roles));
 
 /** One readable skill with its current document and version list; null when not readable. */
-export async function getSkill(db: Db, actor: SkillActor, id: string): Promise<SkillDetail | null> {
+export async function getSkill(db: Db, actor: Actor, id: string): Promise<SkillDetail | null> {
   if (!isUuid(id)) return null;
   return withOrg(db, actor.orgId, async (tx) => {
     const [loaded] = await loadSkillsWithDocuments(tx, and(readableBy(actor), eq(skills.id, id)));
@@ -218,7 +218,7 @@ export async function getSkill(db: Db, actor: SkillActor, id: string): Promise<S
 /** One saved version's document (to view or restore it); null when not readable. */
 export async function getSkillVersion(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
   version: number,
 ): Promise<string | null> {
@@ -239,7 +239,7 @@ const postsToChannel = (output: SkillOutput) => output === 'slack' || output ===
  * Slack/Teams outputs post where workspace admins chose: only workspace owners/admins may own
  * such a skill (P4-R4, until Phase 5 roles). The run re-checks the owner's role at run time.
  */
-const outputAllowed = (actor: SkillActor, output: SkillOutput) =>
+const outputAllowed = (actor: Actor, output: SkillOutput) =>
   !postsToChannel(output) || canManageConnections(actor.roles);
 
 /**
@@ -286,7 +286,7 @@ const parse = (document: string): { ok: true; skill: SkillDocument } | SkillFail
  */
 export async function createSkill(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   input: {
     document: string;
     channelId?: string | null;
@@ -366,7 +366,7 @@ export async function createSkill(
 }
 
 /** Locks the actor's own skill for an update; a readable skill of someone else is `forbidden`. */
-async function lockOwn(tx: Tx, actor: SkillActor, id: string): Promise<SkillRow | SkillFailure> {
+async function lockOwn(tx: Tx, actor: Actor, id: string): Promise<SkillRow | SkillFailure> {
   if (!isUuid(id)) return notFound;
   const [row] = await tx
     .select()
@@ -398,7 +398,7 @@ const isFailure = (v: unknown): v is SkillFailure =>
  */
 export async function updateSkill(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
   input: {
     document: string;
@@ -471,7 +471,7 @@ export async function updateSkill(
 }
 
 /** A free name for a copy in the actor's skills: the same name, else `-copy`, `-copy-2`… */
-async function freeName(tx: Tx, actor: SkillActor, name: string): Promise<string> {
+async function freeName(tx: Tx, actor: Actor, name: string): Promise<string> {
   const taken = new Set(
     (
       await tx
@@ -497,7 +497,7 @@ async function freeName(tx: Tx, actor: SkillActor, name: string): Promise<string
  */
 export async function forkSkill(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
   now: Date,
   locale?: SkillLocale,
@@ -518,7 +518,7 @@ export async function forkSkill(
 /** Copies a built-in skill into an editable skill of the actor's. */
 export async function copyBuiltinSkill(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   key: string,
   now: Date,
   locale?: SkillLocale,
@@ -537,7 +537,7 @@ export async function copyBuiltinSkill(
 /** Shares the actor's own skill with the workspace (read and copy only), or makes it private. */
 export async function setSkillVisibility(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
   visibility: 'private' | 'workspace',
 ): Promise<{ ok: true } | SkillFailure> {
@@ -560,7 +560,7 @@ export async function setSkillVisibility(
 /** Turns the actor's own skill on or off (off: not offered to the assistant, never scheduled). */
 export async function setSkillEnabled(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
   enabled: boolean,
   now: Date,
@@ -588,7 +588,7 @@ export async function setSkillEnabled(
 /** Deletes a skill: its owner, or a workspace owner/admin for a shared one (moderation). */
 export async function deleteSkill(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   id: string,
 ): Promise<{ ok: true } | SkillFailure> {
   if (!isUuid(id)) return notFound;

@@ -1,5 +1,13 @@
-import { type Db, deliveryChannels, isUuid, skillRuns, skills, type Tx, withOrg } from '@agile/db';
-import type { SkillActor } from '@agile/skills';
+import {
+  type Actor,
+  type Db,
+  deliveryChannels,
+  isUuid,
+  skillRuns,
+  skills,
+  type Tx,
+  withOrg,
+} from '@agile/db';
 import { and, desc, eq, gte, isNotNull, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { RunResultCode, RunSkipCode } from './codes';
 
@@ -306,7 +314,7 @@ export async function queuedRunsToResend(db: Db, orgId: string, now: Date): Prom
  */
 export async function listRuns(
   db: Db,
-  actor: SkillActor,
+  actor: Actor,
   skillId: string,
   limit = 20,
 ): Promise<RunView[]> {

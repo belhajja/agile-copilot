@@ -1,6 +1,6 @@
-import { type Actor, createJiraConnection } from '@agile/connections';
+import { createJiraConnection } from '@agile/connections';
 import { parseKeyring } from '@agile/crypto';
-import { createDb } from '@agile/db';
+import { type Actor, createDb } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import {
   demoDataset,

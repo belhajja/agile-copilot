@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { recordAudit } from '@agile/connections';
-import { type Db, dashboards, isUuid, jiraBoards, withOrg } from '@agile/db';
+import { type Db, dashboards, isUuid, jiraBoards, recordAudit, withOrg } from '@agile/db';
 import { and, eq, sql } from 'drizzle-orm';
 import { chartOptions, parseWidgets, type WidgetSpec, widgetSpecSchema } from './widget-spec';
 

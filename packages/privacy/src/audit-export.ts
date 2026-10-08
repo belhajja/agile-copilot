@@ -1,15 +1,9 @@
 import { can } from '@agile/auth';
-import { auditLog, type Db, recordAudit, user, withOrg } from '@agile/db';
+import { type Actor, auditLog, type Db, recordAudit, user, withOrg } from '@agile/db';
 import { and, asc, desc, eq, gte, lt, type SQL, sql } from 'drizzle-orm';
 import { type OpenExportResult, openThrottledExport } from './gdpr';
 
 export type AuditExportFormat = 'csv' | 'json';
-
-export interface AuditActor {
-  orgId: string;
-  userId: string;
-  roles: readonly string[];
-}
 
 export class AuditExportError extends Error {
   override name = 'AuditExportError';
@@ -122,16 +116,12 @@ function selectPage(
   );
 }
 
-const assertCanExport = (actor: AuditActor) => {
+const assertCanExport = (actor: Actor) => {
   if (!can(actor.roles, 'audit.export')) throw new AuditExportError('forbidden_role');
 };
 
 /** The latest entries, newest first (the audit page). Owners and admins only. */
-export async function recentAuditEntries(
-  db: Db,
-  actor: AuditActor,
-  limit = 50,
-): Promise<AuditEntry[]> {
+export async function recentAuditEntries(db: Db, actor: Actor, limit = 50): Promise<AuditEntry[]> {
   assertCanExport(actor);
   const rows = await selectPage(db, actor.orgId, { limit, newestFirst: true });
   return rows.map(({ cursorAt: _c, ...e }) => e);
@@ -144,7 +134,7 @@ export async function recentAuditEntries(
  */
 export async function exportAuditLog(
   db: Db,
-  actor: AuditActor,
+  actor: Actor,
   opts: { format: AuditExportFormat; from?: Date; to?: Date },
 ): Promise<AsyncGenerator<string>> {
   assertCanExport(actor);
@@ -195,7 +185,7 @@ export type OpenAuditExportResult = OpenExportResult | { ok: false; code: 'forbi
  */
 export async function openAuditExport(
   db: Db,
-  actor: AuditActor,
+  actor: Actor,
   opts: { format: AuditExportFormat; from?: Date; to?: Date },
 ): Promise<OpenAuditExportResult> {
   if (!can(actor.roles, 'audit.export')) return { ok: false, code: 'forbidden_role' };

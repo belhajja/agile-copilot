@@ -1,8 +1,8 @@
 import { can } from '@agile/auth';
 import { ForbiddenError } from '@agile/connections';
+import type { Actor } from '@agile/db';
 import { agentUsage, type Db, skillBuilderCalls, user, withOrg } from '@agile/db';
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import type { AgentActor } from './deps';
 
 export interface TokenUsage {
   inputTokens: number;
@@ -61,7 +61,7 @@ export function tokenUsageOf(total: {
 
 export async function recordUsage(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   entry: {
     /** The chat conversation, or null for skill runs and drafts. */
     conversationId: string | null;
@@ -99,7 +99,7 @@ const BUILDER_WINDOW_MS = 3_600_000;
  * and the insert run under a per-member transaction lock, so parallel requests cannot overshoot,
  * and a reservation counts even when the call or its metering fails.
  */
-export async function reserveBuilderCall(db: Db, actor: AgentActor, now: Date): Promise<boolean> {
+export async function reserveBuilderCall(db: Db, actor: Actor, now: Date): Promise<boolean> {
   const since = new Date(now.getTime() - BUILDER_WINDOW_MS);
   return withOrg(db, actor.orgId, async (tx) => {
     await tx.execute(
@@ -142,7 +142,7 @@ export interface UsageTotals {
  */
 export async function usageSummary(
   db: Db,
-  actor: AgentActor,
+  actor: Actor,
   opts: {
     since: Date;
     allUsers: boolean;
