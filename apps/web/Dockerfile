@@ -35,8 +35,9 @@ RUN node scripts/bundle-node.mjs apps/worker/src/main.ts /out/worker/dist/worker
 # Same Alpine release as node:24-alpine (3.24), so the binary finds the libraries it was built for.
 FROM node:24-alpine AS node
 FROM alpine:3.24 AS runtime
-# hadolint ignore=DL3018
-RUN apk add --no-cache libstdc++ libgcc \
+# The base image's own packages get their security fixes here, not when a new alpine tag ships.
+# hadolint ignore=DL3017,DL3018
+RUN apk upgrade --no-cache && apk add --no-cache libstdc++ libgcc \
   && addgroup -g 10001 -S app && adduser -u 10001 -S app -G app
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
