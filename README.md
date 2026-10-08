@@ -581,6 +581,7 @@ Record results here (**NOT YET RUN**: no Jira Data Center licence or Cloud sandb
 - With single sign-on, an SSO identity never attaches itself to an account unless both sides have verified the address, and break-glass accounts never get one.
 - Connections are tested before they are saved (Jira reachability; LLM tool-calling support).
 - An outbound URL guard blocks requests to private, loopback and link-local addresses unless the host is in `ALLOWED_PRIVATE_HOSTS`. Requests to user-supplied hosts (Jira, OpenAI-compatible model URLs) connect only to the address that passed this check, resolved once at connect time, so DNS rebinding cannot redirect them. Credentials (Jira tokens, API keys) go over plain `http://` only to hosts in `ALLOWED_PRIVATE_HOSTS` (`insecure_transport` otherwise), checked when a connection is saved and again on every request, so a connection stored with an `http://` URL fails instead of sending its token.
+- Pages carry a per-request Content-Security-Policy: scripts only with the request's nonce, nothing loaded from or sent to other origins, no framing. HSTS is sent when `BETTER_AUTH_URL` is https.
 - The assistant never writes to Jira without the user's explicit approval of that exact change. Skill runs have no write tools at all.
 - Skills written by other members never reach your assistant unless you copy them (they start disabled); skill emails go only to the skill owner's own address; Slack/Teams posts are escaped and not unfurled.
 

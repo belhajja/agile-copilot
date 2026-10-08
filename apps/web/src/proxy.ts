@@ -1,5 +1,6 @@
 import { getSessionCookie } from 'better-auth/cookies';
 import { type NextRequest, NextResponse } from 'next/server';
+import { contentSecurityPolicy, createNonce, strictTransportSecurity } from './csp';
 import { loginPath } from './lib/next-path';
 
 const PUBLIC_PREFIXES = ['/login', '/signup', '/api/auth'];
@@ -13,11 +14,29 @@ const NAVIGATION_API_PREFIXES = ['/api/jira/oauth'];
 const under = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
 
-/** Optimistic check only — real authorization happens server-side in requireActor()/currentActor(). */
+/**
+ * Every response gets the per-request CSP (and HSTS over https). The request carries the CSP too:
+ * Next reads the nonce from it while rendering and puts it on its scripts.
+ */
 export function proxy(request: NextRequest) {
+  const csp = contentSecurityPolicy({
+    nonce: createNonce(),
+    dev: process.env.NODE_ENV === 'development',
+  });
+  const headers = new Headers(request.headers);
+  headers.set('Content-Security-Policy', csp);
+  const response = route(request, headers);
+  response.headers.set('Content-Security-Policy', csp);
+  const hsts = strictTransportSecurity(process.env.BETTER_AUTH_URL);
+  if (hsts) response.headers.set('Strict-Transport-Security', hsts);
+  return response;
+}
+
+/** Optimistic check only — real authorization happens server-side in requireActor()/currentActor(). */
+function route(request: NextRequest, headers: Headers) {
   const { pathname } = request.nextUrl;
   if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => under(pathname, p))) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers } });
   }
   if (!getSessionCookie(request)) {
     // Fetch clients (the chat) need a status code, not an HTML login page. Any letter case: an
@@ -30,7 +49,7 @@ export function proxy(request: NextRequest) {
     const next = request.method === 'GET' && !api ? `${pathname}${request.nextUrl.search}` : '/';
     return NextResponse.redirect(new URL(loginPath(next), request.url));
   }
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers } });
 }
 
 export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] };
