@@ -108,6 +108,25 @@ describe('llm connections', () => {
     });
   });
 
+  it('refuses plain http to a public endpoint before sending the key', async () => {
+    const mock = await startMockOpenAI({ validKey: 'k' });
+    try {
+      const config: LlmConfig = {
+        provider: 'openai_compatible',
+        model: 'mock',
+        baseUrl: mock.baseUrl.replace('127.0.0.1', 'llm.example.com'),
+        apiKey: 'k',
+      };
+      const publicDns: LlmDeps = { ...deps, resolve: async () => ['93.184.216.34'] };
+      expect(
+        await createLlmConnection(publicDns, owner(), { label: 'Plain', config }),
+      ).toMatchObject({ ok: false, code: 'insecure_transport' });
+      expect(mock.requests).toEqual([]);
+    } finally {
+      await mock.close();
+    }
+  });
+
   it('pins the probe to the checked address: a rebinding host never reaches the LLM', async () => {
     const mock = await startMockOpenAI({ validKey: 'k' });
     try {
@@ -122,7 +141,7 @@ describe('llm connections', () => {
       const config: LlmConfig = {
         provider: 'openai_compatible',
         model: 'mock',
-        baseUrl: mock.baseUrl.replace('127.0.0.1', 'llm.rebind.example'),
+        baseUrl: mock.baseUrl.replace('http://127.0.0.1', 'https://llm.rebind.example'),
         apiKey: 'k',
       };
       const result = await createLlmConnection(rebinding, owner(), { label: 'Rebind', config });

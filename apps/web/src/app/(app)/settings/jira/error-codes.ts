@@ -5,6 +5,7 @@
 export const JIRA_ERROR_CODES = [
   'invalid_input',
   'blocked_url',
+  'insecure_transport',
   'unauthorized',
   'forbidden',
   'not_found',
@@ -33,6 +34,7 @@ export const BOARD_ERROR_CODES = [
   'no_boards',
   'already_running',
   'blocked_url',
+  'insecure_transport',
   'unauthorized',
   'forbidden',
   'not_jira',

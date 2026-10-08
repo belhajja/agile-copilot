@@ -171,6 +171,7 @@
     "errors": {
       "invalid_input": "Check the URL and fields.",
       "blocked_url": "This address is private. Ask your administrator to allow it.",
+      "insecure_transport": "Plain http:// is only allowed for internal Jira servers your administrator allowed. Use https://.",
       "unauthorized": "Jira rejected these credentials.",
       "forbidden": "Jira refused access with this token.",
       "not_found": "Connection not found.",
@@ -242,6 +243,7 @@
     "errors": {
       "invalid_input": "Check the fields.",
       "blocked_url": "This address is private. Ask your administrator to allow it.",
+      "insecure_transport": "Plain http:// is only allowed for internal hosts your administrator allowed. Use https:// so the API key is not sent unencrypted.",
       "unauthorized": "The provider rejected this API key.",
       "forbidden": "This key is not allowed to use this model.",
       "model_not_found": "The provider does not know this model name.",
@@ -346,6 +348,7 @@
       "no_boards": "Select at least one board first.",
       "already_running": "A sync is already running.",
       "blocked_url": "This Jira address is not allowed any more. Ask your administrator.",
+      "insecure_transport": "This Jira connection uses plain http://, which is no longer allowed. Reconnect it with https://.",
       "unauthorized": "Jira rejected the stored credentials. Update the connection.",
       "forbidden": "Jira refused access to these boards.",
       "not_jira": "Jira did not answer as expected.",
@@ -697,12 +700,14 @@
       "alreadyDecided": "This change was already approved or rejected. Reload the page to see where it stands.",
       "approvalNotFound": "This proposed change is no longer waiting for a decision. Reload the page to see where it stands.",
       "noLlm": "No default AI model is set for this workspace. Ask an admin to connect one.",
+      "insecureLlm": "The workspace's AI model uses plain http://, which is not allowed. Ask an admin to reconnect it with https://.",
       "duplicateMessage": "This message was already sent. Reload the page to see the conversation."
     },
     "toolErrors": {
       "generic": "The request failed.",
       "ambiguous_user": "Several people match this assignee.",
       "blocked_url": "The Jira address is not allowed.",
+      "insecure_transport": "The Jira connection uses plain http://, which is not allowed. Ask an admin to reconnect it with https://.",
       "forbidden": "Permission denied.",
       "invalid_request": "Jira refused the request.",
       "not_found": "Not found in Jira, or the Jira connection no longer exists.",

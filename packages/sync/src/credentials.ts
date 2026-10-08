@@ -52,7 +52,15 @@ export async function resolveCredentials(
   const check = await checkOutboundUrl(row.baseUrl, deps);
   // A DNS failure is usually transient (resolver hiccup, VPN down): retry it, don't block the
   // connection as a policy violation that needs a user action.
-  if (!check.ok) throw new SyncError(check.code === 'unresolvable' ? 'unreachable' : 'blocked_url');
+  if (!check.ok) {
+    throw new SyncError(
+      check.code === 'unresolvable'
+        ? 'unreachable'
+        : check.code === 'insecure_transport'
+          ? 'insecure_transport'
+          : 'blocked_url',
+    );
+  }
   const secret = await loadJiraSecret(deps, orgId, connectionId);
   if (!secret) throw new SyncError('not_found');
   return secret.credentials;

@@ -10,6 +10,7 @@ export type JiraCredentials =
 export type JiraFailureCode =
   | 'invalid_input'
   | 'blocked_url'
+  | 'insecure_transport'
   | 'unauthorized'
   | 'forbidden'
   | 'not_found'

@@ -36,6 +36,13 @@ export async function testJiraConnection(
   }
   if (creds.kind !== 'cloud_oauth') {
     const check = await checkOutboundUrl(creds.baseUrl, opts);
+    if (!check.ok && check.code === 'insecure_transport') {
+      return {
+        ok: false,
+        code: 'insecure_transport',
+        message: 'Plain http is only allowed for internal hosts your administrator allowed.',
+      };
+    }
     if (!check.ok) {
       return {
         ok: false,

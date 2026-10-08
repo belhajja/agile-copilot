@@ -142,6 +142,9 @@ async function checkTarget(
   plaintext: boolean,
 ): Promise<{ ok: true; host: string } | ChannelFailure> {
   const check = await checkOutboundUrl(target, deps);
+  if (!check.ok && check.code === 'insecure_transport') {
+    return { ok: false, code: 'insecure_transport', host: check.host };
+  }
   if (!check.ok) {
     return { ok: false, code: 'blocked_url', reason: check.code, host: check.host };
   }

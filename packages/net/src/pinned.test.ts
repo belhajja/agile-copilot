@@ -1,4 +1,5 @@
 import { createServer, get, type Server } from 'node:http';
+import { get as httpsGet } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { RedirectBlockedError } from './http';
@@ -7,7 +8,9 @@ import {
   BlockedAddressError,
   createOutboundFetch,
   createPinnedAgents,
+  InsecureTransportError,
   isBlockedAddressError,
+  isInsecureTransportError,
   outboundDispatcher,
 } from './pinned';
 
@@ -53,7 +56,7 @@ describe('DNS-pinned outbound requests', () => {
 
   it('refuses a host that rebinds to a private address after the URL check', async () => {
     const resolve = rebinding();
-    const url = `http://rebind.example:${port}/ok`;
+    const url = `https://rebind.example:${port}/ok`;
     expect((await checkOutboundUrl(url, { allowedPrivateHosts: [], resolve })).ok).toBe(true);
     const fetch = createOutboundFetch({ allowedPrivateHosts: [], resolve });
     const err = await fetch(url).catch((e: unknown) => e);
@@ -81,20 +84,64 @@ describe('DNS-pinned outbound requests', () => {
   });
 
   it('pins Node http agents too (axios / jira.js v5)', async () => {
-    const request = (host: string, allowedPrivateHosts: string[]) =>
-      new Promise<number | unknown>((resolve) => {
-        const { httpAgent } = createPinnedAgents({
-          allowedPrivateHosts,
-          resolve: async () => ['127.0.0.1'],
-        });
-        get({ host, port, path: '/ok', agent: httpAgent }, (res) => {
-          res.resume();
-          resolve(res.statusCode);
-        }).on('error', resolve);
-      });
-    expect(isBlockedAddressError(await request('evil.example', []))).toBe(true);
+    const policy = (allowedPrivateHosts: string[]) => ({
+      allowedPrivateHosts,
+      resolve: async () => ['127.0.0.1'],
+    });
+    const blocked = await new Promise<unknown>((resolve) => {
+      const { httpsAgent } = createPinnedAgents(policy([]));
+      httpsGet({ host: 'evil.example', port, path: '/ok', agent: httpsAgent }, resolve).on(
+        'error',
+        resolve,
+      );
+    });
+    expect(isBlockedAddressError(blocked)).toBe(true);
     expect(hits).toEqual([]);
-    expect(await request('jira.corp.test', ['corp.test'])).toBe(200);
+    const status = await new Promise<number | unknown>((resolve) => {
+      const { httpAgent } = createPinnedAgents(policy(['corp.test']));
+      get({ host: 'jira.corp.test', port, path: '/ok', agent: httpAgent }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      }).on('error', resolve);
+    });
+    expect(status).toBe(200);
+  });
+
+  it('refuses plain http to a public host through the Node agents', async () => {
+    const err = await new Promise<unknown>((resolve) => {
+      const { httpAgent } = createPinnedAgents({
+        allowedPrivateHosts: [],
+        resolve: async () => ['93.184.216.34'],
+      });
+      get({ host: 'jira.example.com', port, path: '/ok', agent: httpAgent }, resolve).on(
+        'error',
+        resolve,
+      );
+    });
+    expect(isInsecureTransportError(err)).toBe(true);
+  });
+
+  it('refuses plain http to a public host before sending anything', async () => {
+    const fetch = createOutboundFetch({
+      allowedPrivateHosts: [],
+      resolve: async () => ['93.184.216.34'],
+    });
+    await expect(
+      fetch(`http://api.example.com:${port}/ok`, { headers: { authorization: 'Bearer x' } }),
+    ).rejects.toBeInstanceOf(InsecureTransportError);
+    await expect(fetch(`http://93.184.216.34:${port}/ok`)).rejects.toBeInstanceOf(
+      InsecureTransportError,
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it('reports plain http to a private, non-allowlisted host as blocked', async () => {
+    const fetch = createOutboundFetch({
+      allowedPrivateHosts: [],
+      resolve: async () => ['10.0.0.5'],
+    });
+    const err = await fetch(`http://jira.corp.test:${port}/ok`).catch((e: unknown) => e);
+    expect(isBlockedAddressError(err)).toBe(true);
   });
 
   it('refuses IP literals through the Node agents unless allowlisted', async () => {

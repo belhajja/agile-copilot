@@ -32,6 +32,7 @@ export type ChatErrorKey =
   | 'alreadyDecided'
   | 'approvalNotFound'
   | 'noLlm'
+  | 'insecureLlm'
   | 'duplicateMessage'
   | 'generic';
 
@@ -46,6 +47,7 @@ const BY_CODE: Record<string, ChatErrorKey> = {
   already_decided: 'alreadyDecided',
   approval_not_found: 'approvalNotFound',
   no_llm: 'noLlm',
+  insecure_llm: 'insecureLlm',
   duplicate_message: 'duplicateMessage',
 };
 // When the body is not ours (an HTML error page): only statuses with one meaning.

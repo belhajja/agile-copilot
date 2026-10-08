@@ -1,4 +1,4 @@
-import { fetchNoRedirect, isBlockedAddressError } from '@agile/net';
+import { fetchNoRedirect, isBlockedAddressError, isInsecureTransportError } from '@agile/net';
 import type { ProbeFailureCode } from './probe';
 import type { LlmConfig } from './providers';
 
@@ -167,6 +167,9 @@ async function listGoogleModels(
 function mapError(e: unknown): ModelListResult {
   if (isBlockedAddressError(e)) {
     return fail('blocked_url', 'This host now points to a private or reserved address.');
+  }
+  if (isInsecureTransportError(e)) {
+    return fail('insecure_transport', 'Plain http to this host is not allowed; use https.');
   }
   if (isRedirectBlocked(e)) {
     return fail('unreachable', 'The provider endpoint redirected elsewhere; use its final URL.');

@@ -62,6 +62,7 @@ export const SYNC_FAILURE_CODES: Readonly<Record<SyncFailureCode, CodeBehaviour>
   oauth_expired: code(true, true),
   oauth_unavailable: code(true, true),
   blocked_url: code(true, true),
+  insecure_transport: code(true, true),
   not_found: code(false, true),
   rate_limited: code(false, true, true),
   unreachable: code(false, true, true),

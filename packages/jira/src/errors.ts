@@ -1,4 +1,4 @@
-import { isBlockedAddressError } from '@agile/net';
+import { isBlockedAddressError, isInsecureTransportError } from '@agile/net';
 import { isApiError, isNetworkError } from 'jira.js';
 import type { JiraFailure } from './types';
 
@@ -15,6 +15,13 @@ export function mapJiraError(e: unknown): JiraFailure {
       ok: false,
       code: 'blocked_url',
       message: 'This Jira host now points to a private or reserved address.',
+    };
+  }
+  if (isInsecureTransportError(e)) {
+    return {
+      ok: false,
+      code: 'insecure_transport',
+      message: 'Plain http to this Jira host is not allowed.',
     };
   }
   const status = isApiError(e)

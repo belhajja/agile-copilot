@@ -118,6 +118,13 @@ async function checkedOutboundFetch(
 ): Promise<{ ok: true; fetch?: typeof fetch } | LlmServiceFailure> {
   if (config.provider !== 'openai_compatible') return { ok: true };
   const check = await checkOutboundUrl(config.baseUrl, deps);
+  if (!check.ok && check.code === 'insecure_transport') {
+    return {
+      ok: false,
+      code: 'insecure_transport',
+      message: 'Plain http is only allowed for internal hosts your administrator allowed.',
+    };
+  }
   if (!check.ok) {
     return {
       ok: false,

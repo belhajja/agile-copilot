@@ -113,6 +113,9 @@ export async function listModelsForNewConnectionAction(form: FormData): Promise<
   if (config.provider === 'openai_compatible') {
     const deps = connectionDeps();
     const check = await checkOutboundUrl(config.baseUrl, deps);
+    if (!check.ok && check.code === 'insecure_transport') {
+      return { ok: false, code: 'insecure_transport' };
+    }
     if (!check.ok) return { ok: false, code: 'blocked_url', reason: check.code, host: check.host };
     const result = await listModels(config, {
       fetch: createOutboundFetch({

@@ -34,6 +34,7 @@ export type JiraToolErrorCode =
   | 'rate_limited'
   | 'unavailable'
   | 'blocked_url'
+  | 'insecure_transport'
   | 'jira_error'
   /** A write was cut off (deadline or abort) after its request left: it may or may not have run. */
   | 'unknown_outcome'

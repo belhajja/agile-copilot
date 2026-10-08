@@ -2,6 +2,7 @@ import { createJiraConnection } from '@agile/connections';
 import {
   jiraBoardSprints,
   jiraBoards,
+  jiraConnections,
   jiraStatusMappings,
   jiraSyncRuns,
   jiraSyncStates,
@@ -179,6 +180,13 @@ describe('Phase 2 fix wave: interruption, DNS, per-board progress, discovery, te
       await expect(handleSyncJob(dnsDown, job)).rejects.toMatchObject({ code: 'unreachable' });
       const privateIp: SyncDeps = { ...h.deps, resolve: async () => ['10.0.0.8'] };
       expect(await runSync(privateIp, job)).toEqual({ ok: false, code: 'blocked_url' });
+      // A connection stored before plain http was refused: the token is never sent.
+      await h.rawDb
+        .update(jiraConnections)
+        .set({ baseUrl: 'http://jira.corp.example' })
+        .where(eq(jiraConnections.id, connectionId));
+      const publicIp: SyncDeps = { ...h.deps, resolve: async () => ['93.184.216.34'] };
+      expect(await runSync(publicIp, job)).toEqual({ ok: false, code: 'insecure_transport' });
     });
   });
 

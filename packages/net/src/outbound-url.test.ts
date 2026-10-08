@@ -72,6 +72,22 @@ describe('checkOutboundUrl', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('refuses plain http to a public host', async () => {
+    expect(
+      await checkOutboundUrl('http://jira.example.com/', opts(resolveTo('104.192.141.1'))),
+    ).toMatchObject({ ok: false, code: 'insecure_transport', host: 'jira.example.com' });
+    expect(await checkOutboundUrl('http://104.192.141.1/', opts(resolveTo()))).toMatchObject({
+      ok: false,
+      code: 'insecure_transport',
+    });
+  });
+
+  it('reports a private, non-allowlisted http host as private rather than insecure', async () => {
+    expect(
+      await checkOutboundUrl('http://jira.corp.example/', opts(resolveTo('10.0.0.5'))),
+    ).toMatchObject({ ok: false, code: 'private_address' });
+  });
+
   it('reports unresolvable hosts', async () => {
     const failing: Resolver = async () => {
       throw new Error('ENOTFOUND');

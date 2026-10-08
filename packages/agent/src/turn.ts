@@ -35,7 +35,7 @@ import {
   unarchiveConversation,
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
-import { languageModelFor } from './model';
+import { languageModelFor, usesInsecureTransport } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import { CHAT_MAX_STEPS, lastStepWithoutTools } from './steps';
 import { AgentToolError } from './tool-errors';
@@ -70,6 +70,7 @@ export type AgentErrorCode =
   | 'invalid_request'
   | 'not_found'
   | 'no_llm'
+  | 'insecure_llm'
   | 'duplicate_message'
   | 'approval_not_found'
   | 'already_decided'
@@ -79,6 +80,7 @@ const STATUS: Record<AgentErrorCode, number> = {
   invalid_request: 400,
   not_found: 404,
   no_llm: 409,
+  insecure_llm: 409,
   duplicate_message: 409,
   approval_not_found: 409,
   already_decided: 409,
@@ -136,6 +138,7 @@ export async function handleAgentRequest(
     (picked ? await loadUsableLlm(deps, actor.orgId, picked) : null) ??
     (await loadDefaultLlm(deps, actor.orgId));
   if (!llm) return fail('no_llm');
+  if (await usesInsecureTransport(deps, llm.config)) return fail('insecure_llm');
   // Only a new message may create a conversation; decisions need an existing one.
   const conversation = req.message
     ? await openOrCreateConversation(deps.db, actor, req.conversationId)
