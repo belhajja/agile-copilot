@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    # DOCKER_HUB_MIRROR: a Docker Hub mirror to pull from (e.g. Orange's dockerproxy.repos.tech.orange).
+    image: ${DOCKER_HUB_MIRROR:-docker.io}/library/postgres:17-alpine
     environment:
       POSTGRES_USER: agile
       POSTGRES_PASSWORD: agile_dev_password
@@ -56,7 +57,7 @@ services:
   # 127.0.0.1, port 1025, no encryption (ALLOWED_PRIVATE_HOSTS must list 127.0.0.1), then read the
   # mail at http://127.0.0.1:8025. Pinned like MAILPIT_IMAGE in packages/notify (tested).
   mailpit:
-    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    image: ${DOCKER_HUB_MIRROR:-docker.io}/axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
     ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
   # Development identity provider (SSO). Opt-in: `docker compose --profile sso up -d keycloak`,
   # then set OIDC_ISSUER=http://localhost:4100/realms/agile, OIDC_CLIENT_ID=agile-copilot and

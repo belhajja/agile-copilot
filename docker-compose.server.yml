@@ -25,7 +25,7 @@ services:
     environment:
       BETTER_AUTH_URL: https://${APP_DOMAIN:?set APP_DOMAIN}
   caddy:
-    image: caddy:2.10-alpine
+    image: ${DOCKER_HUB_MIRROR:-docker.io}/library/caddy:2.10-alpine
     restart: unless-stopped
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:
