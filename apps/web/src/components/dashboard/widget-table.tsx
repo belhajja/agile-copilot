@@ -1,4 +1,5 @@
 import { useFormatter, useTranslations } from 'next-intl';
+import { JiraIssueLink } from '@/components/jira-issue-link';
 import {
   Table,
   TableBody,
@@ -91,7 +92,11 @@ export function WidgetTable({ data }: { data: TableData }) {
                 key={c.key}
                 className={c.key === 'summary' ? 'max-w-40 truncate sm:max-w-64' : undefined}
               >
-                {cell(row[j] ?? null, c)}
+                {c.key === 'key' && c.type === 'text' && typeof row[j] === 'string' ? (
+                  <JiraIssueLink issueKey={row[j]} />
+                ) : (
+                  cell(row[j] ?? null, c)
+                )}
               </TableCell>
             ))}
           </TableRow>

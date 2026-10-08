@@ -144,6 +144,7 @@
     "title": "Connexions Jira",
     "description": "Connectez les sites Jira de vos équipes. Les identifiants sont testés avant d'être enregistrés, puis chiffrés.",
     "empty": "Aucun Jira connecté pour l'instant.",
+    "openIssue": "{key}, ouvrir dans Jira (nouvel onglet)",
     "emptyHint": "Connectez un site Jira Cloud ou un serveur Data Center pour commencer.",
     "add": "Ajouter une connexion",
     "addDescription": "Utilisez la connexion Atlassian, un jeton d'API (Cloud) ou un jeton d'accès personnel (Data Center).",

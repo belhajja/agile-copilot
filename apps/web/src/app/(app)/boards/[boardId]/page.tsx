@@ -1,4 +1,5 @@
 import { insightsFor } from '@agile/automation';
+import { listJiraConnections } from '@agile/connections';
 import {
   bySprintDate,
   chartOptions,
@@ -18,6 +19,7 @@ import { z } from 'zod';
 import { AgentMarkdown } from '@/components/agent/agent-markdown';
 import { DashboardView } from '@/components/dashboard/dashboard-view';
 import { type SprintOption, SprintPicker } from '@/components/dashboard/sprint-picker';
+import { JiraSiteProvider } from '@/components/jira-issue-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +33,7 @@ import {
 } from '@/components/ui/empty';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickCode } from '@/lib/error-code';
-import { requireActor, services } from '@/server/context';
+import { connectionDeps, requireActor, services } from '@/server/context';
 import { syncDeps } from '@/server/sync';
 import { removeWidgetAction, updateWidgetAction } from './actions';
 
@@ -55,11 +57,13 @@ export default async function BoardDashboardPage({
   const t = await getTranslations('dashboards');
   const format = await getFormatter();
   await ensureDefaultDashboards(db, actor.orgId, actor.userId, board);
-  const [dashboards, dataset, insights] = await Promise.all([
+  const [dashboards, dataset, insights, connections] = await Promise.all([
     listDashboards(db, actor.orgId, actor.userId, board.id),
     loadBoardDataset(db, actor.orgId, board.id),
     insightsFor(db, actor, board.id),
+    listJiraConnections(connectionDeps(), actor.orgId),
   ]);
+  const jiraBaseUrl = connections.find((c) => c.id === board.connectionId)?.baseUrl;
   const now = new Date();
 
   const header = (
@@ -170,7 +174,9 @@ export default async function BoardDashboardPage({
         </TabsList>
         {views.map((v) => (
           <TabsContent key={v.id} value={v.id} className="mt-4">
-            <DashboardView widgets={v.widgets} editing={v.editing} />
+            <JiraSiteProvider baseUrl={jiraBaseUrl}>
+              <DashboardView widgets={v.widgets} editing={v.editing} />
+            </JiraSiteProvider>
           </TabsContent>
         ))}
       </Tabs>

@@ -144,6 +144,7 @@
     "title": "Jira connections",
     "description": "Connect the Jira sites your teams work in. Credentials are tested before they are saved, then encrypted.",
     "empty": "No Jira connected yet.",
+    "openIssue": "{key}, open in Jira (new tab)",
     "emptyHint": "Connect a Jira Cloud site or a Data Center server to start.",
     "add": "Add a connection",
     "addDescription": "Use Atlassian sign-in, an API token (Cloud) or a personal access token (Data Center).",

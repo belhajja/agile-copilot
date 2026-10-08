@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import { type PinResultActionResult, pinResultAction } from '@/app/(app)/agent/actions';
 import { DASHBOARD_METRICS } from '@/components/dashboard/message-keys';
 import { WidgetBody, WidgetNotes } from '@/components/dashboard/widget-body';
+import { JiraSiteProvider, useBoardSite } from '@/components/jira-issue-link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { allowedCode } from '@/lib/error-code';
@@ -27,6 +28,7 @@ export function ResultCard({ result }: { result: PinnableResult }) {
   const format = useFormatter();
   const [state, setState] = useState<PinState>({ status: 'idle' });
   const [pending, startTransition] = useTransition();
+  const jiraBaseUrl = useBoardSite(result.board.id);
   const metric = allowedCode(result.widget.metric, DASHBOARD_METRICS);
   const title =
     result.widget.title ??
@@ -59,7 +61,9 @@ export function ResultCard({ result }: { result: PinnableResult }) {
         )}
       </div>
       <div className="min-w-0 overflow-x-auto">
-        <WidgetBody data={result.data} />
+        <JiraSiteProvider baseUrl={jiraBaseUrl}>
+          <WidgetBody data={result.data} />
+        </JiraSiteProvider>
       </div>
       <WidgetNotes data={result.data} />
       <div className="flex flex-wrap items-center gap-2">

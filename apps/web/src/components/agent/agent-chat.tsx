@@ -49,11 +49,14 @@ export function AgentChat({
   conversationId,
   initialMessages,
   siteNames,
+  siteUrls,
 }: {
   conversationId: string;
   initialMessages: UIMessage[];
   /** Jira connection id → name, for the site row of approval cards. */
   siteNames: Readonly<Record<string, string>>;
+  /** Jira connection id → base URL, to link issue keys. */
+  siteUrls: Readonly<Record<string, string>>;
 }) {
   const t = useTranslations('agent');
   const [text, setText] = useState('');
@@ -185,6 +188,7 @@ export function AgentChat({
                       toolName={name}
                       view={approvalView(part, latest)}
                       siteNames={siteNames}
+                      siteUrls={siteUrls}
                       disabled={busy}
                       notSent={latest && status === 'error' && part.state === 'approval-responded'}
                       onDecision={(id, approved) => addToolApprovalResponse({ id, approved })}
