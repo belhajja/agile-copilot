@@ -19,7 +19,7 @@ describe('development Keycloak (docker-compose.yml)', () => {
   });
 
   it('is not part of the self-host stack (each deployment brings its own identity provider)', () => {
-    const selfhost = read('docker-compose.selfhost.yml');
+    const selfhost = read('deploy/compose/docker-compose.yml');
     expect(Object.keys((parse(selfhost) as { services: object }).services)).not.toContain(
       'keycloak',
     );
@@ -33,9 +33,9 @@ const schemaKeys = (file: string, indent: number) =>
     (m) => m[1] ?? '',
   );
 
-describe('self-host settings (docker-compose.selfhost.yml, .env.example)', () => {
+describe('self-host settings (deploy/compose/docker-compose.yml, .env.example)', () => {
   const services = (
-    parse(read('docker-compose.selfhost.yml')) as {
+    parse(read('deploy/compose/docker-compose.yml')) as {
       services: Record<string, { environment?: Record<string, string> }>;
     }
   ).services;
@@ -101,9 +101,9 @@ describe('self-host settings (docker-compose.selfhost.yml, .env.example)', () =>
   });
 });
 
-describe('self-host web service (docker-compose.selfhost.yml)', () => {
+describe('self-host web service (deploy/compose/docker-compose.yml)', () => {
   const web = (
-    parse(read('docker-compose.selfhost.yml')) as {
+    parse(read('deploy/compose/docker-compose.yml')) as {
       services: Record<string, { healthcheck?: { test: string[] }; stop_grace_period?: string }>;
     }
   ).services.web;
@@ -116,5 +116,39 @@ describe('self-host web service (docker-compose.selfhost.yml)', () => {
 
   it('gives running requests and the trace flush 30 s to finish on stop', () => {
     expect(web?.stop_grace_period).toBe('30s');
+  });
+});
+
+describe('the local deployment folder (deploy/compose)', () => {
+  const compose = read('deploy/compose/docker-compose.yml');
+  const example = read('deploy/compose/.env.example');
+  // `${KEY` that Compose reads from .env (`$${...}` is a literal kept for the container's shell).
+  const used = new Set([...compose.matchAll(/(?<!\$)\$\{([A-Z][A-Z0-9_]*)/g)].map((m) => m[1]));
+  const documented = new Set([...example.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]));
+
+  it('documents every variable the compose file reads in .env.example, and nothing else', () => {
+    expect([...used].sort()).toEqual([...documented].sort());
+  });
+
+  it('creates app_user with the same script as development', () => {
+    const inline = (parse(compose) as { configs: Record<string, { content: string }> }).configs[
+      'pg-init'
+    ]?.content;
+    const script = read('docker/postgres/init/01-app-role.sh').replace(/\r\n/g, '\n');
+    expect(inline?.split('$$').join('$').trimEnd()).toBe(script.trimEnd());
+  });
+
+  it('publishes the app on this machine only, and builds nothing', () => {
+    const services = (
+      parse(compose) as {
+        services: Record<string, { ports?: string[]; build?: unknown; image?: string }>;
+      }
+    ).services;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Compose interpolation, not a JS template
+    expect(services.web?.ports).toEqual(['127.0.0.1:${WEB_PORT:-3000}:3000']);
+    for (const [name, s] of Object.entries(services)) {
+      expect(s.build, name).toBeUndefined();
+      expect(s.image, name).toBeTruthy();
+    }
   });
 });

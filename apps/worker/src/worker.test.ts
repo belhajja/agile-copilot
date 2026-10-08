@@ -85,7 +85,7 @@ describe('worker', () => {
     expect(WORKER_STOP_TIMEOUT_MS).toBeGreaterThanOrEqual(SKILL_RUN_MAX_MS + 10_000);
     expect(WORKER_STOP_BACKSTOP_MS).toBeGreaterThan(WORKER_STOP_TIMEOUT_MS);
     const compose = readFileSync(
-      new URL('../../../docker-compose.selfhost.yml', import.meta.url),
+      new URL('../../../deploy/compose/docker-compose.yml', import.meta.url),
       'utf8',
     );
     const worker = compose.slice(compose.indexOf('\n  worker:'));

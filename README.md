@@ -48,122 +48,70 @@ MCP_ATLASSIAN_URL=http://127.0.0.1:4060/mcp
 
 Without `MCP_ATLASSIAN_URL` the assistant still answers from synced data, and Cloud API-token connections keep their live Jira tools (built in). mcp-atlassian refuses `localhost` and IP-literal Jira URLs, so it cannot reach a Jira on your machine by IP; without a real Jira, use the double started by `pnpm --filter @agile/e2e mocks` (`MCP_ATLASSIAN_URL=http://127.0.0.1:4050/mcp`).
 
-## Self-hosting
+## Running the published images (`deploy/compose`)
 
-`docker-compose.selfhost.yml` runs Postgres, a one-shot `migrate` service, the web app, the sync worker, and mcp-atlassian (`mcp-atlassian`, the assistant's live Jira tools, and a read-only twin `mcp-atlassian-readonly`). Neither mcp-atlassian service is published: only the web app reaches them, inside the compose network.
-
-```bash
-cp .env.example .env
-# fill BETTER_AUTH_SECRET, ENCRYPTION_KEYS (v1:<base64>), POSTGRES_PASSWORD, APP_DB_PASSWORD
-# (paste generated values; .env does not run $(...). Use `openssl rand -hex 24` for the two passwords)
-# set BETTER_AUTH_URL to the public URL of the app
-docker compose -f docker-compose.selfhost.yml up -d --build
-```
-
-The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. `web` and `worker` receive an explicit list of variables from `.env` (never `POSTGRES_PASSWORD` or an owner connection URL). The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 200 s: on stop it interrupts running syncs at their next page (they are recorded as *interrupted* and retried) and running skill runs (recorded as *interrupted* with their report kept; a delivery still being sent is abandoned, not retried), then waits up to 190 s for jobs to record their outcome (plus a 195 s backstop) before exiting. On Kubernetes, set `terminationGracePeriodSeconds: 200`. The app is published on `${WEB_PORT:-3000}`; if you change it, update `BETTER_AUTH_URL` to match. Put a TLS-terminating reverse proxy in front of it for anything beyond a local trial.
-
-`POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into SQL and into connection URLs, so they must be URL-safe and contain no quotes; generate them with `openssl rand -hex 24`.
-
-The init script that creates `app_user` only runs when the Postgres volume is first created. Changing `APP_DB_PASSWORD` afterwards has no effect on the database by itself. Either update the role in place:
+`deploy/compose/docker-compose.yml` runs the app on a machine from the images the GitLab pipeline
+publishes (nothing is built): Postgres, a one-shot `migrate` service, the web app, the sync worker,
+and mcp-atlassian (`mcp-atlassian`, the assistant's live Jira tools, and a read-only twin
+`mcp-atlassian-readonly`). It reads a `.env` next to it; `deploy/compose/.env.example` lists every
+variable. The app is published on that machine only (`127.0.0.1`). It needs Docker Desktop (or
+Docker Engine with the Compose plugin, v2.24 or later) and the Orange network or VPN.
 
 ```bash
-docker compose -f docker-compose.selfhost.yml exec postgres psql -U agile -d agile -c "ALTER ROLE app_user PASSWORD '<new-password>'"
-docker compose -f docker-compose.selfhost.yml up -d web
-```
+# 1. Copy deploy/compose (docker-compose.yml and .env.example) to the machine, e.g. C:gile-copilot,
+#    or clone the repository and work in deploy/compose.
 
-or recreate the volume, which destroys all data:
-
-```bash
-docker compose -f docker-compose.selfhost.yml down -v
-docker compose -f docker-compose.selfhost.yml up -d --build
-```
-
-Set `ALLOWED_PRIVATE_HOSTS` (comma-separated hostnames, e.g. `jira.corp.local,ollama.internal`) to let self-hosted Jira or Ollama instances resolve to private addresses; by default outbound requests to private ranges are blocked. Never expose Postgres publicly: the compose file deliberately publishes no database port.
-
-The compose file passes the enterprise settings from `.env` too (all optional, see `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`) the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE`, and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits. When you put a reverse proxy in front of the app, set `TRUSTED_PROXY_HOPS=1` (see *External AI clients (MCP)* and *Sign-in limits*).
-
-### Running the published images on a computer
-
-`docker-compose.local.yml` is an override for `docker-compose.selfhost.yml`. It runs the images the
-GitLab pipeline publishes (nothing is built) and publishes the app on this computer only, at
-`http://localhost:${WEB_PORT:-3000}`. It needs Docker Desktop (or Docker Engine with the Compose
-plugin, v2.24 or later) and the Orange network or VPN.
-
-```bash
-# 1. Get the compose files and the Postgres init script (a clone is simplest)
-git clone -b develop https://gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai.git agile-copilot
-cd agile-copilot
-
-# 2. Log in to the registry with a deploy token (Settings → Repository → Deploy tokens,
+# 2. Log in to the registry with a deploy token (GitLab: Settings → Repository → Deploy tokens,
 #    scope read_registry)
 docker login registry.gitlab.tech.orange -u <deploy-token-username>
 
-# 3. Configure
-cp .env.example .env
-# Fill in .env (paste generated values: .env does not run $(...)):
-#   COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.local.yml   (on Windows: ; instead of :)
-#   BETTER_AUTH_URL=http://localhost:3000
-#   BETTER_AUTH_SECRET=<openssl rand -base64 32>   ENCRYPTION_KEYS=v1:<openssl rand -base64 32>
-#   POSTGRES_PASSWORD=<openssl rand -hex 24>       APP_DB_PASSWORD=<openssl rand -hex 24>
-#   DOCKER_HUB_MIRROR=dockerproxy.repos.tech.orange   (optional: Postgres through Orange's mirror)
+# 3. Configure: copy .env.example to .env and fill in the required values at the top
+#    (paste generated values: .env does not run $(...)):
+#      BETTER_AUTH_SECRET  openssl rand -base64 32
+#      ENCRYPTION_KEYS     v1:<openssl rand -base64 32>
+#      POSTGRES_PASSWORD, APP_DB_PASSWORD   openssl rand -hex 24
 
 # 4. Start
 docker compose pull
 docker compose up -d
 ```
 
-Then open `http://localhost:3000` and sign up: the first account creates the first workspace.
+Then open `http://localhost:3000` (`WEB_PORT`) and sign up: the first account creates the first
+workspace.
 
-- **Which version runs.** By default the latest `develop` build. To pin a release, set
-  `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` (e.g.
+- **Which version runs.** By default the latest `develop` build. To pin a release, set `WEB_IMAGE`,
+  `WORKER_IMAGE` and `MIGRATE_IMAGE` (e.g.
   `registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`).
-- **Updating.** Back up first (below), then `docker compose pull` and `docker compose up -d`:
-  `migrate` applies the new migrations before `web` and `worker` start. A newer `develop` build is
-  published by every green pipeline on `develop`.
+- **Updating.** Back up first, then `docker compose pull` and `docker compose up -d`: `migrate`
+  applies the new migrations before `web` and `worker` start. Every green pipeline on `develop`
+  publishes a new `develop` build.
 - **Back up** the database (`docker compose exec postgres pg_dump -U agile -Fc agile > backup.dump`)
   **and `.env`**: without `ENCRYPTION_KEYS` the stored Jira and AI credentials cannot be read.
+- **Other machines.** The app is reachable from this machine only. To serve others, put a
+  TLS-terminating reverse proxy in front, set `BETTER_AUTH_URL` to its URL and
+  `TRUSTED_PROXY_HOPS=1`, or use the Helm chart (`deploy/helm`).
 
-### Deploying on a server
+The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. `web` and `worker` receive an explicit list of variables from `.env` (never `POSTGRES_PASSWORD` or an owner connection URL). The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 200 s: on stop it interrupts running syncs at their next page (they are recorded as *interrupted* and retried) and running skill runs (recorded as *interrupted* with their report kept; a delivery still being sent is abandoned, not retried), then waits up to 190 s for jobs to record their outcome (plus a 195 s backstop) before exiting. On Kubernetes, set `terminationGracePeriodSeconds: 200`.
 
-`docker-compose.server.yml` is an override for `docker-compose.selfhost.yml`. It runs the images the GitLab pipeline publishes, so nothing is built on the server. It also puts [Caddy](https://caddyserver.com/) in front, which gets and renews a Let's Encrypt certificate by itself. Only Caddy is published (ports 80 and 443); the app, Postgres and mcp-atlassian are not.
+`POSTGRES_PASSWORD` and `APP_DB_PASSWORD` are inserted unescaped into SQL and into connection URLs, so they must be URL-safe and contain no quotes; generate them with `openssl rand -hex 24`.
 
-**You need:**
-
-- A Linux server with Docker Engine and the Compose plugin (v2.24 or later). 2 vCPU and 4 GB of RAM are enough to start.
-- A DNS name (A/AAAA record) pointing at the server, with ports 80 and 443 open to the internet (Let's Encrypt checks port 80).
-- Read access to the images: in GitLab, **Settings → Repository → Deploy tokens**, create a token with the `read_registry` scope.
-
-**Steps:**
+The script that creates `app_user` only runs when the Postgres volume is first created. Changing `APP_DB_PASSWORD` afterwards has no effect on the database by itself. Either update the role in place (in `deploy/compose`):
 
 ```bash
-# 1. Get the compose files, the Postgres init script and the Caddyfile (a clone is simplest)
-git clone -b develop https://gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai.git agile-copilot && cd agile-copilot
-
-# 2. Log in to the registry with the deploy token
-docker login registry.gitlab.tech.orange -u <deploy-token-username>
-
-# 3. Configure
-cp .env.example .env
-# Fill in .env:
-#   APP_DOMAIN=agile.example.com    ACME_EMAIL=ops@example.com
-#   BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-#   ENCRYPTION_KEYS=v1:$(openssl rand -base64 32)
-#   POSTGRES_PASSWORD=$(openssl rand -hex 24)    APP_DB_PASSWORD=$(openssl rand -hex 24)
-# (paste the generated values: .env does not run $(...)). BETTER_AUTH_URL and TRUSTED_PROXY_HOPS
-# are set by the override (https://APP_DOMAIN, and 1 for Caddy).
-
-# 4. Start
-docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml pull
-docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml up -d
+docker compose exec postgres psql -U agile -d agile -c "ALTER ROLE app_user PASSWORD '<new-password>'"
+docker compose up -d web worker
 ```
 
-Then open `https://<APP_DOMAIN>` and sign up: the first account creates the first workspace. To make typing shorter, `export COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.server.yml` lets you run plain `docker compose ...` commands.
+or recreate the volume, which destroys all data:
 
-- **Which version runs.** By default the latest `develop` build (`…/web/snapshot:develop`, and the same for `worker` and `migrate`). To pin a release, set `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` in `.env` to the release images (`registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`, …). Tags publish them, and so does the manual publish job on `main`.
-- **Updating.** Run `pull`, then `up -d` again. `migrate` applies new migrations before `web` and `worker` start.
-- **Back up** the Postgres volume (`docker compose exec postgres pg_dump -U agile agile > backup.sql`, on a schedule) **and `.env`**. Without `ENCRYPTION_KEYS`, the stored Jira and AI provider credentials cannot be decrypted.
-- **Keep the `caddy_data` volume.** It holds the certificate, and Let's Encrypt limits how often one can be issued again.
-- **Optional settings** (SSO, Atlassian OAuth, Langfuse, `ALLOWED_PRIVATE_HOSTS` for a private Jira) work as described in the sections below.
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+Set `ALLOWED_PRIVATE_HOSTS` (and `MCP_ALLOWED_URL_DOMAINS`) to let a Jira Data Center or Ollama on a private network be reached; by default outbound requests to private ranges are blocked. Postgres is never published.
+
+The compose file passes the enterprise settings from `.env` too (all optional, see its `.env.example`): single sign-on and the password policy (`OIDC_*`, `PASSWORD_LOGIN`, `BREAK_GLASS_EMAILS`), the external MCP setting `MCP_RATE_LIMIT_PER_MINUTE` and `TRUSTED_PROXY_HOPS` (sign-in and MCP limits) to the web app only, and Langfuse (`LANGFUSE_*`) to the web app and the worker. It passes no Stripe setting: self-hosted deployments never bill and have no plan limits.
 
 ### Worker settings and the `pgboss` schema
 
@@ -171,7 +119,7 @@ Then open `https://<APP_DOMAIN>` and sign up: the first account creates the firs
 |---|---|---|
 | `SYNC_INTERVAL_MINUTES` | `15` | Minutes between scheduled syncs; one of 5, 10, 15, 30, 60 (anything else stops the worker at start-up). |
 | `WORKER_HEALTH_PORT` | `8080` | Port of the worker's `/health` endpoint. |
-| `WORKER_HEALTH_HOST` | `127.0.0.1` | Interface of `/health`; the self-host compose sets `0.0.0.0` inside the container. |
+| `WORKER_HEALTH_HOST` | `127.0.0.1` | Interface of `/health`; `deploy/compose` sets `0.0.0.0` inside the container. |
 
 The job queue (pg-boss) lives in a `pgboss` schema that migration 0005 creates with `AUTHORIZATION app_user`, so the web app and worker can run it without owner credentials. Two things to know on managed Postgres:
 
@@ -223,7 +171,7 @@ Limits that keep one workspace from holding up the others:
 **Assistant** (sidebar) is a chat that uses the workspace's default AI model (Settings → AI model).
 
 - **Numbers come from the metrics engine.** The assistant calls an internal analytics MCP server (`packages/analytics-mcp`: `list_boards`, `list_metrics`, `get_metric`, `forecast`, `find_issues`, `list_sprints`, `explain_metric`) that computes the same numbers as the dashboards, from synced data, inside your workspace only. In the app it runs in-process; external MCP clients (Claude Desktop, Claude Code) can reach the same tools read-only with a personal token when an owner or admin allows it (see *External AI clients (MCP)*).
-- **Live Jira** goes through an explicit allowlist of 11 tools (search, read issue, transitions, boards, sprints, sprint issues; comment, transition, assign, create, update). Data Center PATs and "Connect with Atlassian" connections use the shared [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) container (the self-host compose runs it; set `MCP_ATLASSIAN_URL` otherwise). Cloud **API-token** connections use a built-in client instead (mcp-atlassian would need one container per Cloud site for them).
+- **Live Jira** goes through an explicit allowlist of 11 tools (search, read issue, transitions, boards, sprints, sprint issues; comment, transition, assign, create, update). Data Center PATs and "Connect with Atlassian" connections use the shared [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) container (`deploy/compose` runs it; set `MCP_ATLASSIAN_URL` otherwise). Cloud **API-token** connections use a built-in client instead (mcp-atlassian would need one container per Cloud site for them).
 - **Every Jira change needs your approval.** The model can only *propose* a write: the chat shows exactly what will be sent, and to which Jira site, with **Approve** / **Reject**. Nothing reaches Jira before you approve; each decision and each executed change is written to the audit log (`agent_action.*`). An approval is bound to you, the conversation, the Jira site and the exact proposal, and runs at most once. If that site's connection is removed or replaced before you approve, the change is not sent anywhere.
 - **An approved change always ends with a result.** If the reply fails after you approved (the AI model or the server fails before the change is sent), the change is closed as *approved but not sent* (audited as `agent_action.failed`, `not_executed`) and the chat tells you to ask again; the conversation keeps working. A change cut off by a timeout after it was sent is reported as *may or may not have reached Jira*: check Jira before asking again.
 - **Live Jira is for owners, admins and managers** (reads, and changes on approval). It uses the connection's Jira credentials, which can see more than the boards an admin chose to sync, so an owner or admin gives the Manager role on purpose. Viewers get the analytics tools (synced, selected boards only), and the assistant tells them live Jira is not available for their role.
@@ -241,8 +189,8 @@ The image is pinned by digest (`ghcr.io/sooperset/mcp-atlassian:0.23.1@sha256:�
 - `MCP_ALLOWED_URL_DOMAINS` (passed from `.env`): Data Center hosts that resolve to private addresses (list them in `ALLOWED_PRIVATE_HOSTS` too, for the app). Empty = unset. **Once set, it is an allowlist for every Data Center host, public ones included: list them all**, or the others stop working. mcp-atlassian refuses `localhost` and IP-literal URLs even when listed.
 - Each self-host mcp-atlassian container is capped at `mem_limit: 512m`; raise it in the compose file if it is killed under load.
 - The web app does not wait for mcp-atlassian (`depends_on` is `migrate` only): if the sidecar is down or its image cannot be pulled, the app and dashboards still work, and the assistant's Jira tools for Data Center PATs and "Connect with Atlassian" answer *unavailable* until it is back.
-- The self-host compose puts mcp-atlassian on its own `mcp` network, shared only with the web app: it cannot reach Postgres or the worker (its own outbound check, `MCP_ALLOWED_URL_DOMAINS`, is not DNS-pinned like the app's). The read-only twin has its own `mcp-readonly` network, shared with the web app and the worker (skill runs): the worker can reach the twin, never the read-write instance. The app never follows a redirect from `MCP_ATLASSIAN_URL`.
-- `MCP_ATLASSIAN_URL` (web app) is a trusted deployment setting: the app sends users' Jira tokens to it. Point it only at your own internal service (`http://mcp-atlassian:8000/mcp` in the self-host compose, which sets it for you); never publish mcp-atlassian outside the compose network.
+- `deploy/compose` puts mcp-atlassian on its own `mcp` network, shared only with the web app: it cannot reach Postgres or the worker (its own outbound check, `MCP_ALLOWED_URL_DOMAINS`, is not DNS-pinned like the app's). The read-only twin has its own `mcp-readonly` network, shared with the web app and the worker (skill runs): the worker can reach the twin, never the read-write instance. The app never follows a redirect from `MCP_ATLASSIAN_URL`.
+- `MCP_ATLASSIAN_URL` (web app) is a trusted deployment setting: the app sends users' Jira tokens to it. Point it only at your own internal service (`http://mcp-atlassian:8000/mcp` in `deploy/compose`, which sets it for you); never publish mcp-atlassian outside the compose network.
 
 ### Checking AI providers and Jira through the assistant by hand
 
@@ -346,8 +294,8 @@ Ask "pin the cycle time for DEMO Scrum": the assistant adds a widget from the da
 
 ### Skills operations
 
-- **Networks (self-host compose).** `mcp` holds the read-write mcp-atlassian and the **web app only**. `mcp-readonly` holds the read-only twin and is shared by the **web app (previews) and the worker (runs)**: the worker can reach the twin and never the read-write instance. Neither is published.
-- **Settings.** The self-host compose sets `MCP_ATLASSIAN_READONLY_URL` (`http://mcp-atlassian-readonly:8000/mcp`) and `SKILL_RUNS_DAILY_LIMIT` for web and worker; both are in `.env.example`.
+- **Networks (`deploy/compose`).** `mcp` holds the read-write mcp-atlassian and the **web app only**. `mcp-readonly` holds the read-only twin and is shared by the **web app (previews) and the worker (runs)**: the worker can reach the twin and never the read-write instance. Neither is published.
+- **Settings.** `deploy/compose` sets `MCP_ATLASSIAN_READONLY_URL` (`http://mcp-atlassian-readonly:8000/mcp`) and passes `SKILL_RUNS_DAILY_LIMIT` (in its `.env.example`) to web and worker.
 - **The twin** runs the same pinned image with the six read tools and `READ_ONLY_MODE=true`.
 
 ### Checking delivery by hand
@@ -410,7 +358,7 @@ One identity provider per deployment, configured by the operator (it is never a 
 - Needs SSO and at least one address in `BREAK_GLASS_EMAILS` (the app refuses to start otherwise).
 - Only the break-glass addresses can sign in with a password, under *Platform administrator sign-in* on the login page. Anyone else gets *Invalid email or password*, even with the right password, so the page never tells who is an administrator. The sign-up page redirects to the login page, and sign-up requests are refused.
 - Removing a sign-in method (unlinking) is refused for every account while `admin_only` is set.
-- **Switching to `admin_only` does not end existing sessions.** To sign everyone out, run as the database owner `DELETE FROM session;` (self-host compose: `docker compose -f docker-compose.selfhost.yml exec postgres psql -U agile -d agile -c 'DELETE FROM session;'`).
+- **Switching to `admin_only` does not end existing sessions.** To sign everyone out, run as the database owner `DELETE FROM session;` (`deploy/compose`: `docker compose exec postgres psql -U agile -d agile -c 'DELETE FROM session;'`).
 
 ### Break-glass accounts
 
@@ -423,14 +371,7 @@ Platform administrators who sign in with a password, so that someone can still g
 pnpm --filter @agile/auth break-glass:create root@example.com "Platform admin"
 ```
 
-With the self-host compose, run it in the `migrate` image (it contains the source), with the app's own database role (load `.env` into your shell first, for example `set -a; . ./.env; set +a`):
-
-```bash
-docker compose -f docker-compose.selfhost.yml run --rm -T --no-deps \
-  -e DATABASE_URL="postgres://app_user:${APP_DB_PASSWORD}@postgres:5432/agile" \
-  -e BETTER_AUTH_SECRET -e BETTER_AUTH_URL -e ENCRYPTION_KEYS -e BREAK_GLASS_EMAILS \
-  migrate pnpm --filter @agile/auth break-glass:create root@example.com "Platform admin" < password.txt
-```
+The published images (`deploy/compose`) do not include this CLI: run it from a clone of the repository (Node and pnpm), with `DATABASE_URL` and the other variables of the deployment's `.env` pointing at its database (Postgres is not published by `deploy/compose`, so do this on the same machine with a temporary port mapping, or through a database tunnel).
 
 ### Moving users from passwords to SSO
 
@@ -443,7 +384,7 @@ Someone who did not link in time gets `account_not_linked` at their SSO sign-in:
 
 ## Billing (hosted service only)
 
-Billing exists only with `DEPLOYMENT_MODE=saas` and all three of `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRICE_TEAM`. Self-hosted deployments ignore Stripe and have no limits (the self-host compose and the Helm chart's default `selfhost` mode never bill).
+Billing exists only with `DEPLOYMENT_MODE=saas` and all three of `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRICE_TEAM`. Self-hosted deployments ignore Stripe and have no limits (`deploy/compose` and the Helm chart's default `selfhost` mode never bill).
 
 - **Plans.** **Free**: 3 seats (members plus pending invitations), 3 synced boards, no external AI clients. **Team** (one flat Stripe price, `STRIPE_PRICE_TEAM`): 25 seats, 25 synced boards, external AI clients. A Team subscription that is `active`, `trialing` or `past_due` (Stripe still retrying a payment) keeps the Team plan. Single sign-on, audit export, retention, data export and deletion are in every plan.
 - **Limits apply when something is added** (an invitation, an acceptance, a board selection, a new MCP token); a downgrade removes no one and no board. External AI clients are checked on every request, so after a downgrade to Free they stop until the workspace upgrades again (tokens are kept).
@@ -497,7 +438,7 @@ The analytics tools (`list_boards`, `list_metrics`, `get_metric`, `forecast`, `f
 
 | Setting | When to use it |
 | --- | --- |
-| `0` (default) | The app is reached directly, as with the self-host compose's published port. The header is ignored, and all requests share one deployment-wide bucket (1,200 per minute for MCP; 600 per minute per sign-in path). |
+| `0` (default) | The app is reached directly, as with `deploy/compose`'s published port. The header is ignored, and all requests share one deployment-wide bucket (1,200 per minute for MCP; 600 per minute per sign-in path). |
 | `1` | One reverse proxy, ingress controller or load balancer that appends the address. The Helm chart sets this when `ingress.enabled=true`. |
 | `2` | A CDN or external load balancer, then your ingress. |
 

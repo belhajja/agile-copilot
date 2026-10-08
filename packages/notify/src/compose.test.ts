@@ -10,6 +10,6 @@ describe('Mailpit (development mail catcher)', () => {
     expect([...dev.matchAll(/axllent\/mailpit\S*/g)].map((m) => m[0])).toEqual([MAILPIT_IMAGE]);
     expect(dev).toContain('ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]');
     // Self-hosters use their own SMTP server: no mail catcher in production.
-    expect(read('docker-compose.selfhost.yml')).not.toContain('mailpit');
+    expect(read('deploy/compose/docker-compose.yml')).not.toContain('mailpit');
   });
 });

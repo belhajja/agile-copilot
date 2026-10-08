@@ -25,7 +25,7 @@ const toolList = (s: Service | undefined) =>
 // The mcp-atlassian services must run the image the contract test checked, expose exactly their
 // allowlisted tools, never carry operator Jira credentials, and never be reachable from outside
 // the machine (dev: loopback) or the compose network (self-host).
-describe.each(['docker-compose.yml', 'docker-compose.selfhost.yml'])('%s', (file) => {
+describe.each(['docker-compose.yml', 'deploy/compose/docker-compose.yml'])('%s', (file) => {
   const all = services(file);
   const mcp = Object.entries(all).filter(([, s]) => isMcpAtlassian(s));
 
@@ -104,8 +104,8 @@ describe('docker-compose.yml (development)', () => {
   });
 });
 
-describe('docker-compose.selfhost.yml', () => {
-  const all = services('docker-compose.selfhost.yml');
+describe('deploy/compose/docker-compose.yml', () => {
+  const all = services('deploy/compose/docker-compose.yml');
 
   it('runs a shared instance and a read-only twin, neither published', () => {
     expect(isMcpAtlassian(all['mcp-atlassian'] ?? {})).toBe(true);
