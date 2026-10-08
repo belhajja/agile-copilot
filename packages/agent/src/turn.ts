@@ -31,7 +31,6 @@ import {
   releaseTurn,
   saveConversation,
   TurnInProgressError,
-  TurnLostError,
   unarchiveConversation,
 } from './conversations';
 import type { AgentActor, AgentDeps } from './deps';
@@ -191,86 +190,46 @@ export async function handleAgentRequest(
     throw e;
   }
 
-  const release = async () => {
-    try {
-      await releaseTurn(deps.db, actor, conversationId, turnId);
-    } catch (e) {
-      deps.onError?.(e, 'turn_release_failed');
-    }
-  };
-  // A turn that fails after the decisions were stored: every approved change it did not run (or
-  // whose result it could not store) gets a result in the stored history, then the lease ends.
-  const settleStored = async () => {
-    try {
-      await withOrg(deps.db, actor.orgId, async (tx) => {
-        const stored = await heldHistory(tx, actor, conversationId, turnId);
-        if (!stored) return;
-        const before = JSON.stringify(stored);
-        const settled = await settleApprovedParts(tx, actor, conversationId, stored);
-        if (JSON.stringify(settled) !== before) {
-          await saveConversation(tx, actor, conversationId, settled);
-        }
-      });
-    } catch (e) {
-      deps.onError?.(e, 'settle_failed');
-    }
-  };
-
-  let built: Awaited<ReturnType<typeof buildAgentTools>>;
+  const turn = new TurnResources(deps, actor, conversationId, turnId);
   try {
-    built = await buildAgentTools(deps, actor, conversationId);
-  } catch (e) {
-    await settleStored();
-    await release();
-    throw e;
-  }
-  const { tools, sites, jira, skillMessages, close } = built;
-  const now = deps.now ?? (() => new Date());
-
-  let model: ReturnType<typeof languageModelFor>;
-  let modelMessages: ModelMessage[];
-  try {
-    model = languageModelFor(deps, llm.config);
-    modelMessages = await convertToModelMessages(prepared, { tools });
+    const { tools, sites, jira, skillMessages, close } = await buildAgentTools(
+      deps,
+      actor,
+      conversationId,
+    );
+    turn.closeWith(close);
+    const now = deps.now ?? (() => new Date());
+    const model = languageModelFor(deps, llm.config);
     // Admin-entered site names and user-written skills reach the model as messages, never in the
     // system prompt.
     const sitesData = jiraSitesData(sites);
-    modelMessages = [
+    const modelMessages: ModelMessage[] = [
       ...(sitesData ? [{ role: 'user' as const, content: sitesData }] : []),
       ...skillMessages,
-      ...modelMessages,
+      ...(await convertToModelMessages(prepared, { tools })),
     ];
-  } catch (e) {
-    await close();
-    await settleStored();
-    await release();
-    throw e;
-  }
 
-  // Steps' usage, summed as they end: `totalUsage` is empty when a later step fails.
-  const used = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
-  let metered = false;
-  const meter = async () => {
-    if (metered) return;
-    metered = true;
-    try {
-      await recordUsage(deps.db, actor, {
-        conversationId,
-        llmConnectionId: llm.id,
-        provider: llm.config.provider,
-        model: llm.config.model,
-        usage: { ...used },
-        prices: llm.prices,
-      });
-    } catch (e) {
-      // Includes CostOverflowError: metering must never fail the turn.
-      deps.onError?.(e, 'usage_not_recorded');
-    }
-  };
-  // Stops a run whose conversation was taken over (it ran past its lease): no more steps or tools.
-  const abort = new AbortController();
+    // Steps' usage, summed as they end: `totalUsage` is empty when a later step fails.
+    const used = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+    let metered = false;
+    const meter = async () => {
+      if (metered) return;
+      metered = true;
+      try {
+        await recordUsage(deps.db, actor, {
+          conversationId,
+          llmConnectionId: llm.id,
+          provider: llm.config.provider,
+          model: llm.config.model,
+          usage: { ...used },
+          prices: llm.prices,
+        });
+      } catch (e) {
+        // Includes CostOverflowError: metering must never fail the turn.
+        deps.onError?.(e, 'usage_not_recorded');
+      }
+    };
 
-  try {
     const maxSteps = deps.maxSteps ?? CHAT_MAX_STEPS;
     const result = streamText({
       model,
@@ -280,7 +239,7 @@ export async function handleAgentRequest(
       toolApproval,
       stopWhen: stepCountIs(maxSteps),
       prepareStep: lastStepWithoutTools(maxSteps),
-      abortSignal: abort.signal,
+      abortSignal: turn.abort.signal,
       // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
       telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },
       onStepEnd: async ({ usage }) => {
@@ -288,8 +247,9 @@ export async function handleAgentRequest(
         used.inputTokens += u.inputTokens;
         used.outputTokens += u.outputTokens;
         used.cachedInputTokens += u.cachedInputTokens;
+        // A turn whose conversation was taken over (it ran past its lease) stops here.
         try {
-          if (!(await holdsTurn(deps.db, actor, conversationId, turnId))) abort.abort();
+          if (!(await holdsTurn(deps.db, actor, conversationId, turnId))) turn.abort.abort();
         } catch (e) {
           deps.onError?.(e, 'turn_check_failed');
         }
@@ -323,24 +283,91 @@ export async function handleAgentRequest(
             await recordApprovalRequests(tx, actor, conversationId, settled);
           });
         } catch (e) {
-          if (e instanceof TurnLostError) abort.abort();
-          deps.onError?.(e, 'persist_failed');
           // The reply is lost, but the stored history still gets a result for every approved change.
-          if (!(e instanceof TurnLostError)) await settleStored();
-          await release();
+          await turn.abandon(e, 'persist_failed');
           throw e;
-        } finally {
-          await close();
         }
+        await turn.close();
       },
       onError: safeErrorText,
     });
   } catch (e) {
-    abort.abort();
-    await close();
-    await settleStored();
-    await release();
+    await turn.abandon(e, 'turn_failed');
     throw e;
+  }
+}
+
+/**
+ * What a started turn holds until it ends: the conversation's lease, the abort signal of its model
+ * run and, once built, its tools' MCP client. Every way a turn can fail ends through `abandon`.
+ */
+class TurnResources {
+  /** Stops the model and its tools: no more steps or tool calls. */
+  readonly abort = new AbortController();
+  private closeTools: (() => Promise<void>) | undefined;
+  private abandoned = false;
+
+  constructor(
+    private readonly deps: AgentDeps,
+    private readonly actor: AgentActor,
+    private readonly conversationId: string,
+    private readonly turnId: string,
+  ) {}
+
+  closeWith(close: () => Promise<void>) {
+    this.closeTools = close;
+  }
+
+  /** Closes the tools once; never throws. */
+  async close() {
+    const close = this.closeTools;
+    this.closeTools = undefined;
+    try {
+      await close?.();
+    } catch (e) {
+      this.deps.onError?.(e, 'mcp_close_failed');
+    }
+  }
+
+  /**
+   * Ends a turn whose reply will not be stored: logs why, stops the model, closes the tools, gives
+   * every approved change it did not run (or whose result it could not store) a result in the
+   * stored history, then releases the lease. Runs once; never throws.
+   */
+  async abandon(error: unknown, code: 'turn_failed' | 'persist_failed') {
+    if (this.abandoned) return;
+    this.abandoned = true;
+    this.deps.onError?.(error, code);
+    this.abort.abort();
+    await this.close();
+    await this.settleStored();
+    await this.release();
+  }
+
+  /** Repairs the stored history only while this turn still holds it (`heldHistory`). */
+  private async settleStored() {
+    const { deps, actor, conversationId, turnId } = this;
+    try {
+      await withOrg(deps.db, actor.orgId, async (tx) => {
+        const stored = await heldHistory(tx, actor, conversationId, turnId);
+        if (!stored) return;
+        const before = JSON.stringify(stored);
+        const settled = await settleApprovedParts(tx, actor, conversationId, stored);
+        if (JSON.stringify(settled) !== before) {
+          await saveConversation(tx, actor, conversationId, settled);
+        }
+      });
+    } catch (e) {
+      deps.onError?.(e, 'settle_failed');
+    }
+  }
+
+  private async release() {
+    try {
+      await releaseTurn(this.deps.db, this.actor, this.conversationId, this.turnId);
+    } catch (e) {
+      this.deps.onError?.(e, 'turn_release_failed');
+    }
   }
 }
 
