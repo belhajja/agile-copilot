@@ -60,8 +60,8 @@ variable. The app is published on that machine only (`127.0.0.1`). It needs Dock
 Docker Engine with the Compose plugin, v2.24 or later) and the Orange network or VPN.
 
 ```bash
-# 1. Copy deploy/compose (docker-compose.yml and .env.example) to the machine, e.g. C:gile-copilot,
-#    or clone the repository and work in deploy/compose.
+# 1. Copy deploy/compose (docker-compose.yml, .env.example, update.sh and update.ps1) to the
+#    machine, e.g. C:\agile-copilot, or clone the repository and work in deploy/compose.
 
 # 2. Log in to the registry with a deploy token (GitLab: Settings → Repository → Deploy tokens,
 #    scope read_registry)
@@ -81,17 +81,67 @@ docker compose up -d
 Then open `http://localhost:3000` (`WEB_PORT`) and sign up: the first account creates the first
 workspace.
 
-- **Which version runs.** By default the latest `develop` build. To pin a release, set `WEB_IMAGE`,
-  `WORKER_IMAGE` and `MIGRATE_IMAGE` (e.g.
-  `registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`).
-- **Updating.** Back up first, then `docker compose pull` and `docker compose up -d`: `migrate`
-  applies the new migrations before `web` and `worker` start. Every green pipeline on `develop`
-  publishes a new `develop` build.
-- **Back up** the database (`docker compose exec postgres pg_dump -U agile -Fc agile > backup.dump`)
-  **and `.env`**: without `ENCRYPTION_KEYS` the stored Jira and AI credentials cannot be read.
+- **Which version runs.** Left empty, `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` run the
+  latest `develop` build, which moves with every green pipeline on `develop`: any `docker compose pull`
+  can bring new migrations, and migrations only go forward. For anything people rely on, pin all
+  three to the same release tag (e.g.
+  `registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:<tag>`, likewise
+  `worker:<tag>` and `migrate:<tag>`).
+- **Updating.** Change the tags in `.env`, then run `./update.sh` (Linux, macOS, Git Bash) or
+  `powershell -ExecutionPolicy Bypass -File .\update.ps1` (Windows). It pulls the images, stops
+  `web` and `worker`, dumps the database to `deploy/compose/backups/agile-<date>-<time>.dump`
+  (ignored by git), runs the migrations (three attempts) and starts the stack again. If the
+  migrations fail it stops there, with `web` and `worker` stopped, and prints the restore commands
+  below.
+- **Back up** the database **and `.env`**: without `ENCRYPTION_KEYS` the stored Jira and AI
+  credentials cannot be read. The update scripts take a dump each time; for a dump on demand:
+  `docker compose exec -T postgres pg_dump -U agile -d agile -Fc > backup.dump` (in Windows
+  PowerShell, run it through `cmd /c "..."`: PowerShell's own `>` corrupts the binary dump).
 - **Other machines.** The app is reachable from this machine only. To serve others, put a
   TLS-terminating reverse proxy in front, set `BETTER_AUTH_URL` to its URL and
   `TRUSTED_PROXY_HOPS=1`, or use the Helm chart (`deploy/helm`).
+
+### Restoring a backup
+
+A dump holds the whole `agile` database (schema, data, grants); the roles (`agile`, `app_user`)
+and `.env` are not in it. Restore with the images the dump was taken with: migrations cannot be
+undone, so set `WEB_IMAGE`, `WORKER_IMAGE` and `MIGRATE_IMAGE` back to the previous release first.
+
+```bash
+docker compose stop web worker
+docker compose exec -T postgres dropdb -U agile --force agile
+docker compose exec -T postgres pg_restore -U agile -d postgres --create --exit-on-error < backups/agile-<date>-<time>.dump
+docker compose up -d
+```
+
+In Windows PowerShell, run the `pg_restore` line through `cmd /c "..."` (PowerShell has no `<`
+redirection). `--create` recreates the database with its grants to `app_user`.
+
+### Monitoring
+
+- **Health.** `docker compose ps` shows each service's health check: `web` checks `/healthz`
+  (also reachable as `http://localhost:3000/healthz`; it reads nothing, so it says the server is
+  up, not that Postgres or Jira are), `worker` its `/health` (port 8080 inside the container),
+  `postgres` `pg_isready`, mcp-atlassian its `/healthz`. `migrate` shows *Exited (0)* once the
+  migrations are applied. Docker restarts crashed services (`restart: unless-stopped`); it does not
+  restart a service that is merely unhealthy.
+- **Logs.** `docker compose logs -f web worker` (add `--since 1h`, or a service name). The worker
+  logs one JSON line per event (`sync_error`, `skill_error`, `job_error`, ...). Each container keeps at
+  most 3 x 10 MB of logs (`json-file` rotation), so ship them elsewhere if you need history.
+- **Jira sync and skill runs.** A failed sync shows its reason on the connection and board rows in
+  **Settings → Jira** (see *Jira sync and dashboards*); each skill run's status is on its skill.
+- **LLM calls.** Set the `LANGFUSE_*` keys to trace the assistant and skill runs (below, *LLM
+  tracing*): models, timings, token counts and finish reasons, never prompts or answers.
+
+### Container hardening
+
+Every service runs with `no-new-privileges` and without Linux capabilities, except Postgres, whose
+entrypoint needs `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID` and `SETUID` to fix its data
+directory's ownership and drop to the `postgres` user. All but Postgres (whose init script Compose
+writes into the container) have a read-only root filesystem, with in-memory `/tmp` (and the
+Next.js cache for `web`, the home directory for mcp-atlassian). `web` and `worker` are capped at
+1 GB of memory and 256 processes, mcp-atlassian at 512 MB. In the images, the app code belongs to
+root: the app user (uid 10001) can read it but not change it.
 
 The `migrate` service connects as the database owner and must exit 0 before `web` and `worker` start; both connect as the non-owner `app_user` role so row-level security applies. `web` and `worker` receive an explicit list of variables from `.env` (never `POSTGRES_PASSWORD` or an owner connection URL). The worker has no published port; its health endpoint (`/health`, port 8080 on `0.0.0.0` inside the container) is used by the container health check, and its `stop_grace_period` is 200 s: on stop it interrupts running syncs at their next page (they are recorded as *interrupted* and retried) and running skill runs (recorded as *interrupted* with their report kept; a delivery still being sent is abandoned, not retried), then waits up to 190 s for jobs to record their outcome (plus a 195 s backstop) before exiting. On Kubernetes, set `terminationGracePeriodSeconds: 200`.
 
