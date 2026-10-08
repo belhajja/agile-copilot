@@ -1148,7 +1148,7 @@
     "linked": "{name} est maintenant lié à votre compte.",
     "linkFailed": "{name} n'a pas pu être lié. Utilisez la même adresse e-mail, vérifiée, des deux côtés.",
     "dataTitle": "Vos données",
-    "dataHint": "Téléchargez tout ce qu'Agile Copilot conserve sur vous : profil, espaces, conversations, consommation et vos actions dans le journal d'audit.",
+    "dataHint": "Téléchargez tout ce qu'Agile Copilot conserve sur vous : profil, espaces, conversations, consommation et vos actions dans le journal d'audit. Pour les espaces que vous avez quittés, seulement ce que vous avez écrit vous-même et quand.",
     "export": "Télécharger mes données (JSON)",
     "exportErrors": {
       "export_in_progress": "Un export est déjà en cours. Attendez qu'il se termine.",

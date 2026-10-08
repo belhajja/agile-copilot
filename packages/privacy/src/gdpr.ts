@@ -12,6 +12,7 @@ import {
   organization,
   personalDataExports,
   recordAudit,
+  rows,
   session,
   skillRuns,
   skills,
@@ -65,7 +66,9 @@ type Query = Db | Tx;
  * `owner_user_id`), discovered at run time so tables added later are covered.
  */
 async function personalTables(q: Query): Promise<PersonalTable[]> {
-  return (await q.execute(sql`
+  return rows<PersonalTable>(
+    q,
+    sql`
     select c.table_name as "table", c.column_name as "column"
     from information_schema.columns c
     join information_schema.tables t
@@ -75,7 +78,8 @@ async function personalTables(q: Query): Promise<PersonalTable[]> {
       and exists (select 1 from information_schema.columns o
         where o.table_schema = 'public' and o.table_name = c.table_name and o.column_name = 'org_id')
     order by c.table_name, c.column_name
-  `)) as unknown as PersonalTable[];
+  `,
+  );
 }
 
 /**
@@ -100,10 +104,8 @@ interface Workspace {
  * RLS context in turn, one indexed probe per personal table; workspace ids only.
  */
 async function personOrgIds(q: Query, userId: string): Promise<string[]> {
-  const rows = (await q.execute(sql`select id from user_org_ids(${userId}) as id`)) as unknown as {
-    id: string;
-  }[];
-  return rows.map((r) => r.id);
+  const ids = await rows<{ id: string }>(q, sql`select id from user_org_ids(${userId}) as id`);
+  return ids.map((r) => r.id);
 }
 
 /** Of `ids`, the workspaces that still exist and the person is no longer a member of. */
@@ -136,7 +138,9 @@ const SAFE_TYPE = /^[a-z][a-z0-9 _(),]*$/;
  * `ctid` when there is none or a type is unexpected.
  */
 async function pagingKeyOf(q: Query, table: string): Promise<KeyColumn[]> {
-  const rows = (await q.execute(sql`
+  const key = await rows<KeyColumn>(
+    q,
+    sql`
     select a.attname as "name", format_type(a.atttypid, a.atttypmod) as "type"
     from pg_index i
     join pg_class c on c.oid = i.indrelid
@@ -144,9 +148,46 @@ async function pagingKeyOf(q: Query, table: string): Promise<KeyColumn[]> {
     join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
     where n.nspname = 'public' and c.relname = ${table} and i.indisprimary
     order by array_position(i.indkey::int2[], a.attnum)
-  `)) as unknown as KeyColumn[];
-  if (rows.length === 0 || !rows.every((r) => SAFE_TYPE.test(r.type))) return CTID_KEY;
-  return rows;
+  `,
+  );
+  if (key.length === 0 || !key.every((r) => SAFE_TYPE.test(r.type))) return CTID_KEY;
+  return key;
+}
+
+/** The personal tables, how to page them, and their id and time columns. */
+interface Catalog {
+  tables: PersonalTable[];
+  keys: ReadonlyMap<string, KeyColumn[]>;
+  metadata: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/** Per table, the columns that are ids or timestamps: all a former workspace's rows keep. */
+async function metadataColumns(
+  q: Query,
+  tables: readonly string[],
+): Promise<Map<string, Set<string>>> {
+  const found = new Map<string, Set<string>>();
+  if (tables.length === 0) return found;
+  const cols = await rows<{ table: string; column: string }>(
+    q,
+    sql`
+    select table_name as "table", column_name as "column"
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name in (${sql.join(
+        tables.map((t) => sql`${t}`),
+        sql`, `,
+      )})
+      and (column_name in ('id', 'org_id', 'user_id', 'owner_user_id')
+        or data_type in ('uuid', 'date', 'timestamp with time zone', 'timestamp without time zone'))
+  `,
+  );
+  for (const c of cols) {
+    const set = found.get(c.table) ?? new Set<string>();
+    set.add(c.column);
+    found.set(c.table, set);
+  }
+  return found;
 }
 
 const withoutSecrets = (row: Record<string, unknown>) =>
@@ -191,17 +232,51 @@ async function* jsonArray<T>(
 const afterId = (column: AnyPgColumn, after: string | undefined) =>
   after === undefined ? undefined : gt(column, after);
 
-/** One workspace's part of the export, every section read page by page under its RLS context. */
-async function* workspaceSection(
-  db: Db,
-  userId: string,
-  ws: Workspace & { role: string[]; joinedAt: Date | null; member: boolean },
-  tables: PersonalTable[],
-  keys: ReadonlyMap<string, KeyColumn[]>,
-): AsyncGenerator<string> {
-  const inOrg = <T>(fn: (tx: Tx) => Promise<T>) => withOrg(db, ws.orgId, fn);
+/** Runs a query under one workspace's RLS context. */
+type InOrg = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
 
-  yield `{"workspace":${json(ws)},"conversations":`;
+type ExportedWorkspace = Workspace & { role: string[]; joinedAt: Date | null; member: boolean };
+
+const isTextPart = (p: unknown): p is { type: 'text'; text: string } =>
+  typeof p === 'object' &&
+  p !== null &&
+  (p as { type?: unknown }).type === 'text' &&
+  typeof (p as { text?: unknown }).text === 'string';
+
+/** What the person typed: the text of their own messages, never a tool's or the model's. */
+const ownText = (role: string, parts: unknown[]) =>
+  role === 'user' ? parts.filter(isTextPart).map(({ text }) => ({ type: 'text', text })) : [];
+
+/** `full: false` (a workspace they left): what they typed only, see `exportUserData`. */
+function messagesOf(inOrg: InOrg, conversationId: string, full: boolean): AsyncGenerator<string> {
+  return jsonArray(
+    paged(
+      (after: number | undefined) =>
+        inOrg((tx) =>
+          tx
+            .select({
+              seq: agentMessages.seq,
+              role: agentMessages.role,
+              parts: agentMessages.parts,
+              at: agentMessages.createdAt,
+            })
+            .from(agentMessages)
+            .where(
+              and(
+                eq(agentMessages.conversationId, conversationId),
+                after === undefined ? undefined : gt(agentMessages.seq, after),
+              ),
+            )
+            .orderBy(asc(agentMessages.seq))
+            .limit(EXPORT_PAGE_SIZE),
+        ),
+      (m) => m.seq,
+    ),
+    ({ seq: _seq, ...m }) => json(full ? m : { ...m, parts: ownText(m.role, m.parts) }),
+  );
+}
+
+function conversationsSection(inOrg: InOrg, userId: string, full: boolean): AsyncGenerator<string> {
   const conversations = paged(
     (after: string | undefined) =>
       inOrg((tx) =>
@@ -222,38 +297,43 @@ async function* workspaceSection(
       ),
     (c) => c.id,
   );
-  yield* jsonArray(conversations, async function* (c) {
+  return jsonArray(conversations, async function* (c) {
     yield `${open(c)},"messages":`;
-    yield* jsonArray(
-      paged(
-        (after: number | undefined) =>
-          inOrg((tx) =>
-            tx
-              .select({
-                seq: agentMessages.seq,
-                role: agentMessages.role,
-                parts: agentMessages.parts,
-                at: agentMessages.createdAt,
-              })
-              .from(agentMessages)
-              .where(
-                and(
-                  eq(agentMessages.conversationId, c.id),
-                  after === undefined ? undefined : gt(agentMessages.seq, after),
-                ),
-              )
-              .orderBy(asc(agentMessages.seq))
-              .limit(EXPORT_PAGE_SIZE),
-          ),
-        (m) => m.seq,
-      ),
-      ({ seq: _seq, ...m }) => json(m),
-    );
+    yield* messagesOf(inOrg, c.id, full);
     yield '}';
   });
+}
 
-  // Their skills: the current text and the reports of their runs.
-  yield ',"skills":';
+/** Skill runs matching `where`, without their ids; without their report unless `full`. */
+function runsWhere(inOrg: InOrg, where: SQL | undefined, full: boolean): AsyncGenerator<string> {
+  return jsonArray(
+    paged(
+      (after: string | undefined) =>
+        inOrg((tx) =>
+          tx
+            .select({
+              id: skillRuns.id,
+              trigger: skillRuns.trigger,
+              status: skillRuns.status,
+              resultCode: skillRuns.resultCode,
+              output: skillRuns.output,
+              scheduledFor: skillRuns.scheduledFor,
+              createdAt: skillRuns.createdAt,
+              finishedAt: skillRuns.finishedAt,
+            })
+            .from(skillRuns)
+            .where(and(where, afterId(skillRuns.id, after)))
+            .orderBy(asc(skillRuns.id))
+            .limit(EXPORT_PAGE_SIZE),
+        ),
+      (r) => r.id,
+    ),
+    ({ id: _id, output, ...r }) => json(full ? { ...r, output } : r),
+  );
+}
+
+/** Their skills: the current text and the reports of their runs. */
+function skillsSection(inOrg: InOrg, userId: string, full: boolean): AsyncGenerator<string> {
   const owned = paged(
     (after: string | undefined) =>
       inOrg((tx) =>
@@ -283,42 +363,24 @@ async function* workspaceSection(
       ),
     (k) => k.id,
   );
-  const runsWhere = (where: SQL | undefined) =>
-    paged(
-      (after: string | undefined) =>
-        inOrg((tx) =>
-          tx
-            .select({
-              id: skillRuns.id,
-              trigger: skillRuns.trigger,
-              status: skillRuns.status,
-              resultCode: skillRuns.resultCode,
-              output: skillRuns.output,
-              scheduledFor: skillRuns.scheduledFor,
-              createdAt: skillRuns.createdAt,
-              finishedAt: skillRuns.finishedAt,
-            })
-            .from(skillRuns)
-            .where(and(where, afterId(skillRuns.id, after)))
-            .orderBy(asc(skillRuns.id))
-            .limit(EXPORT_PAGE_SIZE),
-        ),
-      (r) => r.id,
-    );
-  yield* jsonArray(owned, async function* ({ id, ...k }) {
+  return jsonArray(owned, async function* ({ id, ...k }) {
     yield `${open(k)},"runs":`;
-    yield* jsonArray(runsWhere(eq(skillRuns.skillId, id)), ({ id: _id, ...r }) => json(r));
+    yield* runsWhere(inOrg, eq(skillRuns.skillId, id), full);
     yield '}';
   });
-  // Runs outlive a deleted skill (P4-R31): they are still the person's reports.
-  yield ',"runsOfDeletedSkills":';
-  yield* jsonArray(
-    runsWhere(and(eq(skillRuns.ownerUserId, userId), isNull(skillRuns.skillId))),
-    ({ id: _id, ...r }) => json(r),
-  );
+}
 
-  yield ',"usage":';
-  yield* jsonArray(
+/** Runs outlive a deleted skill (P4-R31): they are still the person's reports. */
+function runsOfDeletedSkillsSection(
+  inOrg: InOrg,
+  userId: string,
+  full: boolean,
+): AsyncGenerator<string> {
+  return runsWhere(inOrg, and(eq(skillRuns.ownerUserId, userId), isNull(skillRuns.skillId)), full);
+}
+
+function usageSection(inOrg: InOrg, userId: string): AsyncGenerator<string> {
+  return jsonArray(
     paged(
       (after: string | undefined) =>
         inOrg((tx) =>
@@ -342,9 +404,11 @@ async function* workspaceSection(
     ),
     ({ id: _id, ...u }) => json(u),
   );
+}
 
-  yield ',"actionsInAuditLog":';
-  yield* jsonArray(
+/** Without `metadata` unless `full`: it can name Jira issues or workspace objects. */
+function auditSection(inOrg: InOrg, userId: string, full: boolean): AsyncGenerator<string> {
+  return jsonArray(
     paged(
       (after: string | undefined) =>
         inOrg((tx) =>
@@ -364,13 +428,21 @@ async function* workspaceSection(
         ),
       (a) => a.id,
     ),
-    ({ id: _id, ...a }) => json(a),
+    ({ id: _id, metadata, ...a }) => json(full ? { ...a, metadata } : a),
   );
+}
 
-  // Jira connections they made: the Jira account the connection signed in as is theirs (its
-  // display name and id); the connection itself belongs to the workspace. Never the secret.
-  yield ',"jiraConnections":';
-  yield* jsonArray(
+/**
+ * Jira connections they made: the Jira account the connection signed in as is theirs (its
+ * display name and id); the connection itself belongs to the workspace. Never the secret. Unless
+ * `full`, only when each was made: the rest is Jira data.
+ */
+function jiraConnectionsSection(
+  inOrg: InOrg,
+  userId: string,
+  full: boolean,
+): AsyncGenerator<string> {
+  return jsonArray(
     paged(
       (after: string | undefined) =>
         inOrg((tx) =>
@@ -390,55 +462,106 @@ async function* workspaceSection(
         ),
       (c) => c.id,
     ),
-    ({ id: _id, ...c }) => json(c),
+    ({ id: _id, ...c }) => json(full ? c : { createdAt: c.createdAt }),
   );
+}
 
-  // Any other tenant table naming the person (later tables included), secret columns dropped.
-  yield ',"other":{';
+/** One table's rows naming the person, page by page in key order. */
+function personalRows(
+  inOrg: InOrg,
+  userId: string,
+  t: PersonalTable,
+  key: KeyColumn[],
+): AsyncGenerator<{ key: string[]; row: Record<string, unknown> }> {
+  const cols = sql.join(
+    key.map((k) => sql`r.${sql.identifier(k.name)}`),
+    sql`, `,
+  );
+  return paged(
+    (after: string[] | undefined) =>
+      inOrg((tx) =>
+        rows<{ key: string[]; row: Record<string, unknown> }>(
+          tx,
+          sql`
+            select jsonb_build_array(${sql.join(
+              key.map((k) => sql`r.${sql.identifier(k.name)}::text`),
+              sql`, `,
+            )}) as "key", to_jsonb(r) as "row"
+            from ${sql.identifier(t.table)} r
+            where ${personCol(t)} = ${userId}
+              ${
+                after === undefined
+                  ? sql``
+                  : sql`and (${cols}) > (${sql.join(
+                      key.map((k, i) => sql`${after[i] ?? null}::${sql.raw(k.type)}`),
+                      sql`, `,
+                    )})`
+              }
+            order by ${cols}
+            limit ${EXPORT_PAGE_SIZE}
+          `,
+        ),
+      ),
+    (r) => r.key,
+  );
+}
+
+/**
+ * Any other tenant table naming the person (later tables included), secret columns dropped. A
+ * table with no rows for the person is left out. Unless `full`, only its id and time columns.
+ */
+async function* otherTablesSection(
+  inOrg: InOrg,
+  userId: string,
+  catalog: Catalog,
+  full: boolean,
+): AsyncGenerator<string> {
+  const { tables, keys, metadata } = catalog;
+  yield '{';
   let firstTable = true;
   for (const t of tables) {
     if (EXPORTED_EXPLICITLY.has(t.table)) continue;
-    const key = keys.get(t.table) ?? CTID_KEY;
-    const cols = sql.join(
-      key.map((k) => sql`r.${sql.identifier(k.name)}`),
-      sql`, `,
-    );
-    const rows = paged(
-      (after: string[] | undefined) =>
-        inOrg(
-          async (tx) =>
-            (await tx.execute(sql`
-              select jsonb_build_array(${sql.join(
-                key.map((k) => sql`r.${sql.identifier(k.name)}::text`),
-                sql`, `,
-              )}) as "key", to_jsonb(r) as "row"
-              from ${sql.identifier(t.table)} r
-              where ${personCol(t)} = ${userId}
-                ${
-                  after === undefined
-                    ? sql``
-                    : sql`and (${cols}) > (${sql.join(
-                        key.map((k, i) => sql`${after[i] ?? null}::${sql.raw(k.type)}`),
-                        sql`, `,
-                      )})`
-                }
-              order by ${cols}
-              limit ${EXPORT_PAGE_SIZE}
-            `)) as unknown as { key: string[]; row: Record<string, unknown> }[],
-        ),
-      (r) => r.key,
-    );
     let first = true;
-    for await (const r of rows) {
+    for await (const r of personalRows(inOrg, userId, t, keys.get(t.table) ?? CTID_KEY)) {
       if (first) yield `${firstTable ? '' : ','}${json(t.table)}:[`;
       else yield ',';
       first = false;
       firstTable = false;
-      yield json(withoutSecrets(r.row));
+      const row = withoutSecrets(r.row);
+      const kept = metadata.get(t.table);
+      yield json(
+        full ? row : Object.fromEntries(Object.entries(row).filter(([k]) => kept?.has(k))),
+      );
     }
     if (!first) yield ']';
   }
-  yield '}}';
+  yield '}';
+}
+
+/** One workspace's part of the export, every section read page by page under its RLS context. */
+async function* workspaceSection(
+  db: Db,
+  userId: string,
+  ws: ExportedWorkspace,
+  catalog: Catalog,
+): AsyncGenerator<string> {
+  const inOrg: InOrg = (fn) => withOrg(db, ws.orgId, fn);
+  const full = ws.member;
+  yield `{"workspace":${json(ws)},"conversations":`;
+  yield* conversationsSection(inOrg, userId, full);
+  yield ',"skills":';
+  yield* skillsSection(inOrg, userId, full);
+  yield ',"runsOfDeletedSkills":';
+  yield* runsOfDeletedSkillsSection(inOrg, userId, full);
+  yield ',"usage":';
+  yield* usageSection(inOrg, userId);
+  yield ',"actionsInAuditLog":';
+  yield* auditSection(inOrg, userId, full);
+  yield ',"jiraConnections":';
+  yield* jiraConnectionsSection(inOrg, userId, full);
+  yield ',"other":';
+  yield* otherTablesSection(inOrg, userId, catalog, full);
+  yield '}';
 }
 
 /**
@@ -447,6 +570,11 @@ async function* workspaceSection(
  * in; each workspace's part is read under that workspace's RLS context, and only rows that name
  * the person are included, never their colleagues' data. Credentials, tokens and key material
  * (`SECRET_COLUMNS`, session tokens, OAuth tokens, password hashes) never leave.
+ *
+ * A workspace they are no longer a member of is no longer theirs to read: its part keeps what they
+ * wrote (the text of their messages, conversation titles, their skills) and ids and dates, never
+ * the assistant's answers, tool calls and results, skill reports, Jira connection details, audit
+ * metadata or other tables' content, all of which can hold that workspace's Jira data.
  */
 export async function* exportUserData(db: Db, userId: string): AsyncGenerator<string> {
   const [profile] = await db
@@ -536,9 +664,14 @@ export async function* exportUserData(db: Db, userId: string): AsyncGenerator<st
     ...memberships.map((m) => ({ ...m, role: parseRoles(m.role), member: true })),
     ...former.map((f) => ({ ...f, role: [], joinedAt: null, member: false })),
   ];
+  const catalog: Catalog = {
+    tables,
+    keys,
+    metadata: former.length > 0 ? await metadataColumns(db, [...keys.keys()]) : new Map(),
+  };
 
   yield `{"exportedAt":${json(new Date())},"user":${json(profile)},"signInMethods":${json(signInMethods)},"sessions":${json(sessions)},"invitations":${json({ sent, received })},"workspaces":`;
-  yield* jsonArray(workspaces, (ws) => workspaceSection(db, userId, ws, tables, keys));
+  yield* jsonArray(workspaces, (ws) => workspaceSection(db, userId, ws, catalog));
   yield '}';
 }
 

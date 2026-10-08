@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
@@ -19,6 +19,11 @@ export function withOrg<T>(db: Db, orgId: string, fn: (tx: Tx) => Promise<T>): P
     await tx.execute(sql`select set_config('app.current_org_id', ${orgId}, true)`);
     return fn(tx);
   });
+}
+
+/** Runs a raw query and returns its rows as `T` (the caller vouches for the selected columns). */
+export async function rows<T>(q: Db | Tx, query: SQL): Promise<T[]> {
+  return (await q.execute(query)) as unknown as T[];
 }
 
 /** Postgres unique_violation, whether thrown directly or wrapped by drizzle (DrizzleQueryError.cause). */

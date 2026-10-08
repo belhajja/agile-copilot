@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { Tx } from './client';
+import { rows, type Tx } from './client';
 
 /**
  * Deletes every row of one organisation from every tenant table (any public table with an
@@ -10,7 +10,9 @@ import type { Tx } from './client';
  * allowlisted `skill_runs_channel_id_delivery_channels_id_fk` (schema guard test).
  */
 export async function purgeOrgTenantRows(tx: Tx, orgId: string): Promise<string[]> {
-  const tables = (await tx.execute(sql`
+  const tables = await rows<{ name: string }>(
+    tx,
+    sql`
     select c.table_name as name
     from information_schema.columns c
     join information_schema.tables t
@@ -18,7 +20,8 @@ export async function purgeOrgTenantRows(tx: Tx, orgId: string): Promise<string[
     where c.table_schema = 'public' and c.column_name = 'org_id'
       and t.table_type = 'BASE TABLE' and c.table_name <> 'audit_log'
     order by c.table_name
-  `)) as unknown as { name: string }[];
+  `,
+  );
   for (const { name } of tables) {
     await tx.execute(sql`delete from ${sql.identifier(name)} where org_id = ${orgId}`);
   }
@@ -32,12 +35,14 @@ export async function purgeOrgTenantRows(tx: Tx, orgId: string): Promise<string[
  * list of organisations, so a deleted one is never planned again.
  */
 export async function purgeOrgJobs(tx: Tx, orgId: string): Promise<number> {
-  const [found] = (await tx.execute(
+  const [found] = await rows<{ present: boolean }>(
+    tx,
     sql`select to_regclass('pgboss.job') is not null as present`,
-  )) as unknown as { present: boolean }[];
+  );
   if (!found?.present) return 0;
-  const deleted = (await tx.execute(
+  const deleted = await rows<{ id: string }>(
+    tx,
     sql`delete from pgboss.job where data->>'orgId' = ${orgId} returning id`,
-  )) as unknown as unknown[];
+  );
   return deleted.length;
 }
