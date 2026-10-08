@@ -158,8 +158,10 @@ services:
   # One shared instance for every workspace: each request carries its own Jira URL and token (Data
   # Center) or OAuth token and cloud id (Cloud). Never set JIRA_URL, Jira tokens or
   # ALLOW_GLOBAL_CRED_FALLBACK here. Not published: only the web app reaches it, on the `mcp`
-  # network, which it shares with nothing else (not Postgres, not the worker): its own outbound
-  # check (MCP_ALLOWED_URL_DOMAINS) is not DNS-pinned like the app's.
+  # network, which it shares with nothing else (not Postgres, not the worker). It refuses Jira URLs
+  # that resolve to private, loopback or link-local addresses and connects to the address it
+  # checked (no DNS rebinding), except for hosts in MCP_ALLOWED_URL_DOMAINS, which may resolve
+  # anywhere. Its egress is otherwise unrestricted (the Helm chart adds a NetworkPolicy).
   mcp-atlassian:
     <<: *hardened
     # Pinned by digest; must equal MCP_ATLASSIAN_IMAGE in packages/jira-tools/src/image.ts (tested).
@@ -178,8 +180,8 @@ services:
       # plus jira_search_assignable_users, which the backend uses to resolve assignees.
       ENABLED_TOOLS: jira_search,jira_get_issue,jira_get_transitions,jira_get_agile_boards,jira_get_sprints_from_board,jira_get_sprint_issues,jira_get_worklog,jira_get_board_issues,jira_get_issue_dates,jira_get_project_epic_hierarchy,jira_get_cross_project_dependencies,jira_get_link_types,jira_get_project_versions,jira_get_project_components,jira_search_fields,jira_get_issue_watchers,jira_add_comment,jira_transition_issue,jira_assign_issue,jira_create_issue,jira_update_issue,jira_search_assignable_users
       ATLASSIAN_OAUTH_ENABLE: "true"
-      # Data Center hosts that resolve to private addresses. Empty = unset. Once set, it is an
-      # allowlist for every Data Center host, public ones included: list them all.
+      # The only Data Center hosts it will send a PAT to (and subdomains), which may then resolve
+      # to private addresses. Empty = any public host. See .env.example.
       MCP_ALLOWED_URL_DOMAINS: ${MCP_ALLOWED_URL_DOMAINS:-}
     networks: [mcp]
     healthcheck: &mcp-atlassian-health
