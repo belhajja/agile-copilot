@@ -16,7 +16,7 @@ async function readLine(): Promise<string> {
     if (data.includes('\n')) break;
   }
   // Windows PowerShell pipes text with a UTF-8 byte order mark (and CRLF).
-  return data.replace(/^﻿/, '').split(/\r?\n/)[0] ?? '';
+  return data.replace(/^\uFEFF/, '').split(/\r?\n/)[0] ?? '';
 }
 
 /** Reads one line from the terminal without echoing it. */
