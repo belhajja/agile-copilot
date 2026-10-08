@@ -130,6 +130,19 @@ describe('email over SMTP (in-process server)', () => {
     expect(open.connections()).toBe(before + 1);
   });
 
+  it('refuses SMTP ports other than 25, 465, 587 and 2525 off this machine, without connecting', async () => {
+    const before = open.connections();
+    const internal = { allowedPrivateHosts: ['corp.test'], resolve: async () => ['10.0.0.7'] };
+    for (const port of [6379, 5432, 8080]) {
+      expect(
+        await failure(
+          verifySmtp({ ...secret(port), host: 'redis.corp.test' }, { outbound: internal }),
+        ),
+      ).toBe('blocked_port');
+    }
+    expect(open.connections()).toBe(before);
+  });
+
   it('connects to an allowlisted internal host name at the address it resolved', async () => {
     await verifySmtp(
       { ...secret(open.port), host: 'mail.corp.test' },

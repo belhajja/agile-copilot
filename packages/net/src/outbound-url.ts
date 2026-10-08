@@ -45,6 +45,10 @@ export const isAllowlistedHost = (host: string, allowed: readonly string[]) =>
 export const isInsecureTransport = (url: URL, allowed: readonly string[]) =>
   url.protocol === 'http:' && !isAllowlistedHost(normalizeHost(url.hostname), allowed);
 
+/** A loopback address (this machine): 127.0.0.0/8, ::1. */
+export const isLoopbackAddress = (address: string): boolean =>
+  ipaddr.isValid(address) && ipaddr.process(address).range() === 'loopback';
+
 /** A globally routable unicast address (not private, loopback, link-local, reserved…). */
 export const isPublicAddress = (address: string): boolean =>
   ipaddr.isValid(address) && ipaddr.process(address).range() === 'unicast';

@@ -2,6 +2,7 @@ import {
   createPinnedLookup,
   isAllowlistedHost,
   isBlockedAddressError,
+  isLoopbackAddress,
   normalizeHost,
   type OutboundPolicy,
   withDeadline,
@@ -54,6 +55,12 @@ export function resolvePinnedAddress(host: string, outbound: OutboundPolicy): Pr
   );
 }
 
+/**
+ * The ports a mail server listens on. Anything else could aim the SMTP client at another internal
+ * service on an allowlisted host; a server on this machine (development, tests) may use any port.
+ */
+export const SMTP_PORTS: readonly number[] = [25, 465, 587, 2525];
+
 async function transportFor(secret: SmtpSecret, opts: SmtpOptions) {
   let address: string;
   try {
@@ -69,6 +76,9 @@ async function transportFor(secret: SmtpSecret, opts: SmtpOptions) {
     !isAllowlistedHost(normalizeHost(secret.host), opts.outbound.allowedPrivateHosts)
   ) {
     throw new DeliveryError('insecure_transport');
+  }
+  if (!SMTP_PORTS.includes(secret.port) && !isLoopbackAddress(address)) {
+    throw new DeliveryError('blocked_port');
   }
   const timeout = opts.timeoutMs ?? 15_000;
   return createTransport({

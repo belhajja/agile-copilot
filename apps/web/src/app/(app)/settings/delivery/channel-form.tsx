@@ -42,7 +42,7 @@ export function ChannelForm() {
       : blockedReason
         ? t(`errors.blocked.${blockedReason}`, { host: state.host ?? '' })
         : state.code === 'rejected'
-          ? t('errors.rejected', { status: String(state.httpStatus ?? '') })
+          ? t('errors.rejectedNoStatus')
           : isChannelErrorCode(state.code)
             ? t(`errors.${state.code}`)
             : t('errors.unknown');
