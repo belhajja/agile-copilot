@@ -1,10 +1,11 @@
 import { useTranslations } from 'next-intl';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { allowedCode } from '@/lib/error-code';
-import { DASHBOARD_EMPTY_REASONS, DASHBOARD_HINTS, DASHBOARD_METRICS } from './message-keys';
-import { RemoveWidget, type WidgetRemoval } from './remove-widget';
+import { DASHBOARD_EMPTY_REASONS, DASHBOARD_HINTS } from './message-keys';
 import type { RenderedWidget } from './types';
 import { useKpiText, WidgetNotes } from './widget-body';
+import { WidgetControls, type WidgetEditing } from './widget-controls';
+import { useWidgetTitle } from './widget-title';
 
 /** Sprint names can repeat: keys carry the position too. */
 const keyed = <T extends { label: string }>(items: T[]) =>
@@ -13,24 +14,14 @@ const keyed = <T extends { label: string }>(items: T[]) =>
 /** KPI row, adapted from the shadcn dashboard-01 block's SectionCards. */
 export function KpiCards({
   widgets,
-  removal,
+  editing,
 }: {
   widgets: RenderedWidget[];
-  removal?: WidgetRemoval;
+  editing?: WidgetEditing;
 }) {
   const t = useTranslations('dashboards');
   const formatted = useKpiText();
-
-  const title = ({ spec }: RenderedWidget): string => {
-    const metric = allowedCode(spec.metric, DASHBOARD_METRICS);
-    // A query widget's params hold filters, not translation values: the title has none to fill in.
-    return (
-      spec.title ??
-      (metric
-        ? t(`metrics.${metric}.title`, spec.metric === 'query' ? undefined : spec.params)
-        : spec.metric)
-    );
-  };
+  const titleOf = useWidgetTitle();
   const value = ({ data }: RenderedWidget): string =>
     data.kind === 'kpi' ? formatted(data.format, data.value) : '—';
   const hint = ({ data }: RenderedWidget): string | null => {
@@ -50,11 +41,17 @@ export function KpiCards({
       {widgets.map((w) => (
         <Card key={w.spec.id} className="@container/card" data-widget={w.spec.id}>
           <CardHeader>
-            <CardDescription>{title(w)}</CardDescription>
+            <CardDescription>{titleOf(w.spec).title}</CardDescription>
             <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
               {value(w)}
             </CardTitle>
-            {removal && <RemoveWidget removal={removal} widgetId={w.spec.id} />}
+            {editing && (
+              <WidgetControls
+                editing={editing}
+                widget={w}
+                defaultTitle={titleOf(w.spec).defaultTitle}
+              />
+            )}
           </CardHeader>
           <CardFooter className="flex-col items-start gap-1.5 text-sm">
             <div className="text-muted-foreground">{hint(w)}</div>

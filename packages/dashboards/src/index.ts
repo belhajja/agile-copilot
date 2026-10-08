@@ -7,6 +7,8 @@ export {
   pinWidget,
   type RemoveFailure,
   removeWidget,
+  type UpdateFailure,
+  updateWidget,
   type WidgetOwner,
 } from './pin';
 export { runQuery } from './query/run';
@@ -28,9 +30,11 @@ export type { KpiFormat, WidgetData, WidgetNote } from './widget-data';
 export {
   CATALOG_METRIC_KEYS,
   type CatalogMetricKey,
+  chartOptions,
   METRIC_KEYS,
   type MetricKey,
   parseWidgets,
+  WIDGET_CHARTS,
   type WidgetSpec,
   type WidgetSpecInput,
   widgetListSchema,

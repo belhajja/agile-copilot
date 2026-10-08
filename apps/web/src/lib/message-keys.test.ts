@@ -12,6 +12,7 @@ import { MCP_ERROR_CODES } from '../app/(app)/settings/mcp/error-codes';
 import { SETTINGS_ERROR_CODES } from '../app/(app)/settings/workspace/error-codes';
 import { TOOL_LABELS } from '../components/agent/tool-labels';
 import {
+  DASHBOARD_CHARTS,
   DASHBOARD_CODES,
   DASHBOARD_COLUMNS,
   DASHBOARD_EMPTY_REASONS,
@@ -53,6 +54,7 @@ describe('allowlisted message keys', () => {
       expect([...BLOCKED_REASONS].sort()).toEqual(sentences(group));
     }
     expect([...DASHBOARD_CODES].sort()).toEqual(sentences(m.dashboards.codes));
+    expect([...DASHBOARD_CHARTS].sort()).toEqual(sentences(m.dashboards.charts));
     expect([...DASHBOARD_COLUMNS].sort()).toEqual(sentences(m.dashboards.columns));
     expect([...DASHBOARD_EMPTY_REASONS].sort()).toEqual(sentences(m.dashboards.empty));
     expect([...DASHBOARD_HINTS].sort()).toEqual(sentences(m.dashboards.hints));

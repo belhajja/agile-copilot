@@ -3,7 +3,7 @@ import { discoverBoards, listBoards, setBoardSelection } from '@agile/sync';
 import { owner, startSyncHarness } from '@agile/sync/testing';
 import { eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PINNED_DASHBOARD_NAME, pinWidget, removeWidget } from './pin';
+import { PINNED_DASHBOARD_NAME, pinWidget, removeWidget, updateWidget } from './pin';
 import { listDashboards, saveDashboardWidgets } from './store';
 
 describe('pinned widgets (prompt-driven dashboard)', () => {
@@ -225,6 +225,72 @@ describe('pinned widgets (prompt-driven dashboard)', () => {
         via: 'user',
       }),
     ).toMatchObject({ ok: false, code: 'invalid_widget' });
+  });
+
+  it("renames a widget and switches its chart, on the user's own dashboard only", async () => {
+    const [pinned] = await listDashboards(h.db, 'org_a', me.userId, boardId);
+    const cycle = pinned?.widgets.find(
+      (w) => w.metric === 'cycle_time' && w.params.percentile === 95,
+    );
+    if (!pinned || !cycle) throw new Error('nothing pinned');
+    const update = (changes: { title?: string | null; chart?: string }, who = me, id = cycle.id) =>
+      updateWidget(h.db, who, pinned.id, id, changes);
+
+    expect(await update({ title: 'x' }, { orgId: 'org_a', userId: 'user_other' })).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await update({ title: 'x' }, { orgId: 'org_b', userId: me.userId })).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await update({ title: 'x' }, me, 'no-such-widget')).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(await updateWidget(h.db, me, 'not-a-uuid', cycle.id, { title: 'x' })).toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+
+    expect(await update({ title: '  P95 cycle time ', chart: 'kpi' })).toMatchObject({
+      ok: true,
+      widget: { id: cycle.id, title: 'P95 cycle time', chart: 'kpi', params: { percentile: 95 } },
+    });
+    expect(await update({ chart: 'bar' })).toEqual({ ok: false, code: 'invalid_widget' });
+    expect(await update({ title: 'a'.repeat(81) })).toEqual({ ok: false, code: 'invalid_widget' });
+    expect(await update({ title: 'bad' })).toEqual({ ok: false, code: 'invalid_widget' });
+    const cleared = await update({ title: null });
+    if (!cleared.ok) throw new Error('update failed');
+    expect(cleared.widget).not.toHaveProperty('title');
+    const [after] = await listDashboards(h.db, 'org_a', me.userId, boardId);
+    expect(after?.widgets.find((w) => w.id === cycle.id)).toEqual(cleared.widget);
+    expect(after?.widgets.map((w) => w.id)).toEqual(pinned.widgets.map((w) => w.id));
+
+    // A query switches to another display its query allows; its own title is the default.
+    const query = pinned.widgets.find((w) => w.metric === 'query');
+    if (!query) throw new Error('no query widget');
+    expect(await update({ chart: 'pie', title: 'Bugs' }, me, query.id)).toMatchObject({
+      ok: true,
+      widget: { chart: 'pie', title: 'Bugs', params: { display: 'pie' } },
+    });
+    expect(await update({ chart: 'line' }, me, query.id)).toEqual({
+      ok: false,
+      code: 'invalid_widget',
+    });
+    expect(await update({ title: null }, me, query.id)).toMatchObject({
+      ok: true,
+      widget: { title: 'Bugs by assignee' },
+    });
+
+    const audit = await h.rawDb
+      .select({ metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'dashboard.widget_updated'));
+    expect(audit).toContainEqual({
+      metadata: { widgetId: cycle.id, renamed: true, chart: 'kpi' },
+    });
+    expect(audit.length).toBe(4);
   });
 });
 

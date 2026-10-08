@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { recordAudit } from '@agile/connections';
 import { type Db, dashboards, isUuid, jiraBoards, withOrg } from '@agile/db';
 import { and, eq, sql } from 'drizzle-orm';
-import { type WidgetSpec, widgetSpecSchema } from './widget-spec';
+import { chartOptions, parseWidgets, type WidgetSpec, widgetSpecSchema } from './widget-spec';
 
 const MAX_WIDGETS = 40;
 
@@ -189,5 +189,82 @@ export async function removeWidget(
       metadata: { widgetId },
     });
     return { ok: true } as const;
+  });
+}
+
+export type UpdateFailure = { ok: false; code: 'not_found' | 'invalid_widget' };
+
+/**
+ * Renames a widget of one of the user's dashboards and/or switches it to another of its charts
+ * (for a query, another display its query allows). `title: null` goes back to the default title.
+ */
+export async function updateWidget(
+  db: Db,
+  owner: WidgetOwner,
+  dashboardId: string,
+  widgetId: string,
+  changes: { title?: string | null; chart?: string },
+): Promise<{ ok: true; widget: WidgetSpec } | UpdateFailure> {
+  if (!isUuid(dashboardId)) return { ok: false, code: 'not_found' };
+  return withOrg(db, owner.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ widgets: dashboards.widgets })
+      .from(dashboards)
+      .where(and(eq(dashboards.id, dashboardId), eq(dashboards.userId, owner.userId)))
+      .for('update');
+    if (!row) return { ok: false, code: 'not_found' } as const;
+    const widgets: unknown[] = Array.isArray(row.widgets) ? row.widgets : [];
+    const index = widgets.findIndex((w) => (w as { id?: unknown } | null)?.id === widgetId);
+    if (index === -1) return { ok: false, code: 'not_found' } as const;
+    // A stored widget that no longer validates is left as it is.
+    const [current] = parseWidgets([widgets[index]]);
+    if (!current) return { ok: false, code: 'invalid_widget' } as const;
+
+    let next: Record<string, unknown> = { ...current };
+    if (changes.title !== undefined) {
+      const fallback =
+        current.metric === 'query' && !('unavailable' in current.params)
+          ? current.params.title
+          : undefined;
+      next.title = changes.title?.trim() || fallback;
+      if (next.title === undefined) delete next.title;
+    }
+    if (changes.chart !== undefined && changes.chart !== current.chart) {
+      if (!chartOptions(current).includes(changes.chart as WidgetSpec['chart']))
+        return { ok: false, code: 'invalid_widget' } as const;
+      next = {
+        ...next,
+        chart: changes.chart,
+        ...(current.metric === 'query'
+          ? { params: { ...current.params, display: changes.chart } }
+          : {}),
+      };
+    }
+    // An unavailable query only gets a new title; anything else is validated as a new pin is.
+    let updated: WidgetSpec | undefined;
+    if (current.metric === 'query' && 'unavailable' in current.params) {
+      [updated] = parseWidgets([next]);
+    } else {
+      const parsed = widgetSpecSchema.safeParse(next);
+      updated = parsed.success ? parsed.data : undefined;
+    }
+    if (!updated) return { ok: false, code: 'invalid_widget' } as const;
+    await tx
+      .update(dashboards)
+      .set({ widgets: widgets.map((w, i) => (i === index ? updated : w)) as WidgetSpec[] })
+      .where(eq(dashboards.id, dashboardId));
+    await recordAudit(tx, {
+      orgId: owner.orgId,
+      actorUserId: owner.userId,
+      action: 'dashboard.widget_updated',
+      targetType: 'dashboard',
+      targetId: dashboardId,
+      metadata: {
+        widgetId,
+        renamed: changes.title !== undefined,
+        ...(updated.chart !== current.chart ? { chart: updated.chart } : {}),
+      },
+    });
+    return { ok: true, widget: updated } as const;
   });
 }

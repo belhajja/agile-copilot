@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { kanbanLayout, scrumLayout } from './layouts';
 import {
   CATALOG_METRIC_KEYS,
+  chartOptions,
   METRIC_KEYS,
   parseWidgets,
   widgetListSchema,
@@ -145,5 +146,41 @@ describe('query widgets', () => {
         { id: 'q', metric: 'query', chart: 'pie', params: { unavailable: true } },
       ]).success,
     ).toBe(true);
+  });
+});
+
+describe('chart options', () => {
+  const parse = (w: unknown) => {
+    const [spec] = parseWidgets([w]);
+    if (!spec) throw new Error('invalid');
+    return spec;
+  };
+
+  it("offers a metric's own charts", () => {
+    expect(chartOptions(parse({ id: 'c', metric: 'cycle_time', chart: 'kpi' }))).toEqual([
+      'kpi',
+      'table',
+    ]);
+    expect(chartOptions(parse({ id: 'v', metric: 'velocity', chart: 'bar' }))).toEqual(['bar']);
+  });
+
+  it('offers the displays a query is valid with', () => {
+    const query = (params: Record<string, unknown>) =>
+      parse({ id: 'q', metric: 'query', chart: params.display, params: { title: 'Q', ...params } });
+    expect(chartOptions(query({ groupBy: ['assignee'], display: 'bar' }))).toEqual([
+      'table',
+      'bar',
+      'pie',
+    ]);
+    expect(chartOptions(query({ groupBy: ['createdMonth'], display: 'line' }))).toEqual([
+      'table',
+      'bar',
+      'line',
+      'pie',
+    ]);
+    expect(chartOptions(query({ display: 'kpi' }))).toEqual(['kpi']);
+    expect(
+      chartOptions(parse({ id: 'q', metric: 'query', chart: 'bar', params: { jql: 'x' } })),
+    ).toEqual(['bar']);
   });
 });
