@@ -471,7 +471,18 @@ Both commands need Docker: they start Postgres with Testcontainers and sync the 
 2. **Create one Secret** yourself (kubectl, External Secrets, Sealed Secrets, …).
    - **Required keys:** `DATABASE_URL` (as `app_user`), `DATABASE_OWNER_URL` (the migration owner), `BETTER_AUTH_SECRET` and `ENCRYPTION_KEYS`.
    - **Optional keys:** `OIDC_CLIENT_SECRET`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`.
-3. **Install** with `helm install agile deploy/helm/agile-copilot --set secrets.existingSecret=<name> --timeout 10m` and your values (`config.*` for the non-secret settings, `ingress.*`, `networkPolicy.*`).
+3. **Point the chart at the images.** `values.yaml` ships placeholders (`ghcr.io/example/agile-copilot-*`). CI publishes the images to this project's GitLab registry: release tags as `.../web:<tag>` (and `worker`, `migrate`), and snapshots of each branch as `.../web/snapshot:<branch>`, e.g. `snapshot:develop`. The registry is private: create a pull Secret from a deploy token (`read_registry`) and list it in `imagePullSecrets`.
+
+   ```yaml
+   image:
+     web: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web, tag: v1.0.0, digest: "" }
+     worker: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker, tag: v1.0.0, digest: "" }
+     migrate: { repository: registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate, tag: v1.0.0, digest: "" }
+   imagePullSecrets: [{ name: gitlab-registry }]
+   ```
+
+   For the develop snapshot, use `.../web/snapshot` (and `worker/snapshot`, `migrate/snapshot`) with `tag: develop`. In production set `digest` too (`docker buildx imagetools inspect <image>:<tag>` prints it): the digest then decides, whatever the tag says.
+4. **Install** with `helm install agile deploy/helm/agile-copilot --set secrets.existingSecret=<name> --timeout 10m` and your values (`config.*` for the non-secret settings, `image.*`, `ingress.*`, `networkPolicy.*`).
    - Raise `migrate.activeDeadlineSeconds`, for example to 540, together with `--timeout 10m`. Helm waits for the migration hook only up to its `--timeout` (default 5 minutes), and the default deadline of 240 s stays under that.
 
 What the chart guarantees:
@@ -488,7 +499,7 @@ What the chart guarantees:
   - The mcp-atlassian pods may reach cluster DNS and public IPv4 addresses only, plus `networkPolicy.jiraPrivateCidrs` for self-hosted Jira.
   - Only the ingress controller reaches the web app: `networkPolicy.webIngressFrom` defaults to the ingress-nginx pods (namespace `ingress-nginx`). Point it at your controller's namespace and pod labels; `[]` opens it to every pod, and `NOTES.txt` then warns.
   - The web app and the worker may reach cluster DNS, Postgres (`networkPolicy.appEgress.postgres`, port 5432 on any address by default: narrow `to` to your database), the mcp-atlassian services and public IPv4 addresses on any port. Private ranges, link-local addresses (the cloud metadata service) and the rest of the cluster are blocked, except `networkPolicy.jiraPrivateCidrs`, `networkPolicy.appEgress.extraCIDRs` (a private Jira, LLM gateway, SMTP relay or identity provider: the hosts in `config.allowedPrivateHosts`) and `networkPolicy.appEgress.extraRules`. `networkPolicy.appEgress.enabled=false` leaves their egress open.
-- **Images:** pin them by digest (`image.*.digest`). The images are built from `apps/web/Dockerfile` (targets `runner`, `worker`, `migrate`).
+- **Images:** pin them by digest (`image.*.digest`). The images are built from `apps/web/Dockerfile` (targets `runner`, `worker`, `migrate`); `NOTES.txt` warns while `image.*.repository` still names the placeholders.
 
 `sh deploy/helm/check.sh` lints the chart and validates the rendered manifests with kubeconform. It uses helm v4.3.0 and kubeconform v0.8.0, downloading them with a checksum check when missing. CI runs it, together with `HELM_REQUIRED=1 pnpm vitest run packages/jira-tools/src/helm.test.ts`.
 

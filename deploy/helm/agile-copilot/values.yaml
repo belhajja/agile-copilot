@@ -3,6 +3,10 @@
 
 # Images built from apps/web/Dockerfile (targets: runner, worker, migrate). Pin by digest in
 # production (`digest: sha256:…`; the image is then `repository:tag@digest`, and the digest decides).
+# These repositories are placeholders: CI publishes the images to
+# registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/{web,worker,migrate} (release
+# tags) and …/{web,worker,migrate}/snapshot (tag = branch, e.g. develop); see the README's Helm
+# section. That registry is private: add a pull Secret to imagePullSecrets.
 image:
   web: { repository: ghcr.io/example/agile-copilot-web, tag: "0.5.0", digest: "" }
   worker: { repository: ghcr.io/example/agile-copilot-worker, tag: "0.5.0", digest: "" }

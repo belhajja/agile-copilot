@@ -11,6 +11,7 @@ const chart = (file: string) =>
   readFileSync(new URL(`../../../deploy/helm/agile-copilot/${file}`, import.meta.url), 'utf8');
 const template = (file: string) => chart(`templates/${file}`);
 const values = parse(chart('values.yaml')) as {
+  image: { web: { repository: string } };
   mcpAtlassian: { image: string; enabledTools: string; readonlyEnabledTools: string };
   secrets: { existingSecret: string };
   networkPolicy: { enabled: boolean };
@@ -564,6 +565,17 @@ describe.skipIf(!helmAvailable)('Helm chart, rendered (helm template)', () => {
     const notes = template('NOTES.txt');
     expect(notes).toMatch(/webIngressFrom/);
     expect(notes).toMatch(/ingress-nginx/);
+  });
+
+  it('tells in NOTES.txt where the real images are while the placeholders are set', () => {
+    expect(values.image.web.repository).toMatch(/^ghcr\.io\/example\//);
+    const notes = template('NOTES.txt');
+    expect(notes).toMatch(/contains "ghcr\.io\/example\/"/);
+    for (const name of ['web', 'worker', 'migrate']) {
+      expect(notes).toContain(
+        `registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/${name}`,
+      );
+    }
   });
 
   it('drops the mcp-atlassian pods, their URLs and policies when disabled', () => {
