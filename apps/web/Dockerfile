@@ -44,23 +44,26 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 
 # Runtime images run as uid/gid 10001: numeric, so Kubernetes' runAsNonRoot can verify it (Helm
-# podSecurityContext, tested in packages/jira-tools/src/helm.test.ts).
+# podSecurityContext, tested in packages/jira-tools/src/helm.test.ts). Their code stays owned by
+# root: the app user can read it, not rewrite it.
 FROM runtime AS migrate
-COPY --from=bundle --chown=10001:10001 /out/migrate ./
+COPY --from=bundle /out/migrate ./
 USER 10001:10001
 CMD ["node", "dist/migrate.mjs"]
 
 FROM runtime AS worker
 ENV NODE_ENV=production WORKER_HEALTH_PORT=8080 WORKER_HEALTH_HOST=0.0.0.0
-COPY --from=bundle --chown=10001:10001 /out/worker ./
+COPY --from=bundle /out/worker ./
 USER 10001:10001
 EXPOSE 8080
 CMD ["node", "dist/worker.mjs"]
 
 FROM runtime AS runner
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
-COPY --from=build --chown=10001:10001 /repo/apps/web/.next/standalone ./
-COPY --from=build --chown=10001:10001 /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/.next/standalone ./
+COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+# The only directory the server writes to (besides /tmp).
+RUN mkdir -p apps/web/.next/cache && chown 10001:10001 apps/web/.next/cache
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
