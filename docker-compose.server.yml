@@ -5,13 +5,13 @@
 #   docker compose -f docker-compose.selfhost.yml -f docker-compose.server.yml up -d
 # Needs in .env, besides the self-host secrets: APP_DOMAIN (DNS pointing at this server) and
 # ACME_EMAIL. Images default to the latest `develop` build; set WEB_IMAGE, WORKER_IMAGE and
-# MIGRATE_IMAGE to pin a release (e.g. registry.gitlab.com/agile-copilot/agile-copilot/web:v1.0.0).
+# MIGRATE_IMAGE to pin a release (e.g. registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:v1.0.0).
 services:
   migrate:
-    image: ${MIGRATE_IMAGE:-registry.gitlab.com/agile-copilot/agile-copilot/migrate/snapshot:develop}
+    image: ${MIGRATE_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate/snapshot:develop}
     build: !reset null
   web:
-    image: ${WEB_IMAGE:-registry.gitlab.com/agile-copilot/agile-copilot/web/snapshot:develop}
+    image: ${WEB_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web/snapshot:develop}
     build: !reset null
     # Reached through Caddy only.
     ports: !reset []
@@ -20,7 +20,7 @@ services:
       # Caddy sets X-Forwarded-For to the client address (it trusts no incoming value).
       TRUSTED_PROXY_HOPS: "1"
   worker:
-    image: ${WORKER_IMAGE:-registry.gitlab.com/agile-copilot/agile-copilot/worker/snapshot:develop}
+    image: ${WORKER_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker/snapshot:develop}
     build: !reset null
     environment:
       BETTER_AUTH_URL: https://${APP_DOMAIN:?set APP_DOMAIN}

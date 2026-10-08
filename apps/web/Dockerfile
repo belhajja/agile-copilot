@@ -11,7 +11,6 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
-COPY apps/operator/package.json apps/operator/
 COPY e2e/package.json e2e/
 COPY evals/package.json evals/
 COPY packages/ packages/
@@ -31,8 +30,7 @@ FROM deps AS bundle
 COPY . .
 RUN node scripts/bundle-node.mjs apps/worker/src/main.ts /out/worker/dist/worker.mjs \
   && node scripts/bundle-node.mjs packages/db/src/migrate-cli.ts /out/migrate/dist/migrate.mjs \
-  && cp -r packages/db/drizzle /out/migrate/drizzle \
-  && node scripts/bundle-node.mjs apps/operator/src/cli.ts /out/operator/dist/operator.mjs
+  && cp -r packages/db/drizzle /out/migrate/drizzle
 
 # Runtime base: Alpine with Node's binary only, without npm, yarn and corepack (unused at runtime).
 # Same Alpine release as node:24-alpine (3.24), so the binary finds the libraries it was built for.
@@ -66,22 +64,3 @@ COPY --from=build --chown=10001:10001 /repo/apps/web/.next/static ./apps/web/.ne
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
-
-# The operator: installs and upgrades the stack on a Docker host through the mounted socket
-# (docker run -v /var/run/docker.sock:/var/run/docker.sock -v <folder>:/data <image> install).
-FROM runtime AS operator
-# hadolint ignore=DL3018
-RUN apk add --no-cache docker-cli docker-cli-compose
-ARG OPERATOR_VERSION=develop
-ARG OPERATOR_IMAGE_BASE=registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai
-ENV OPERATOR_VERSION=$OPERATOR_VERSION OPERATOR_IMAGE_BASE=$OPERATOR_IMAGE_BASE \
-  OPERATOR_DATA_DIR=/data
-WORKDIR /opt/operator
-COPY --from=bundle /out/operator ./
-COPY docker-compose.selfhost.yml docker-compose.server.yml assets/
-COPY docker/postgres/init/01-app-role.sh assets/postgres-init.sh
-COPY docker/caddy/Caddyfile assets/Caddyfile
-# Root on purpose: the Docker socket it drives is root-equivalent anyway.
-# hadolint ignore=DL3002
-USER 0:0
-ENTRYPOINT ["node", "/opt/operator/dist/operator.mjs"]

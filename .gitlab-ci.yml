@@ -101,13 +101,6 @@ node-build:
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/migrate/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
-      - DOCKER_ARTIFACTS_NAMESPACE: operator
-        DOCKER_BUILD_ARGS: >-
-          --target operator --build-arg OPERATOR_VERSION=$CI_COMMIT_REF_NAME
-          --build-arg OPERATOR_IMAGE_BASE=$CI_REGISTRY_IMAGE --build-arg BASE_REGISTRY=$DOCKER_HUB_MIRROR
-        DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/operator/snapshot:$CI_COMMIT_REF_SLUG
-        DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/operator:$CI_COMMIT_REF_NAME
-        DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/operator/cache
 
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:
@@ -207,18 +200,3 @@ e2e:
     when: on_failure
     paths: [e2e/playwright-report, e2e/test-results]
     expire_in: 1 week
-
-# The operator on a real Docker daemon: install, upgrade, a failed upgrade rolled back, restore.
-operator-it:
-  stage: acceptance
-  image: $DOCKER_HUB_MIRROR/library/docker:28-cli
-  tags: [graas-dind]
-  services:
-    - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
-      alias: docker
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
-  script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - sh apps/operator/it/run.sh "$CI_REGISTRY_IMAGE" "$CI_COMMIT_REF_SLUG"

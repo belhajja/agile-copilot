@@ -1,0 +1,17 @@
+# Local deployment: the self-host stack with the images the GitLab pipeline publishes (nothing is
+# built here), reachable on this computer only, at http://localhost:${WEB_PORT}.
+#   docker compose -f docker-compose.selfhost.yml -f docker-compose.local.yml up -d
+# (or COMPOSE_FILE=docker-compose.selfhost.yml:docker-compose.local.yml in .env, then plain
+# `docker compose ...`). Images default to the latest `develop` build; set WEB_IMAGE, WORKER_IMAGE
+# and MIGRATE_IMAGE to pin a release (e.g. registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web:v1.0.0).
+services:
+  migrate:
+    image: ${MIGRATE_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/migrate/snapshot:develop}
+    build: !reset null
+  web:
+    image: ${WEB_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/web/snapshot:develop}
+    build: !reset null
+    ports: !override ["127.0.0.1:${WEB_PORT:-3000}:3000"]
+  worker:
+    image: ${WORKER_IMAGE:-registry.gitlab.tech.orange/mohamedamine.belhajja/jira-agentic-ai/worker/snapshot:develop}
+    build: !reset null
