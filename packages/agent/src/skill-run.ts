@@ -6,7 +6,7 @@ import { languageModelFor } from './model';
 import { jiraSitesData, skillRunPrompt } from './prompt';
 import { draftSchema, draftToDocument } from './skill-draft';
 import { asSkillText, preferencesMessage } from './skills';
-import { lastStepWithoutTools } from './steps';
+import { lastStepWithoutTools, llmCallLimits } from './steps';
 import { analyticsTools, liveJira } from './tools';
 import { asUntrustedData } from './untrusted';
 import { recordUsage, type TokenUsage, tokenUsageOf } from './usage';
@@ -99,9 +99,6 @@ export async function runSkill(
           .join('\n'),
       },
     ];
-    const signals = [AbortSignal.timeout(SKILL_RUN_TIMEOUT_MS), req.signal].filter(
-      (s): s is AbortSignal => s !== undefined,
-    );
     called = true;
     try {
       const result = await generateText({
@@ -115,14 +112,15 @@ export async function runSkill(
         tools,
         stopWhen: stepCountIs(SKILL_RUN_MAX_STEPS),
         prepareStep: lastStepWithoutTools(SKILL_RUN_MAX_STEPS),
-        maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
-        abortSignal: AbortSignal.any(signals),
+        ...llmCallLimits({
+          maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
+          timeoutMs: SKILL_RUN_TIMEOUT_MS,
+          signal: req.signal,
+        }),
         // Steps' usage, summed as they end: the total is lost when a later step fails.
         onStepEnd: ({ usage: step }) => {
           usage = addUsage(usage, tokenUsageOf(step));
         },
-        // No automatic retry (cost control): a failed call fails the run.
-        maxRetries: 0,
         // Traced only when Langfuse is on; never the skill text, data or report.
         telemetry: { functionId: 'skill-run', recordInputs: false, recordOutputs: false },
       });
@@ -198,14 +196,14 @@ export async function draftSkill(
       prompt: request.slice(0, 2_000),
       tools: { propose_skill: tool({ inputSchema: draftSchema }) },
       toolChoice: { type: 'tool', toolName: 'propose_skill' },
-      maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
-      abortSignal: AbortSignal.timeout(DRAFT_TIMEOUT_MS),
+      ...llmCallLimits({
+        maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
+        timeoutMs: DRAFT_TIMEOUT_MS,
+      }),
       // Usage summed as steps end, as in runs: kept when the call fails after a step.
       onStepEnd: ({ usage: step }) => {
         usage = addUsage(usage, tokenUsageOf(step));
       },
-      // No automatic retry (cost control).
-      maxRetries: 0,
       telemetry: { functionId: 'skill-draft', recordInputs: false, recordOutputs: false },
     });
     const call = result.toolCalls.find((c) => c.toolName === 'propose_skill');

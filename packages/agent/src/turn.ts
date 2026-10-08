@@ -4,6 +4,8 @@ import { withOrg } from '@agile/db';
 import { isJiraWriteTool } from '@agile/jira-tools/catalog';
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   type ModelMessage,
   stepCountIs,
   streamText,
@@ -36,9 +38,17 @@ import {
 import type { AgentActor, AgentDeps } from './deps';
 import { languageModelFor } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
-import { CHAT_MAX_STEPS, lastStepWithoutTools } from './steps';
+import {
+  CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_MAX_STEPS,
+  CHAT_TURN_TIMEOUT_MS,
+  lastStepWithoutTools,
+  llmCallLimits,
+  timedOut,
+} from './steps';
 import { AgentToolError } from './tool-errors';
 import { buildAgentTools, canProposeJiraChanges } from './tools';
+import { TURN_ERROR_PART, type TurnErrorPart } from './turn-errors';
 import { closeUnansweredToolCalls } from './unanswered';
 import { recordUsage, tokenUsageOf } from './usage';
 
@@ -231,6 +241,11 @@ export async function handleAgentRequest(
     };
 
     const maxSteps = deps.maxSteps ?? CHAT_MAX_STEPS;
+    const limits = llmCallLimits({
+      maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+      timeoutMs: deps.turnTimeoutMs ?? CHAT_TURN_TIMEOUT_MS,
+      signal: turn.abort.signal,
+    });
     const result = streamText({
       model,
       system: systemPrompt({ now: now(), jiraSites: sites, jira }),
@@ -239,7 +254,7 @@ export async function handleAgentRequest(
       toolApproval,
       stopWhen: stepCountIs(maxSteps),
       prepareStep: lastStepWithoutTools(maxSteps),
-      abortSignal: turn.abort.signal,
+      ...limits,
       // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
       telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },
       onStepEnd: async ({ usage }) => {
@@ -261,15 +276,25 @@ export async function handleAgentRequest(
     // Finish (and persist) the reply even if the browser goes away mid-stream.
     result.consumeStream({ onError: () => {} });
 
-    return result.toUIMessageStreamResponse({
+    const reply = createUIMessageStream<UIMessage>({
       originalMessages: prepared,
-      generateMessageId: randomUUID,
-      // The SSE stream is drained on the server whatever the browser does: a closed tab does not
-      // cancel it, so `onEnd` runs once, after the model and its tools are done, with every part.
-      consumeSseStream: ({ stream }) => drain(stream),
+      generateId: randomUUID,
+      execute: async ({ writer }) => {
+        let finished = false;
+        for await (const chunk of result.toUIMessageStream({ onError: safeErrorText })) {
+          if (chunk.type === 'finish') finished = true;
+          writer.write(chunk);
+        }
+        // Stopped by its deadline: the reply (whatever it said so far) ends with a stored notice.
+        if (!finished && timedOut(limits.abortSignal)) {
+          deps.onError?.(limits.abortSignal.reason, 'turn_timeout');
+          const notice: TurnErrorPart = { type: TURN_ERROR_PART, data: { code: 'turn_timeout' } };
+          writer.write(notice);
+        }
+      },
       // Awaited before the response ends: once the browser sees the end of the stream, the reply
       // and its approval requests are stored, so an immediate Approve finds them.
-      onEnd: async ({ messages }: { messages: UIMessage[] }) => {
+      onEnd: async ({ messages }) => {
         await meter();
         try {
           await withOrg(deps.db, actor.orgId, async (tx) => {
@@ -290,6 +315,12 @@ export async function handleAgentRequest(
         await turn.close();
       },
       onError: safeErrorText,
+    });
+    return createUIMessageStreamResponse({
+      stream: reply,
+      // The SSE stream is drained on the server whatever the browser does: a closed tab does not
+      // cancel it, so `onEnd` runs once, after the model and its tools are done, with every part.
+      consumeSseStream: ({ stream }) => drain(stream),
     });
   } catch (e) {
     await turn.abandon(e, 'turn_failed');
