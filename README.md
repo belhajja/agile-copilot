@@ -4,6 +4,8 @@ Agile Copilot is a dashboard and AI agent for managers running Scrum or Kanban p
 
 People sign in with email and password, or through the deployment's identity provider (Keycloak or any OIDC provider) when single sign-on is configured; password sign-in can then be kept for a few platform administrators only (see *Single sign-on*).
 
+Release notes are in [CHANGELOG.md](CHANGELOG.md): the `Unreleased` section lists what the next tag will ship.
+
 ## Quick start (development)
 
 Requirements: Node 24, pnpm (via corepack), Docker.
