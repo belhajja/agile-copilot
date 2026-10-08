@@ -4,9 +4,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./limits": "./src/limits.ts",
     "./reasons": "./src/reasons.ts",
     "./untrusted": "./src/untrusted.ts",
     "./tool-errors": "./src/tool-errors.ts",
+    "./turn-errors": "./src/turn-errors.ts",
     "./testing": "./src/test-harness.ts"
   },
   "scripts": {

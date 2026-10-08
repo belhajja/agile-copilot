@@ -11,6 +11,8 @@ export interface AgentDeps extends Omit<SyncDeps, 'onError'> {
   createModel?: (config: LlmConfig) => LanguageModel;
   /** Model steps per reply (tool round-trips). Default CHAT_MAX_STEPS (12). */
   maxSteps?: number;
+  /** A reply's deadline in milliseconds. Default CHAT_TURN_TIMEOUT_MS (5 minutes). */
+  turnTimeoutMs?: number;
   /** Log hook: only error names and codes, never messages (they can echo provider bodies). */
   onError?: (error: unknown, code: string) => void;
 }

@@ -14,7 +14,7 @@ import { createLanguageModel, type LlmConfig } from '@agile/llm';
 import { agentDemoScript, type MockChatMessage, type MockScript } from '@agile/llm/testing';
 import { createOutboundFetch } from '@agile/net';
 import { member, owner } from '@agile/sync/testing';
-import { asSchema, type LanguageModel } from 'ai';
+import { APICallError, asSchema, type LanguageModel } from 'ai';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -900,6 +900,97 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     ]);
     expect(JSON.stringify(parts)).toContain('19 points');
     expect((await h.ask(owner(), id, 'Thanks')).status).toBe(200);
+  });
+
+  it('a reply past its deadline stops, and is stored with a turn_timeout notice', async () => {
+    const id = randomUUID();
+    const errors: string[] = [];
+    const calls: { maxOutputTokens?: number }[] = [];
+    let n = 0;
+    const createModel = () =>
+      new MockLanguageModelV4({
+        doStream: async (options) => {
+          calls.push(options);
+          if (n++ === 0) {
+            return {
+              stream: simulateReadableStream({
+                chunks: [
+                  { type: 'stream-start', warnings: [] },
+                  { type: 'tool-call', toolCallId: 'c1', toolName: 'list_boards', input: '{}' },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                    usage: usageOf(120, 30),
+                  },
+                ] as never[],
+              }),
+            };
+          }
+          // The next model call never answers: only the deadline ends it.
+          const signal = options.abortSignal;
+          return new Promise<never>((_, reject) => {
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        },
+      });
+    const r = await h.sendWith(
+      {
+        ...h.deps,
+        createModel,
+        turnTimeoutMs: 3_000,
+        onError: (_e, code) => errors.push(code),
+      },
+      owner(),
+      { conversationId: id, message: { id: 'm1', text: 'What is our velocity?' } },
+    );
+    expect(r.status).toBe(200);
+    expect(r.chunks.at(-1)).toEqual({ type: 'data-turn-error', data: { code: 'turn_timeout' } });
+    expect(errors).toContain('turn_timeout');
+    // Bounded calls: an output budget on each.
+    expect(calls.map((c) => c.maxOutputTokens)).toEqual([4_000, 4_000]);
+
+    // Stored with what it did so far and the notice; the lease is released, and metered.
+    const convo = await loadConversation(h.db, owner(), id);
+    const parts = (convo?.messages[1]?.parts ?? []) as { type: string; state?: string }[];
+    expect(parts.filter((p) => p.type !== 'step-start').map((p) => [p.type, p.state])).toEqual([
+      ['tool-list_boards', 'output-available'],
+      ['data-turn-error', undefined],
+    ]);
+    const [row] = await h.rawDb
+      .select({ turnId: agentConversations.turnId })
+      .from(agentConversations)
+      .where(eq(agentConversations.id, id));
+    expect(row?.turnId).toBeNull();
+    const usageRows = await h.rawDb
+      .select()
+      .from(agentUsage)
+      .where(eq(agentUsage.conversationId, id));
+    expect(usageRows).toMatchObject([{ inputTokens: 120, outputTokens: 30 }]);
+    await expectNextMessageWorks(id);
+  });
+
+  it('a reply cut by a provider failure is not retried', async () => {
+    const id = randomUUID();
+    let attempts = 0;
+    const createModel = () =>
+      new MockLanguageModelV4({
+        doStream: async () => {
+          attempts++;
+          throw new APICallError({
+            message: 'overloaded',
+            url: 'http://llm.test',
+            requestBodyValues: {},
+            statusCode: 503,
+            isRetryable: true,
+          });
+        },
+      });
+    const r = await h.sendWith({ ...h.deps, createModel }, owner(), {
+      conversationId: id,
+      message: { id: 'm1', text: 'hello' },
+    });
+    expect(r.status).toBe(200);
+    expect(attempts).toBe(1);
   });
 
   it('meters the steps that finished when a later model call fails', async () => {

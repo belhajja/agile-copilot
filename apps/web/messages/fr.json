@@ -718,6 +718,9 @@
     "assignedTo": "Assigné à {name}.",
     "superseded": "Clos : vous êtes passé à autre chose sans approuver.",
     "scrollDown": "Aller au dernier message",
+    "turnErrors": {
+      "turn_timeout": "Cette réponse a pris trop de temps et a été interrompue. Reposez la question, si possible de façon plus ciblée."
+    },
     "errors": {
       "generic": "L’assistant n’a pas pu répondre. Vérifiez la connexion au modèle d’IA et réessayez.",
       "unauthorized": "Votre session a expiré. Reconnectez-vous pour continuer.",

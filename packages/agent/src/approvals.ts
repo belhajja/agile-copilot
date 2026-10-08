@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { recordAudit } from '@agile/connections';
 import { agentApprovals, type Db, type Tx, withOrg } from '@agile/db';
 import type { JiraToolErrorCode } from '@agile/jira-tools';
-import { ISSUE_KEY_PATTERN, isJiraWriteTool } from '@agile/jira-tools/catalog';
-import type { UIMessage } from 'ai';
+import { ISSUE_KEY_PATTERN } from '@agile/jira-tools/catalog';
+import { getToolName, type ToolUIPart, type UIMessage } from 'ai';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { requireOwnConversation } from './conversations';
 import type { AgentActor } from './deps';
 import { type DecisionReason, REASON_TEXT } from './reasons';
 import { type CredentialErrorCode, toolErrorText } from './tool-errors';
+import { jiraWriteParts } from './tool-parts';
 import { asUntrustedData } from './untrusted';
 
 export type { DecisionReason };
@@ -33,33 +34,11 @@ export function hashInput(input: unknown): string {
     .digest('hex');
 }
 
-interface ApprovalPart {
-  type: string;
-  toolCallId: string;
-  state: string;
-  input?: unknown;
-  output?: unknown;
-  errorText?: string;
-  approval?: { id: string; approved?: boolean; reason?: string };
-}
-
-const toolNameOf = (part: { type: string }) =>
-  part.type.startsWith('tool-') ? part.type.slice('tool-'.length) : null;
-
 /** Tool parts of Jira writes waiting for the user (in the order the model proposed them). */
-export function pendingApprovalParts(messages: UIMessage[]): ApprovalPart[] {
-  return messages.flatMap((m) =>
-    m.role !== 'assistant'
-      ? []
-      : (m.parts as unknown as ApprovalPart[]).filter((p) => {
-          const name = toolNameOf(p);
-          return (
-            p.state === 'approval-requested' &&
-            name !== null &&
-            isJiraWriteTool(name) &&
-            typeof p.approval?.id === 'string'
-          );
-        }),
+export function pendingApprovalParts(messages: UIMessage[]): ToolUIPart[] {
+  return jiraWriteParts(
+    messages,
+    (p) => p.state === 'approval-requested' && typeof p.approval?.id === 'string',
   );
 }
 
@@ -71,18 +50,20 @@ const issueKeyOf = (input: unknown) => {
 
 /** Closes a proposal in the stored messages (the AI SDK then runs or skips the tool call). */
 function respond(
-  part: ApprovalPart,
+  part: ToolUIPart,
   approvalId: string,
   approved: boolean,
   reason: DecisionReason | undefined,
 ) {
-  part.state = 'approval-responded';
-  part.approval = {
-    ...part.approval,
-    id: approvalId,
-    approved,
-    ...(reason ? { reason: REASON_TEXT[reason] } : {}),
-  };
+  Object.assign(part, {
+    state: 'approval-responded',
+    approval: {
+      ...part.approval,
+      id: approvalId,
+      approved,
+      ...(reason ? { reason: REASON_TEXT[reason] } : {}),
+    },
+  });
 }
 
 /**
@@ -101,7 +82,7 @@ export async function recordApprovalRequests(
   await requireOwnConversation(tx, actor, conversationId);
   for (const part of parts) {
     const approvalId = part.approval?.id ?? '';
-    const toolName = toolNameOf(part) ?? '';
+    const toolName = getToolName(part);
     const inserted = await tx
       .insert(agentApprovals)
       .values({
@@ -190,7 +171,7 @@ export async function applyDecisions(
           targetType: 'agent_conversation',
           targetId: conversationId,
           metadata: {
-            tool: toolNameOf(part),
+            tool: getToolName(part),
             approvalId: d.approvalId,
             issueKey: issueKeyOf(part.input),
             reason: 'superseded',
@@ -209,7 +190,7 @@ export async function applyDecisions(
     if (
       hashInput(part.input) !== row.inputHash ||
       part.toolCallId !== row.toolCallId ||
-      toolNameOf(part) !== row.toolName
+      getToolName(part) !== row.toolName
     ) {
       throw new DecisionError('approval_not_found');
     }
@@ -404,19 +385,12 @@ export async function settleApprovedParts(
   conversationId: string,
   messages: UIMessage[],
 ): Promise<UIMessage[]> {
-  const parts = messages.flatMap((m) =>
-    m.role !== 'assistant'
-      ? []
-      : (m.parts as unknown as ApprovalPart[]).filter((p) => {
-          const name = toolNameOf(p);
-          return (
-            name !== null &&
-            isJiraWriteTool(name) &&
-            p.approval?.approved === true &&
-            typeof p.approval.id === 'string' &&
-            (p.state === 'approval-responded' || p.state === 'output-error')
-          );
-        }),
+  const parts = jiraWriteParts(
+    messages,
+    (p) =>
+      p.approval?.approved === true &&
+      typeof p.approval.id === 'string' &&
+      (p.state === 'approval-responded' || p.state === 'output-error'),
   );
   if (parts.length === 0) return messages;
   await requireOwnConversation(tx, actor, conversationId);
@@ -442,10 +416,9 @@ export async function settleApprovedParts(
     if (neverRan || row.status === 'denied') {
       setError(part, toolErrorText('not_executed'));
     } else if (row.resultCode === 'ok') {
-      part.state = 'output-available';
-      part.output = asUntrustedData(toolNameOf(part) ?? 'jira', {
-        ok: true,
-        note: WRITE_DONE_UNREADABLE,
+      Object.assign(part, {
+        state: 'output-available',
+        output: asUntrustedData(getToolName(part), { ok: true, note: WRITE_DONE_UNREADABLE }),
       });
     } else if (row.resultCode) {
       setError(part, toolErrorText(row.resultCode as Exclude<ExecutionResultCode, 'ok'>));
@@ -456,7 +429,6 @@ export async function settleApprovedParts(
   return messages;
 }
 
-function setError(part: ApprovalPart, errorText: string) {
-  part.state = 'output-error';
-  part.errorText = errorText;
+function setError(part: ToolUIPart, errorText: string) {
+  Object.assign(part, { state: 'output-error', errorText });
 }

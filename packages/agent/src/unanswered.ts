@@ -1,20 +1,10 @@
-import type { UIMessage } from 'ai';
+import { isToolUIPart, type UIMessage } from 'ai';
 import { toolErrorText } from './tool-errors';
-
-/** A tool part as the AI SDK stores it in a message (only the fields read here). */
-interface ToolPart {
-  type: string;
-  state?: string;
-  input?: unknown;
-  errorText?: string;
-}
+import { assistantToolParts, type ToolPart } from './tool-parts';
 
 /** Called but never answered: the stream stopped (a malformed call, a provider error) mid-step. */
-const UNANSWERED = new Set(['input-streaming', 'input-available']);
-
 const unanswered = (part: ToolPart) =>
-  (part.type.startsWith('tool-') || part.type === 'dynamic-tool') &&
-  UNANSWERED.has(part.state ?? '');
+  part.state === 'input-streaming' || part.state === 'input-available';
 
 /**
  * Closes the tool calls a failed reply left without a result: each gets the "not run" error. A
@@ -23,25 +13,22 @@ const unanswered = (part: ToolPart) =>
  * left alone. Returns the same array when there is nothing to close.
  */
 export function closeUnansweredToolCalls(messages: UIMessage[]): UIMessage[] {
-  const open = messages.some(
-    (m) => m.role === 'assistant' && (m.parts as unknown as ToolPart[]).some(unanswered),
-  );
-  if (!open) return messages;
+  if (!assistantToolParts(messages).some(unanswered)) return messages;
   return messages.map((m) =>
     m.role !== 'assistant'
       ? m
-      : ({
+      : {
           ...m,
-          parts: (m.parts as unknown as ToolPart[]).map((p) =>
-            unanswered(p)
+          parts: m.parts.map((p) =>
+            isToolUIPart(p) && unanswered(p)
               ? {
                   ...p,
-                  state: 'output-error',
+                  state: 'output-error' as const,
                   input: p.input ?? {},
                   errorText: toolErrorText('interrupted'),
                 }
               : p,
           ),
-        } as unknown as UIMessage),
+        },
   );
 }
