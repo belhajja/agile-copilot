@@ -5,7 +5,7 @@
 include:
   - component: $CI_SERVER_FQDN/to-be-continuous/node/gitlab-ci-node@5.4.0
     inputs:
-      image: docker.io/library/node:24-bookworm
+      image: $DOCKER_HUB_MIRROR/library/node:24-bookworm
       manager: pnpm
       manager-version: 10.14.0
       install-extra-opts: --frozen-lockfile
@@ -52,6 +52,10 @@ workflow:
 stages: [build, test, package-build, package-test, infra, deploy, acceptance, publish, infra-prod, production]
 
 variables:
+  # Docker Hub images come through Orange's mirror (anonymous pulls): the shared runners share one
+  # address and hit Docker Hub's anonymous pull limit. Testcontainers (Postgres, Mailpit) too.
+  DOCKER_HUB_MIRROR: dockerproxy.repos.tech.orange
+  TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX: dockerproxy.repos.tech.orange/
   # Each `tsc` takes up to ~2 GB; turbo's default of 10 at once exhausts the small runner (8 GB)
   # and `pnpm typecheck` hangs.
   TURBO_CONCURRENCY: "2"
@@ -69,7 +73,7 @@ node-build:
   timeout: 30 minutes
   tags: [graas-dind]
   services:
-    - name: docker:28-dind
+    - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
       alias: docker
   variables:
     DOCKER_HOST: tcp://docker:2375
@@ -80,9 +84,6 @@ node-build:
 # The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
 # one level deeper than the GitLab registry allows (two below the project), and is refused.
 .docker-base:
-  variables:
-    # Orange's Docker Hub mirror (anonymous pulls): the shared runners hit Docker Hub's rate limit.
-    DOCKER_HUB_MIRROR: dockerproxy.repos.tech.orange
   parallel:
     matrix:
       - DOCKER_ARTIFACTS_NAMESPACE: web
@@ -110,7 +111,7 @@ node-build:
 
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:
-  image: node:24-bookworm
+  image: $DOCKER_HUB_MIRROR/library/node:24-bookworm
   before_script:
     - corepack enable
     - corepack prepare pnpm@10.14.0 --activate
@@ -143,7 +144,7 @@ evals:
   stage: test
   tags: [graas-dind]
   services:
-    - name: docker:28-dind
+    - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
       alias: docker
   variables:
     DOCKER_HOST: tcp://docker:2375
@@ -170,7 +171,7 @@ evals-live:
       when: manual
       allow_failure: true
   services:
-    - name: docker:28-dind
+    - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
       alias: docker
   variables:
     DOCKER_HOST: tcp://docker:2375
@@ -184,7 +185,7 @@ e2e:
   extends: .pnpm
   stage: acceptance
   services:
-    - name: postgres:17-alpine
+    - name: $DOCKER_HUB_MIRROR/library/postgres:17-alpine
       alias: postgres
   variables:
     POSTGRES_USER: agile
@@ -210,10 +211,10 @@ e2e:
 # The operator on a real Docker daemon: install, upgrade, a failed upgrade rolled back, restore.
 operator-it:
   stage: acceptance
-  image: docker:28-cli
+  image: $DOCKER_HUB_MIRROR/library/docker:28-cli
   tags: [graas-dind]
   services:
-    - name: docker:28-dind
+    - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
       alias: docker
   variables:
     DOCKER_HOST: tcp://docker:2375

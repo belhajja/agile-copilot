@@ -5,7 +5,8 @@
 # Set WEB_PORT in .env to publish the app on a port other than 3000 (and match BETTER_AUTH_URL).
 services:
   postgres:
-    image: postgres:17-alpine
+    # DOCKER_HUB_MIRROR: a Docker Hub mirror to pull from (e.g. Orange's dockerproxy.repos.tech.orange).
+    image: ${DOCKER_HUB_MIRROR:-docker.io}/library/postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: agile
