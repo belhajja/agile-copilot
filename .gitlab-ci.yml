@@ -102,6 +102,19 @@ node-build:
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
 
+# The docker template sets no timeouts: a stuck registry push or scan would hold a runner for the
+# project's default (60 min). A cold build installs every dependency and builds the web app.
+docker-hadolint:
+  timeout: 10 minutes
+docker-buildah-build:
+  timeout: 40 minutes
+docker-trivy:
+  timeout: 20 minutes
+docker-sbom:
+  timeout: 20 minutes
+docker-publish:
+  timeout: 15 minutes
+
 # Node jobs. Not under `default:`, which the to-be-continuous jobs would inherit.
 .pnpm:
   image: $DOCKER_HUB_MIRROR/library/node:24-bookworm
@@ -121,6 +134,7 @@ node-build:
 helm-kubeconform:
   extends: .pnpm
   stage: test
+  timeout: 15 minutes
   variables:
     HELM_TOOLS_DIR: /tmp/helm-tools
     HELM_REQUIRED: "1"
@@ -135,6 +149,8 @@ helm-kubeconform:
 evals:
   extends: .pnpm
   stage: test
+  # Install, the promptfoo download and the Testcontainers Postgres; the scripted runs are short.
+  timeout: 30 minutes
   tags: [graas-dind]
   services:
     - name: $DOCKER_HUB_MIRROR/library/docker:28-dind
@@ -156,6 +172,8 @@ evals:
 evals-live:
   extends: .pnpm
   stage: test
+  # As evals, plus real provider calls (rate limits, retries).
+  timeout: 45 minutes
   tags: [graas-dind]
   environment:
     name: evals-live
@@ -177,6 +195,8 @@ evals-live:
 e2e:
   extends: .pnpm
   stage: acceptance
+  # Browser install, the web app build when there is none to reuse, then the suite.
+  timeout: 40 minutes
   services:
     - name: $DOCKER_HUB_MIRROR/library/postgres:17-alpine
       alias: postgres
@@ -189,7 +209,8 @@ e2e:
     CI: "true"
   script:
     - apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null
-    - until pg_isready -h postgres -U agile -d agile; do sleep 1; done
+    # The service normally answers within seconds; give up after a minute instead of hanging.
+    - timeout 60 sh -c 'until pg_isready -h postgres -U agile -d agile; do sleep 1; done'
     # Same non-owner role the compose init script creates, so RLS applies to the app.
     - >-
       PGPASSWORD=agile_dev_password psql -h postgres -U agile -d agile -v ON_ERROR_STOP=1 -c
