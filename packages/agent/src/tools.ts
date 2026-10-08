@@ -1,7 +1,6 @@
 import { createAnalyticsMcpServer } from '@agile/analytics-mcp';
 import { can } from '@agile/auth';
-import type { Actor } from '@agile/db';
-import { jiraConnections, withOrg } from '@agile/db';
+import { type Actor, jiraConnections, withOrg } from '@agile/db';
 import {
   createJiraToolBackend,
   JIRA_TOOL_NAMES,

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Actor } from '@agile/db';
-import { agentConversations, createDb, llmConnections, withOrg } from '@agile/db';
+import { type Actor, agentConversations, createDb, llmConnections, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';

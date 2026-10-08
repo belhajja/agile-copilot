@@ -1,6 +1,6 @@
 import { can } from '@agile/auth';
-import type { Actor } from '@agile/db';
 import {
+  type Actor,
   type AuditAction,
   billingSubscriptions,
   type Db,

@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Actor } from '@agile/db';
-import { agentApprovals, type Db, recordAudit, type Tx, withOrg } from '@agile/db';
+import { type Actor, agentApprovals, type Db, recordAudit, type Tx, withOrg } from '@agile/db';
 import type { JiraToolErrorCode } from '@agile/jira-tools';
 import { ISSUE_KEY_PATTERN } from '@agile/jira-tools/catalog';
 import { getToolName, type ToolUIPart, type UIMessage } from 'ai';

@@ -1,5 +1,11 @@
-import type { Actor } from '@agile/db';
-import { agentConversationGroups, agentConversations, type Db, isUuid, withOrg } from '@agile/db';
+import {
+  type Actor,
+  agentConversationGroups,
+  agentConversations,
+  type Db,
+  isUuid,
+  withOrg,
+} from '@agile/db';
 import { and, desc, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import type { ConversationSummary } from './conversations';
 import { GROUP_NAME_MAX_LENGTH } from './limits';

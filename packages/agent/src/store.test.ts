@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { ForbiddenError } from '@agile/connections';
-import type { Actor } from '@agile/db';
-import { agentApprovals, agentMessages, auditLog, createDb, user, withOrg } from '@agile/db';
+import {
+  type Actor,
+  agentApprovals,
+  agentMessages,
+  auditLog,
+  createDb,
+  user,
+  withOrg,
+} from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
 import { and, asc, eq } from 'drizzle-orm';

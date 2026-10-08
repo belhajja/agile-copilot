@@ -1,7 +1,6 @@
 import { can } from '@agile/auth';
 import { ForbiddenError } from '@agile/connections';
-import type { Actor } from '@agile/db';
-import { agentUsage, type Db, skillBuilderCalls, user, withOrg } from '@agile/db';
+import { type Actor, agentUsage, type Db, skillBuilderCalls, user, withOrg } from '@agile/db';
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 export interface TokenUsage {

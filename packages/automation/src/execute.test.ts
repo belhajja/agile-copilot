@@ -1,5 +1,5 @@
-import type { Actor } from '@agile/db';
 import {
+  type Actor,
   agentUsage,
   deliveryChannels,
   member as memberTable,

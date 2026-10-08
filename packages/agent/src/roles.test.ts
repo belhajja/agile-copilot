@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Actor } from '@agile/db';
-import { agentApprovals } from '@agile/db';
+import { type Actor, agentApprovals } from '@agile/db';
 import type { MockChatMessage } from '@agile/llm/testing';
 import { manager, owner, viewer } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
