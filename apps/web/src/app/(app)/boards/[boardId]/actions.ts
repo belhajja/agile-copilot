@@ -1,31 +1,32 @@
 'use server';
 
 import { removeWidget, updateWidget, WIDGET_CHARTS } from '@agile/dashboards';
-import { isUuid } from '@agile/db';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireActor, services } from '@/server/context';
+
+const uuid = z.uuid();
+const widgetKey = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
 /**
  * Removes a widget from one of the user's own dashboards (bound to the board and dashboard). A
  * refusal is never silent: the page is reloaded with a translated `?error=` code.
  */
 export async function removeWidgetAction(
-  boardId: string,
-  dashboardId: string,
-  widgetId: string,
+  boardId: unknown,
+  dashboardId: unknown,
+  widgetId: unknown,
 ): Promise<void> {
   const actor = await requireActor();
-  if (!isUuid(boardId)) notFound();
-  const result = await removeWidget(
-    services().db,
-    actor,
-    dashboardId,
-    String(widgetId).slice(0, 64),
-  );
-  if (!result.ok) redirect(`/boards/${boardId}?error=${result.code}`);
-  revalidatePath(`/boards/${boardId}`);
+  const parsedBoard = uuid.safeParse(boardId);
+  if (!parsedBoard.success) notFound();
+  const board = parsedBoard.data;
+  const parsed = z.tuple([uuid, widgetKey]).safeParse([dashboardId, widgetId]);
+  if (!parsed.success) redirect(`/boards/${board}?error=not_found`);
+  const result = await removeWidget(services().db, actor, ...parsed.data);
+  if (!result.ok) redirect(`/boards/${board}?error=${result.code}`);
+  revalidatePath(`/boards/${board}`);
 }
 
 export type UpdateWidgetActionResult =
@@ -33,9 +34,9 @@ export type UpdateWidgetActionResult =
   | { ok: false; code: 'not_found' | 'invalid_widget' | 'unknown' };
 
 const updateInput = z.object({
-  boardId: z.uuid(),
-  dashboardId: z.uuid(),
-  widgetId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  boardId: uuid,
+  dashboardId: uuid,
+  widgetId: widgetKey,
   changes: z
     .strictObject({
       title: z.string().max(200).nullable().optional(),
