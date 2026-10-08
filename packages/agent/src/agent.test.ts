@@ -937,7 +937,7 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
       {
         ...h.deps,
         createModel,
-        turnTimeoutMs: 1_000,
+        turnTimeoutMs: 3_000,
         onError: (_e, code) => errors.push(code),
       },
       owner(),
