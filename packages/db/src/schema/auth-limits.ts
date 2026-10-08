@@ -1,12 +1,13 @@
 import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
- * Password sign-in attempts per account (P5-R47), counted before the password is checked, so
- * parallel guesses cannot slip past the limit; a successful sign-in deletes the row. The key is a
- * keyed hash of the normalised address (never the address), and an attempt at an address with no
- * account counts the same way, so the table says nothing about who has an account. Not tenant
- * data: sign-in happens before any workspace. Rows whose window has passed are deleted as new
- * attempts come in.
+ * Password sign-in attempts (P5-R47) per account and client address, and per account across
+ * addresses, counted before the password is checked, so parallel guesses cannot slip past the
+ * limit. Rows with `attempts = 0` mark a client address that signed in to the account
+ * successfully (`window_started_at` = when). Keys are keyed hashes (never an e-mail or client
+ * address), and an attempt at an e-mail with no account counts the same way, so the table says
+ * nothing about who has an account. Not tenant data: sign-in happens before any workspace. Rows
+ * whose window has passed are deleted as new attempts come in.
  */
 export const signInAttempts = pgTable(
   'sign_in_attempts',

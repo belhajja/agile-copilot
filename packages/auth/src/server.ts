@@ -26,6 +26,7 @@ import {
 import { seatsInUse } from './members';
 import {
   addressLimitOptions,
+  CLIENT_ADDRESS_HEADER,
   clearSignInAttempts,
   takeSignInAttempt,
   withClientAddress,
@@ -140,9 +141,15 @@ export function createAuth(
       // organisation hooks see them (update-member-role), so they cannot see `' admin'`.
       before: createAuthMiddleware(async (ctx) => {
         guardSsoStart(ctx);
-        // Before the policy guard, which may point a refused address elsewhere.
-        if (ctx.path === '/sign-in/email' && typeof ctx.body?.email === 'string') {
-          await takeSignInAttempt(db, secret, ctx.body.email);
+        // Only accounts that may use a password are counted: with PASSWORD_LOGIN=admin_only the
+        // policy guard below sends every other address to an account that cannot sign in.
+        const email: unknown = ctx.body?.email;
+        if (
+          ctx.path === '/sign-in/email' &&
+          typeof email === 'string' &&
+          (passwordLogin !== 'admin_only' || isBreakGlass(email, breakGlassEmails))
+        ) {
+          await takeSignInAttempt(db, secret, email, clientAddressOf(ctx.request));
         }
         guardPasswordLogin(ctx, policy);
         if (ROLE_PATHS.has(ctx.path)) assertAssignableRole(ctx.body?.role);
@@ -155,7 +162,7 @@ export function createAuth(
           ctx.context.newSession &&
           typeof ctx.body?.email === 'string'
         ) {
-          await clearSignInAttempts(db, secret, ctx.body.email);
+          await clearSignInAttempts(db, secret, ctx.body.email, clientAddressOf(ctx.request));
         }
         await checkInvitationListScope(db, ctx);
         await auditMembership(db, ctx);
@@ -304,6 +311,10 @@ export function createAuth(
     handler: (request: Request) => handler(withClientAddress(request, trustedProxyHops)),
   });
 }
+
+/** The trusted client address `withClientAddress` put on the request (none for server calls). */
+const clientAddressOf = (request: Request | undefined) =>
+  request?.headers.get(CLIENT_ADDRESS_HEADER) ?? null;
 
 async function firstOrgId(db: Db, userId: string): Promise<string | null> {
   const [row] = await db

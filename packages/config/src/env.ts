@@ -80,8 +80,9 @@ export const serverEnvSchema = z
     /**
      * Reverse proxies in front of the app that append the client address to X-Forwarded-For
      * (1 = an ingress or load balancer; 2 = a CDN, then the ingress). 0 (default): the header is
-     * never trusted, so a client cannot choose its own address. Used by the pre-auth limit of
-     * `/api/mcp`.
+     * never trusted, so a client cannot choose its own address. Used by the sign-in limits and
+     * the pre-auth limit of `/api/mcp`. Behind a TLS reverse proxy it must be 1 (or more): with 0
+     * every client shares one sign-in bucket per account.
      */
     TRUSTED_PROXY_HOPS: z.preprocess(
       emptyToUndefined,
