@@ -1,0 +1,39 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Next.js, Vitest, Playwright and the package.json scripts are picked up by knip's plugins; the
+  // entries below are the ones nothing else points at.
+  "workspaces": {
+    ".": {
+      // Run by apps/web/Dockerfile to bundle the worker, migrate and break-glass CLIs.
+      "entry": ["scripts/*.mjs"]
+    },
+    "apps/web": {
+      // Loaded by path (next/font/local in app/layout.tsx), never imported.
+      "ignoreDependencies": ["geist"],
+      // Vendored from the shadcn and AI Elements registries: kept as generated, unused parts included.
+      "ignoreIssues": {
+        "src/components/ui/**": ["exports", "types"],
+        "src/components/ai-elements/**": ["exports", "types"]
+      }
+    },
+    "packages/agent": { "includeEntryExports": true },
+    "packages/analytics-mcp": { "includeEntryExports": true },
+    "packages/auth": {
+      // The better-auth CLI's config (`generate-schema` passes it with --config).
+      "entry": ["src/cli-config.ts"]
+    },
+    "packages/automation": { "includeEntryExports": true },
+    "packages/sync": {
+      // `member` is a deprecated alias of `viewer` that other packages' tests still import.
+      "ignoreIssues": { "src/test-harness.ts": ["duplicates"] }
+    },
+    "evals": {
+      // promptfoo loads these through promptfooconfig*.yaml, and imports TypeScript with tsx.
+      "entry": ["provider.ts", "script.ts"],
+      "ignoreDependencies": ["tsx"]
+    }
+  },
+  // `openssl` is the system binary a notify test shells out to; knip reads the promptfoo config
+  // paths in `pnpm dlx promptfoo@x eval -c <file>` as binaries.
+  "ignoreBinaries": ["openssl", "promptfooconfig.yaml", "promptfooconfig.live.yaml"]
+}

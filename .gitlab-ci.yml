@@ -154,6 +154,14 @@ helm-kubeconform:
     - sh deploy/helm/check.sh
     - PATH="$HELM_TOOLS_DIR:$PATH" pnpm vitest run packages/jira-tools/src/helm.test.ts
 
+# Unused files, dependencies and exports across the workspaces (knip.jsonc).
+knip:
+  extends: .pnpm
+  stage: test
+  timeout: 10 minutes
+  script:
+    - pnpm knip --no-progress
+
 # `pnpm dlx promptfoo` installs into the same store as the workspace (.pnpm-store), so the evals
 # jobs cache that store under their own key: promptfoo (~1.7 GB) is downloaded once per lockfile
 # and promptfoo pin (evals/package.json), and the other jobs' cache stays its usual size.
