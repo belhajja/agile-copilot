@@ -3,6 +3,8 @@
 import { deleteAccount } from '@agile/privacy';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
+import { formData } from '@/server/action-input';
 import { requireSignedIn, services } from '@/server/context';
 
 export type DeleteAccountState =
@@ -35,13 +37,16 @@ async function dropAuthCookies() {
  */
 export async function deleteAccountAction(
   _prev: DeleteAccountState,
-  form: FormData,
+  form: unknown,
 ): Promise<DeleteAccountState> {
   const { user, session } = await requireSignedIn();
-  const typed = String(form.get('confirm') ?? '')
+  const data = formData.safeParse(form);
+  const typed = z
+    .string()
     .trim()
-    .toLowerCase();
-  if (typed !== user.email.toLowerCase()) {
+    .toLowerCase()
+    .safeParse(data.success ? data.data.get('confirm') : null);
+  if (!typed.success || typed.data !== user.email.toLowerCase()) {
     return { status: 'error', code: 'confirm_mismatch' };
   }
   if (Date.now() - new Date(session.createdAt).getTime() > FRESH_SIGN_IN_MS) {

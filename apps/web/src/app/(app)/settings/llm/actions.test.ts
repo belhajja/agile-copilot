@@ -67,6 +67,16 @@ describe('listModelsForNewConnectionAction', () => {
     expect(listModels).not.toHaveBeenCalled();
   });
 
+  it('rejects anything but a posted form (a crafted call)', async () => {
+    for (const input of [{ provider: 'anthropic', apiKey: 'k' }, 'provider=anthropic', null]) {
+      expect(await listModelsForNewConnectionAction(input)).toEqual({
+        ok: false,
+        code: 'invalid_input',
+      });
+    }
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
   it('is for owners and admins', async () => {
     actor = { orgId: 'org_1', userId: 'user_1', roles: ['viewer'] };
     const r = await listModelsForNewConnectionAction(

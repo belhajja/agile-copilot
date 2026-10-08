@@ -1,10 +1,10 @@
 'use server';
 
 import { ForbiddenError } from '@agile/connections';
-import { isUuid } from '@agile/db';
 import { createDeliveryChannel, deleteDeliveryChannel, digestLabels } from '@agile/notify';
 import { revalidatePath } from 'next/cache';
 import { getLocale } from 'next-intl/server';
+import { formData, uuid } from '@/server/action-input';
 import { notifyDeps } from '@/server/automation';
 import { requireActor } from '@/server/context';
 
@@ -48,11 +48,13 @@ function inputFrom(form: FormData): Record<string, unknown> {
 
 export async function createChannelAction(
   _prev: ChannelFormState,
-  form: FormData,
+  form: unknown,
 ): Promise<ChannelFormState> {
   const actor = await requireActor();
   const labels = digestLabels(await getLocale());
-  const input = inputFrom(form);
+  const data = formData.safeParse(form);
+  if (!data.success) return { status: 'error', code: 'invalid_input' };
+  const input = inputFrom(data.data);
   try {
     const result = await createDeliveryChannel(notifyDeps(), actor, input, {
       testMessage: { title: labels.testTitle, text: labels.testText },
@@ -71,11 +73,12 @@ export async function createChannelAction(
   return { status: 'ok' };
 }
 
-export async function deleteChannelAction(id: string): Promise<DeleteChannelResult> {
+export async function deleteChannelAction(id: unknown): Promise<DeleteChannelResult> {
   const actor = await requireActor();
-  if (!isUuid(id)) return { ok: false, code: 'not_found' };
+  const parsed = uuid.safeParse(id);
+  if (!parsed.success) return { ok: false, code: 'not_found' };
   try {
-    const result = await deleteDeliveryChannel(notifyDeps(), actor, id);
+    const result = await deleteDeliveryChannel(notifyDeps(), actor, parsed.data);
     if (!result.ok) return { ok: false, code: result.code };
   } catch (e) {
     if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };

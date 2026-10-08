@@ -85,4 +85,24 @@ describe('MCP token actions', () => {
     revokeMcpToken.mockRejectedValue(new Error('boom'));
     await expect(revokeTokenAction(ID)).rejects.toThrow('boom');
   });
+
+  it('refuses malformed arguments without calling the gateway', async () => {
+    expect(await createTokenAction({ status: 'idle' }, { name: 'x' })).toEqual({
+      status: 'error',
+      code: 'invalid_input',
+    });
+    expect(await revokeTokenAction(42)).toEqual({ ok: false, code: 'not_found' });
+    expect(await revokeTokenAction('nope')).toEqual({ ok: false, code: 'not_found' });
+    expect(createMcpToken).not.toHaveBeenCalled();
+    expect(revokeMcpToken).not.toHaveBeenCalled();
+  });
+
+  it('defaults a missing expiry to 90 days', async () => {
+    createMcpToken.mockResolvedValue({ id: ID, token: 't', prefix: 'p' });
+    await createTokenAction({ status: 'idle' }, form({ name: 'x' }));
+    expect(createMcpToken).toHaveBeenCalledWith(expect.anything(), actor, {
+      name: 'x',
+      expiresInDays: 90,
+    });
+  });
 });

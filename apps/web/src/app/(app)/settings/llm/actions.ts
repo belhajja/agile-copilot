@@ -16,6 +16,7 @@ import { type LlmConfig, listModels } from '@agile/llm';
 import { checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { formData, uuid } from '@/server/action-input';
 import { connectionDeps, requireActor } from '@/server/context';
 import { parsePrice } from './price';
 
@@ -72,10 +73,11 @@ const PATH = '/settings/llm';
 
 export async function createLlmConnectionAction(
   _prev: FormState,
-  form: FormData,
+  form: unknown,
 ): Promise<FormState> {
   const actor = await requireActor();
-  const parsed = schema.safeParse(Object.fromEntries(form));
+  const data = formData.safeParse(form);
+  const parsed = schema.safeParse(data.success ? Object.fromEntries(data.data) : null);
   if (!parsed.success) return { status: 'error', code: 'invalid_input' };
   const { label, ...config } = parsed.data;
   try {
@@ -95,10 +97,10 @@ export async function createLlmConnectionAction(
   return { status: 'ok' };
 }
 
-const isId = (id: unknown) => z.uuid().safeParse(id).success;
+const isId = (id: unknown): id is string => uuid.safeParse(id).success;
 
 /** "Load models" on the add form: the key never gets saved, so a parse failure costs no token. */
-export async function listModelsForNewConnectionAction(form: FormData): Promise<ListModelsResult> {
+export async function listModelsForNewConnectionAction(form: unknown): Promise<ListModelsResult> {
   const actor = await requireActor();
   try {
     assertCanManage(actor);
@@ -106,7 +108,8 @@ export async function listModelsForNewConnectionAction(form: FormData): Promise<
     if (e instanceof ForbiddenError) return { ok: false, code: 'forbidden_role' };
     throw e;
   }
-  const parsed = modelsSchema.safeParse(Object.fromEntries(form));
+  const data = formData.safeParse(form);
+  const parsed = modelsSchema.safeParse(data.success ? Object.fromEntries(data.data) : null);
   if (!parsed.success) return { ok: false, code: 'invalid_input' };
   const config = parsed.data;
   if (config.provider === 'azure') return { ok: false, code: 'not_supported' };
@@ -132,7 +135,7 @@ export async function listModelsForNewConnectionAction(form: FormData): Promise<
 }
 
 /** "Change model" on a saved connection: lists what its stored key can use. */
-export async function listModelsForConnectionAction(id: string): Promise<ListModelsResult> {
+export async function listModelsForConnectionAction(id: unknown): Promise<ListModelsResult> {
   const actor = await requireActor();
   if (!isId(id)) return { ok: false, code: 'not_found' };
   try {
@@ -146,8 +149,8 @@ export async function listModelsForConnectionAction(id: string): Promise<ListMod
 }
 
 export async function changeLlmModelAction(
-  id: string,
-  model: string,
+  id: unknown,
+  model: unknown,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   const actor = await requireActor();
   if (!isId(id)) return { ok: false, code: 'not_found' };
@@ -165,21 +168,21 @@ export async function changeLlmModelAction(
   return { ok: true };
 }
 
-export async function retestLlmConnectionAction(id: string): Promise<void> {
+export async function retestLlmConnectionAction(id: unknown): Promise<void> {
   const actor = await requireActor();
   if (!isId(id)) return;
   await retestLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }
 
-export async function deleteLlmConnectionAction(id: string): Promise<void> {
+export async function deleteLlmConnectionAction(id: unknown): Promise<void> {
   const actor = await requireActor();
   if (!isId(id)) return;
   await deleteLlmConnection(connectionDeps(), actor, id);
   revalidatePath(PATH);
 }
 
-export async function setDefaultLlmConnectionAction(id: string): Promise<void> {
+export async function setDefaultLlmConnectionAction(id: unknown): Promise<void> {
   const actor = await requireActor();
   if (!isId(id)) return;
   await setDefaultLlmConnection(connectionDeps(), actor, id);
@@ -188,7 +191,7 @@ export async function setDefaultLlmConnectionAction(id: string): Promise<void> {
 
 /** The model for background skill runs (`null`: back to the default model). */
 export async function setBackgroundLlmConnectionAction(
-  id: string | null,
+  id: unknown,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   const actor = await requireActor();
   if (id !== null && !isId(id)) return { ok: false, code: 'not_found' };
@@ -203,15 +206,23 @@ export async function setBackgroundLlmConnectionAction(
   return { ok: true };
 }
 
+const priceFields = z.object({
+  input: z.string().default(''),
+  output: z.string().default(''),
+});
+
 export async function setLlmPricesAction(
-  id: string,
+  id: unknown,
   _prev: FormState,
-  form: FormData,
+  form: unknown,
 ): Promise<FormState> {
   const actor = await requireActor();
-  const input = parsePrice(String(form.get('input') ?? ''));
-  const output = parsePrice(String(form.get('output') ?? ''));
-  if (!isId(id) || !input.ok || !output.ok) return { status: 'error', code: 'invalid_price' };
+  const data = formData.safeParse(form);
+  const fields = priceFields.safeParse(data.success ? Object.fromEntries(data.data) : null);
+  if (!isId(id) || !fields.success) return { status: 'error', code: 'invalid_price' };
+  const input = parsePrice(fields.data.input);
+  const output = parsePrice(fields.data.output);
+  if (!input.ok || !output.ok) return { status: 'error', code: 'invalid_price' };
   try {
     const result = await setLlmConnectionPrices(connectionDeps(), actor, id, {
       inputMicros: input.micros,

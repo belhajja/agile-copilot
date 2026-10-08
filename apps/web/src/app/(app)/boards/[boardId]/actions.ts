@@ -4,9 +4,9 @@ import { removeWidget, updateWidget, WIDGET_CHARTS } from '@agile/dashboards';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { z } from 'zod';
+import { uuid } from '@/server/action-input';
 import { requireActor, services } from '@/server/context';
 
-const uuid = z.uuid();
 const widgetKey = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
 /**

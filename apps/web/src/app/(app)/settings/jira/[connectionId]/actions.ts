@@ -4,6 +4,7 @@ import { ForbiddenError } from '@agile/connections';
 import { discoverBoards, requestSync, saveStatusMappings, setBoardSelection } from '@agile/sync';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { formData, uuid } from '@/server/action-input';
 import { entitlements } from '@/server/billing';
 import { requireActor, services } from '@/server/context';
 import { syncDeps, syncQueue } from '@/server/sync';
@@ -13,8 +14,8 @@ export type ActionState =
   | { status: 'ok'; queued?: boolean }
   | { status: 'error'; code: string };
 
-const uuid = z.uuid();
 const path = (connectionId: string) => `/settings/jira/${connectionId}`;
+const invalidInput: ActionState = { status: 'error', code: 'invalid_input' };
 
 async function guarded(run: () => Promise<ActionState>): Promise<ActionState> {
   try {
@@ -25,35 +26,37 @@ async function guarded(run: () => Promise<ActionState>): Promise<ActionState> {
   }
 }
 
-export async function discoverBoardsAction(connectionId: string): Promise<ActionState> {
+export async function discoverBoardsAction(connectionId: unknown): Promise<ActionState> {
   const actor = await requireActor();
-  if (!uuid.safeParse(connectionId).success) return { status: 'error', code: 'not_found' };
+  const id = uuid.safeParse(connectionId);
+  if (!id.success) return { status: 'error', code: 'not_found' };
   return guarded(async () => {
-    const result = await discoverBoards(syncDeps(), actor, connectionId);
+    const result = await discoverBoards(syncDeps(), actor, id.data);
     if (!result.ok) return { status: 'error', code: result.code };
-    revalidatePath(path(connectionId));
+    revalidatePath(path(id.data));
     return { status: 'ok' };
   });
 }
 
 export async function saveBoardSelectionAction(
-  connectionId: string,
+  connectionId: unknown,
   _prev: ActionState,
-  form: FormData,
+  form: unknown,
 ): Promise<ActionState> {
   const actor = await requireActor();
-  const ids = z.array(uuid).max(500).safeParse(form.getAll('board'));
-  if (!uuid.safeParse(connectionId).success || !ids.success) {
-    return { status: 'error', code: 'invalid_input' };
-  }
+  const parsed = z.tuple([uuid, formData]).safeParse([connectionId, form]);
+  if (!parsed.success) return invalidInput;
+  const [id, data] = parsed.data;
+  const ids = z.array(uuid).max(500).safeParse(data.getAll('board'));
+  if (!ids.success) return invalidInput;
   return guarded(async () => {
     // SaaS plans limit synced boards (a quota checked when boards are added; never removes).
     const { maxBoards } = await entitlements(actor.orgId);
-    const result = await setBoardSelection(syncDeps(), actor, connectionId, ids.data, {
+    const result = await setBoardSelection(syncDeps(), actor, id, ids.data, {
       maxSelectedBoards: maxBoards,
     });
     if (!result.ok) return { status: 'error', code: result.code };
-    revalidatePath(path(connectionId));
+    revalidatePath(path(id));
     revalidatePath('/');
     return { status: 'ok' };
   });
@@ -66,45 +69,47 @@ const mappingEntry = z.object({
 });
 
 export async function saveStatusMappingAction(
-  connectionId: string,
-  boardId: string,
+  connectionId: unknown,
+  boardId: unknown,
   _prev: ActionState,
-  form: FormData,
+  form: unknown,
 ): Promise<ActionState> {
   const actor = await requireActor();
+  const parsed = z.tuple([uuid, uuid, formData]).safeParse([connectionId, boardId, form]);
+  if (!parsed.success) return invalidInput;
+  const [id, board, data] = parsed.data;
   const entries = z
     .array(mappingEntry)
     .min(1)
     .max(300)
     .safeParse(
-      form.getAll('status').map((id) => ({
-        jiraStatusId: id,
-        category: form.get(`category:${id}`),
-        blocked: form.get(`blocked:${id}`) === 'on',
+      data.getAll('status').map((status) => ({
+        jiraStatusId: status,
+        category: data.get(`category:${status}`),
+        blocked: data.get(`blocked:${status}`) === 'on',
       })),
     );
-  if (!uuid.safeParse(boardId).success || !entries.success) {
-    return { status: 'error', code: 'invalid_input' };
-  }
+  if (!entries.success) return invalidInput;
   return guarded(async () => {
-    const result = await saveStatusMappings(syncDeps(), actor, boardId, entries.data);
+    const result = await saveStatusMappings(syncDeps(), actor, board, entries.data);
     if (!result.ok) return { status: 'error', code: result.code };
-    revalidatePath(path(connectionId));
+    revalidatePath(path(id));
     return { status: 'ok' };
   });
 }
 
-export async function requestSyncAction(connectionId: string): Promise<ActionState> {
+export async function requestSyncAction(connectionId: unknown): Promise<ActionState> {
   const actor = await requireActor();
-  if (!uuid.safeParse(connectionId).success) return { status: 'error', code: 'not_found' };
+  const id = uuid.safeParse(connectionId);
+  if (!id.success) return { status: 'error', code: 'not_found' };
   return guarded(async () => {
     const result = await requestSync(
       { db: services().db, boss: await syncQueue() },
       actor,
-      connectionId,
+      id.data,
     );
     if (!result.ok) return { status: 'error', code: result.code };
-    revalidatePath(path(connectionId));
+    revalidatePath(path(id.data));
     return { status: 'ok', queued: result.queued };
   });
 }

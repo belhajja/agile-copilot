@@ -2,7 +2,6 @@
 
 import { draftSkill, reserveBuilderCall, runSkill } from '@agile/agent';
 import { requestSkillRun } from '@agile/automation';
-import { isUuid } from '@agile/db';
 import {
   copyBuiltinSkill,
   createSkill,
@@ -20,6 +19,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
+import { uuid } from '@/server/action-input';
 import { skillQueue, skillRunDeps, skillRunsDailyLimit } from '@/server/automation';
 import { requireActor, services } from '@/server/context';
 import type { SkillTab } from './skill-errors';
@@ -34,7 +34,6 @@ const fail = (path: string, code: string, tab?: SkillTab): never =>
 const failSkill = (id: string, code: string, tab: SkillTab = 'mine'): never =>
   code === 'not_found' ? fail('/skills', code, tab) : fail(`/skills/${id}`, code);
 
-const uuid = z.string().refine(isUuid);
 const builtinKey = z.string().min(1).max(100);
 const version = z.number().int().min(1);
 

@@ -20,7 +20,7 @@ const codeOf = (e: unknown) => {
  * and, with SSO, that the identity provider verified the address), then opens that workspace.
  */
 export async function acceptInvitationAction(
-  id: string,
+  id: unknown,
   _prev: InvitationState,
 ): Promise<InvitationState> {
   const parsed = invitationId.safeParse(id);
@@ -40,7 +40,7 @@ export async function acceptInvitationAction(
 }
 
 export async function rejectInvitationAction(
-  id: string,
+  id: unknown,
   _prev: InvitationState,
 ): Promise<InvitationState> {
   const parsed = invitationId.safeParse(id);
