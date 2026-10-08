@@ -362,3 +362,47 @@ describe('restoring a version', () => {
     );
   });
 });
+
+describe('malformed arguments never reach the store', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('refuses a visibility or enabled value of the wrong shape', async () => {
+    const to = `REDIRECT:/skills/${ID}?error=invalid`;
+    await expect(actions.setSkillVisibilityAction(ID, 'public')).rejects.toThrow(to);
+    await expect(actions.setSkillEnabledAction(ID, 'yes')).rejects.toThrow(to);
+    expect(store.setSkillVisibility).not.toHaveBeenCalled();
+    expect(store.setSkillEnabled).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a version that is not a number', ['1', 3]],
+    ['a base version below 1', [1, 0]],
+    ['a fractional version', [1.5, 3]],
+  ])('refuses to restore %s', async (_name, [v, base]) => {
+    await expect(actions.restoreSkillVersionAction(ID, v, base)).rejects.toThrow(
+      `REDIRECT:/skills/${ID}?error=invalid`,
+    );
+    expect(store.getSkill).not.toHaveBeenCalled();
+    expect(store.updateSkill).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request or document that is not text', async () => {
+    expect(await actions.draftSkillAction({ text: 'x' })).toEqual({
+      ok: false,
+      code: 'invalid_request',
+    });
+    expect(await actions.previewSkillAction(42)).toEqual({ ok: false, code: 'invalid_request' });
+    expect(agent.reserveBuilderCall).not.toHaveBeenCalled();
+  });
+
+  it('refuses a built-in key or run id of the wrong shape', async () => {
+    await expect(actions.copyBuiltinSkillAction(42)).rejects.toThrow(
+      'REDIRECT:/skills?error=not_found&tab=library',
+    );
+    await expect(actions.runSkillNowAction('nope')).rejects.toThrow(
+      'REDIRECT:/skills?error=not_found',
+    );
+    expect(store.copyBuiltinSkill).not.toHaveBeenCalled();
+    expect(automation.requestSkillRun).not.toHaveBeenCalled();
+  });
+});
