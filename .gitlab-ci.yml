@@ -80,27 +80,30 @@ node-build:
 # The build cache goes to <target>/cache: the default (<snapshot image>/cache = web/snapshot/cache) is
 # one level deeper than the GitLab registry allows (two below the project), and is refused.
 .docker-base:
+  variables:
+    # Orange's Docker Hub mirror (anonymous pulls): the shared runners hit Docker Hub's rate limit.
+    DOCKER_HUB_MIRROR: dockerproxy.repos.tech.orange
   parallel:
     matrix:
       - DOCKER_ARTIFACTS_NAMESPACE: web
-        DOCKER_BUILD_ARGS: --target runner
+        DOCKER_BUILD_ARGS: --target runner --build-arg BASE_REGISTRY=$DOCKER_HUB_MIRROR
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/web/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/web:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/web/cache
       - DOCKER_ARTIFACTS_NAMESPACE: worker
-        DOCKER_BUILD_ARGS: --target worker
+        DOCKER_BUILD_ARGS: --target worker --build-arg BASE_REGISTRY=$DOCKER_HUB_MIRROR
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/worker/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/worker:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/worker/cache
       - DOCKER_ARTIFACTS_NAMESPACE: migrate
-        DOCKER_BUILD_ARGS: --target migrate
+        DOCKER_BUILD_ARGS: --target migrate --build-arg BASE_REGISTRY=$DOCKER_HUB_MIRROR
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/migrate/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/migrate:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/migrate/cache
       - DOCKER_ARTIFACTS_NAMESPACE: operator
         DOCKER_BUILD_ARGS: >-
           --target operator --build-arg OPERATOR_VERSION=$CI_COMMIT_REF_NAME
-          --build-arg OPERATOR_IMAGE_BASE=$CI_REGISTRY_IMAGE
+          --build-arg OPERATOR_IMAGE_BASE=$CI_REGISTRY_IMAGE --build-arg BASE_REGISTRY=$DOCKER_HUB_MIRROR
         DOCKER_SNAPSHOT_IMAGE: $CI_REGISTRY_IMAGE/operator/snapshot:$CI_COMMIT_REF_SLUG
         DOCKER_RELEASE_IMAGE: $CI_REGISTRY_IMAGE/operator:$CI_COMMIT_REF_NAME
         DOCKER_BUILD_CACHE_LOCATION: $CI_REGISTRY_IMAGE/operator/cache

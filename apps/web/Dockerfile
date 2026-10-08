@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
-FROM node:24-alpine AS base
+# Where the base images come from: Docker Hub, or a mirror of it (CI passes Orange's, whose
+# runners hit Docker Hub's anonymous pull limit).
+ARG BASE_REGISTRY=docker.io
+FROM ${BASE_REGISTRY}/library/node:24-alpine AS base
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
 WORKDIR /repo
@@ -33,8 +36,8 @@ RUN node scripts/bundle-node.mjs apps/worker/src/main.ts /out/worker/dist/worker
 
 # Runtime base: Alpine with Node's binary only, without npm, yarn and corepack (unused at runtime).
 # Same Alpine release as node:24-alpine (3.24), so the binary finds the libraries it was built for.
-FROM node:24-alpine AS node
-FROM alpine:3.24 AS runtime
+FROM ${BASE_REGISTRY}/library/node:24-alpine AS node
+FROM ${BASE_REGISTRY}/library/alpine:3.24 AS runtime
 # The base image's own packages get their security fixes here, not when a new alpine tag ships.
 # hadolint ignore=DL3017,DL3018
 RUN apk upgrade --no-cache && apk add --no-cache libstdc++ libgcc \
