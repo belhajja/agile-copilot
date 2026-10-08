@@ -29,7 +29,7 @@ export function WidgetCard({
         )}
       </CardHeader>
       <CardContent className="overflow-x-auto px-2 sm:px-6">
-        {data.kind !== 'kpi' && <WidgetBody data={data} />}
+        {data.kind !== 'kpi' && <WidgetBody data={data} title={title} />}
       </CardContent>
       <div className="px-6 pb-2">
         <WidgetNotes data={data} />

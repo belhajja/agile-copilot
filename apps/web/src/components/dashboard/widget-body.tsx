@@ -46,7 +46,7 @@ export function WidgetNotes({ data }: { data: WidgetData }) {
 }
 
 /** What a widget shows, without its card: chart, table, KPI value or why there is nothing. */
-export function WidgetBody({ data }: { data: WidgetData }) {
+export function WidgetBody({ data, title }: { data: WidgetData; title?: string }) {
   const t = useTranslations('dashboards');
   const kpiText = useKpiText();
   const dimensionLabel = useDimensionLabel();
@@ -59,6 +59,7 @@ export function WidgetBody({ data }: { data: WidgetData }) {
       return (
         <WidgetChart
           data={data}
+          title={title}
           labels={Object.fromEntries(
             data.series.map((s) => [
               s.key,

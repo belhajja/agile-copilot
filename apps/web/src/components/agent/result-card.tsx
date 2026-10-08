@@ -62,7 +62,7 @@ export function ResultCard({ result }: { result: PinnableResult }) {
       </div>
       <div className="min-w-0 overflow-x-auto">
         <JiraSiteProvider baseUrl={jiraBaseUrl}>
-          <WidgetBody data={result.data} />
+          <WidgetBody data={result.data} title={title} />
         </JiraSiteProvider>
       </div>
       <WidgetNotes data={result.data} />

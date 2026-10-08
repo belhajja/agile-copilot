@@ -1,7 +1,7 @@
 'use client';
 
 import { useFormatter, useTranslations } from 'next-intl';
-import { useId } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -16,6 +16,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { Button } from '@/components/ui/button';
 import {
   type ChartConfig,
   ChartContainer,
@@ -24,7 +25,18 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { allowedCode } from '@/lib/error-code';
 import { useGroupLabel } from './group-label';
+import { DASHBOARD_COLUMNS } from './message-keys';
 import { MONTH_FORMAT, monthStart } from './month-label';
 import type { SeriesData } from './types';
 
@@ -34,17 +46,28 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Day of sprint on compared burn charts (`d1`, `d2`…). */
 const SPRINT_DAY = /^d(\d+)$/;
 
-/** Bar/line/area chart for a series widget, adapted from the dashboard-01 interactive area chart. */
+/** Rows can repeat their x value (sprint names): keys carry the position too. */
+const keyedRows = (rows: SeriesData['rows'], x: string) =>
+  rows.map((row, i) => ({ row, key: `${i}-${String(row[x])}` }));
+
+/**
+ * Bar/line/area chart for a series widget, adapted from the dashboard-01 interactive area chart.
+ * Its data can also be read as a table (a toggle under the chart).
+ */
 export function WidgetChart({
   data,
   labels,
+  title,
 }: {
   data: SeriesData;
   labels: Record<string, string>;
+  /** The widget's title, to name the chart for assistive technology. */
+  title?: string;
 }) {
   const format = useFormatter();
   const t = useTranslations('dashboards');
   const groupLabel = useGroupLabel();
+  const [asTable, setAsTable] = useState(false);
   // Series are told apart by more than colour: every second bar/area series is hatched, and
   // reference lines (ideal, scope) are dashed, as are lines past the palette (compared sprints).
   const uid = useId().replace(/:/g, '');
@@ -111,6 +134,59 @@ export function WidgetChart({
     <ChartLegend key="legend" content={<ChartLegendContent />} />,
   ];
 
+  const xLabel = (() => {
+    const known = allowedCode(data.x, DASHBOARD_COLUMNS);
+    return known ? t(`columns.${known}`) : t('chartTable.category');
+  })();
+  const name = title ? t('chartTable.label', { title }) : t('chartTable.untitled');
+  const table = (
+    <Table>
+      <TableCaption className="sr-only">{name}</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">{xLabel}</TableHead>
+          {data.series.map((s) => (
+            <TableHead key={s.key} scope="col">
+              {labels[s.key] ?? s.key}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {keyedRows(data.rows, data.x).map(({ row, key }) => (
+          <TableRow key={key}>
+            <TableHead scope="row" className="font-normal">
+              {tick(row[data.x])}
+            </TableHead>
+            {data.series.map((s) => {
+              const v = row[s.key];
+              return (
+                <TableCell key={s.key} className="tabular-nums">
+                  {typeof v === 'number' ? format.number(v, { maximumFractionDigits: 1 }) : '—'}
+                </TableCell>
+              );
+            })}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+  const framed = (chart: ReactNode) => (
+    <figure aria-label={name} className="grid gap-2" data-chart-view={asTable ? 'table' : 'chart'}>
+      {asTable ? table : chart}
+      <Button
+        type="button"
+        variant="link"
+        size="xs"
+        className="justify-self-start px-0"
+        aria-pressed={asTable}
+        onClick={() => setAsTable((v) => !v)}
+      >
+        {t('chartTable.toggle')}
+      </Button>
+    </figure>
+  );
+
   if (data.chart === 'pie') {
     const [measure] = data.series;
     const slices = data.rows.map((row, i) => ({
@@ -122,7 +198,7 @@ export function WidgetChart({
     const pieConfig = Object.fromEntries(
       slices.map((s) => [s.name, { label: s.name }]),
     ) satisfies ChartConfig;
-    return (
+    return framed(
       <ChartContainer config={pieConfig} className="mx-auto aspect-square h-[250px]">
         <PieChart>
           <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
@@ -138,11 +214,11 @@ export function WidgetChart({
           </Pie>
           <ChartLegend content={<ChartLegendContent nameKey="name" />} />
         </PieChart>
-      </ChartContainer>
+      </ChartContainer>,
     );
   }
 
-  return (
+  return framed(
     <ChartContainer config={config} className="aspect-auto h-[250px] w-full">
       {data.chart === 'bar' ? (
         <BarChart data={data.rows}>
@@ -191,6 +267,6 @@ export function WidgetChart({
           ))}
         </AreaChart>
       )}
-    </ChartContainer>
+    </ChartContainer>,
   );
 }

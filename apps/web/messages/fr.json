@@ -558,6 +558,12 @@
     },
     "notEnoughData": "Pas encore assez de données",
     "notSprintFiltered": "Non filtré par sprint",
+    "chartTable": {
+      "label": "{title} (graphique)",
+      "untitled": "Graphique",
+      "category": "Valeur",
+      "toggle": "Afficher les données en tableau"
+    },
     "sprintDay": "J{day}",
     "cappedDays": "≥ {days} jours",
     "truncated": "{shown} sur {total}",
