@@ -373,7 +373,14 @@ Platform administrators who sign in with a password, so that someone can still g
 pnpm --filter @agile/auth break-glass:create root@example.com "Platform admin"
 ```
 
-The published images (`deploy/compose`) do not include this CLI: run it from a clone of the repository (Node and pnpm), with `DATABASE_URL` and the other variables of the deployment's `.env` pointing at its database (Postgres is not published by `deploy/compose`, so do this on the same machine with a temporary port mapping, or through a database tunnel).
+The web image ships the same CLI as a single file, so a deployment needs no clone: it runs inside the web container, with the container's own settings (add the address to `BREAK_GLASS_EMAILS` in `.env` and `docker compose up -d web` first).
+
+```bash
+# deploy/compose (the password prompt needs a terminal: no -T)
+docker compose exec web node tools/break-glass.mjs root@example.com "Platform admin"
+# Kubernetes
+kubectl exec -it deploy/<release>-web -- node tools/break-glass.mjs root@example.com
+```
 
 ### Moving users from passwords to SSO
 

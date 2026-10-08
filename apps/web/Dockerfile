@@ -25,12 +25,14 @@ RUN pnpm --filter @agile/web build \
 
 # The worker and the migrations as single bundled files: no node_modules, tsx or pnpm at runtime.
 # The SQL migrations sit next to the bundle, where packages/db/src/migrate.ts looks for them
-# (`../drizzle` from the script).
+# (`../drizzle` from the script). The break-glass CLI ships in the web image (README "Break-glass
+# accounts").
 FROM deps AS bundle
 COPY . .
 RUN node scripts/bundle-node.mjs apps/worker/src/main.ts /out/worker/dist/worker.mjs \
   && node scripts/bundle-node.mjs packages/db/src/migrate-cli.ts /out/migrate/dist/migrate.mjs \
-  && cp -r packages/db/drizzle /out/migrate/drizzle
+  && cp -r packages/db/drizzle /out/migrate/drizzle \
+  && node scripts/bundle-node.mjs packages/auth/src/break-glass-cli.ts /out/tools/break-glass.mjs
 
 # Runtime base: Alpine with Node's binary only, without npm, yarn and corepack (unused at runtime).
 # Same Alpine release as node:24-alpine (3.24), so the binary finds the libraries it was built for.
@@ -62,6 +64,7 @@ FROM runtime AS runner
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=bundle /out/tools ./tools
 # The only directory the server writes to (besides /tmp).
 RUN mkdir -p apps/web/.next/cache && chown 10001:10001 apps/web/.next/cache
 USER 10001:10001

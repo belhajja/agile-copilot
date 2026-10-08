@@ -664,7 +664,8 @@ describe('SSO (OIDC) and the password policy', () => {
     expect(refused.out).toContain('NOT_BREAK_GLASS');
     expect(await userRow('nope@example.com')).toBeUndefined();
 
-    const ok = await runBreakGlassCli(['cli@example.com'], env, 'cli-password-12\n');
+    // As Windows PowerShell pipes it: a byte order mark and CRLF.
+    const ok = await runBreakGlassCli(['cli@example.com'], env, '﻿cli-password-12\r\n');
     expect(ok.out).not.toContain('cli-password-12');
     expect(ok.code).toBe(0);
     const auth = createAuth({ ...options, breakGlassEmails: ['cli@example.com'] });
