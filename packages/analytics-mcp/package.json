@@ -18,7 +18,6 @@
   },
   "devDependencies": {
     "@agile/jira": "workspace:*",
-    "@agile/sync": "workspace:*",
-    "@testcontainers/postgresql": "12.2.0"
+    "@agile/sync": "workspace:*"
   }
 }

@@ -22,9 +22,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@agile/jira-tools": "workspace:*",
     "@agile/llm": "workspace:*",
-    "@agile/sync": "workspace:*",
-    "@testcontainers/postgresql": "12.2.0"
+    "@agile/sync": "workspace:*"
   }
 }

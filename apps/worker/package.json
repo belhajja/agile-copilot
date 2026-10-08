@@ -18,8 +18,5 @@
     "@agile/sync": "workspace:*",
     "drizzle-orm": "0.45.3",
     "tsx": "4.23.15"
-  },
-  "devDependencies": {
-    "@testcontainers/postgresql": "12.2.0"
   }
 }
