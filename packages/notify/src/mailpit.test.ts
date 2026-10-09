@@ -30,8 +30,9 @@ describe('email contract (Mailpit)', () => {
     await sendEmail(
       { host, port: mailpit.getMappedPort(1025), security: 'none', from: 'copilot@example.com' },
       { to: 'pat@example.com', subject: 'Report: sprint-digest', html, text },
-      // The container answers on a local address: the test allowlists it like an operator would.
-      { outbound: { allowedPrivateHosts: [host] } },
+      // The container answers on a local address and a mapped port (not a loopback one on the CI
+      // runner): the test allowlists both, like an operator would.
+      { outbound: { allowedPrivateHosts: [host] }, ports: [mailpit.getMappedPort(1025)] },
     );
     const api = `http://${host}:${mailpit.getMappedPort(8025)}/api/v1`;
     const listRes = await fetch(`${api}/messages`);
