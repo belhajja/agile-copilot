@@ -118,6 +118,8 @@ node-build:
 # project's default (60 min). A cold build installs every dependency and builds the web app.
 docker-hadolint:
   timeout: 10 minutes
+docker-kaniko-build:
+  timeout: 40 minutes
 docker-buildah-build:
   timeout: 40 minutes
 docker-trivy:
