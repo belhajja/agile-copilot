@@ -6,7 +6,9 @@ import { startTestServer, TEST_POSTGRES_BROKER, type TestServer } from './testin
 /**
  * One Postgres container for the whole run, started on the first `startTestDatabase()` call so
  * runs without database tests need no Docker. Test files reach it through a small local HTTP
- * endpoint and each gets a database copied from the migrated template.
+ * endpoint and each gets a database copied from the migrated template. The first files wait for
+ * the start and the migrations (up to two minutes on a busy CI runner), hence the 300 s
+ * hookTimeout of the projects that use it.
  */
 export default async function setup(project: TestProject) {
   let server: ReturnType<typeof startTestServer> | undefined;
