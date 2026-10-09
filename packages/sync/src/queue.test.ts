@@ -84,6 +84,13 @@ describe('sync queue (pg-boss, as app_user)', () => {
         (s) => s.status === 'ok' || s.status === 'error',
       );
       expect(state).toMatchObject({ status: 'ok', lastError: null });
+      // The state is written before the handler returns: wait for pg-boss to finish the job, or
+      // the next test still finds it active (one sync per connection).
+      const jobs = await waitFor(
+        () => worker.findJobs(SYNC_QUEUE, { key: connectionId }),
+        (list) => list.every((j) => ['completed', 'failed', 'cancelled'].includes(j.state)),
+      );
+      expect(jobs.map((j) => j.state)).toEqual(['completed']);
       const schedules = await worker.getSchedules();
       expect(schedules.map((s) => [s.name, s.cron, s.timezone])).toEqual([
         [SYNC_TICK_QUEUE, '*/15 * * * *', 'UTC'],
