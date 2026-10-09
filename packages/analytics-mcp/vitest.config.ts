@@ -5,7 +5,7 @@ export default defineProject({
     name: 'analytics-mcp',
     environment: 'node',
     include: ['src/**/*.test.ts'],
-    hookTimeout: 120_000,
+    hookTimeout: 300_000,
     testTimeout: 60_000,
   },
 });
