@@ -29,6 +29,8 @@ export interface SmtpOptions {
   deadlineMs?: number;
   /** Stops the operation (worker shutdown): it fails with `DeliveryInterruptedError`. */
   signal?: AbortSignal;
+  /** Ports a mail server may listen on. Default 25, 465, 587 and 2525. */
+  ports?: readonly number[];
 }
 
 /** The default overall deadline of one SMTP operation (resolution, connection, exchange). */
@@ -77,7 +79,7 @@ async function transportFor(secret: SmtpSecret, opts: SmtpOptions) {
   ) {
     throw new DeliveryError('insecure_transport');
   }
-  if (!SMTP_PORTS.includes(secret.port) && !isLoopbackAddress(address)) {
+  if (!(opts.ports ?? SMTP_PORTS).includes(secret.port) && !isLoopbackAddress(address)) {
     throw new DeliveryError('blocked_port');
   }
   const timeout = opts.timeoutMs ?? 15_000;
