@@ -254,9 +254,13 @@ export async function releaseTurn(db: Db, actor: Actor, id: string, turnId: stri
   );
 }
 
+/** The user's first words (a conversation can start with images only). */
 const titleOf = (messages: UIMessage[]) => {
-  const first = messages.find((m) => m.role === 'user');
-  return cleanTitle(first?.parts.find((p) => p.type === 'text')?.text ?? '');
+  for (const m of messages) {
+    const text = m.role === 'user' ? m.parts.find((p) => p.type === 'text')?.text : undefined;
+    if (text) return cleanTitle(text);
+  }
+  return '';
 };
 
 /**

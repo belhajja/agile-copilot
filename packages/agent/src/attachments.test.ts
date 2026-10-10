@@ -6,6 +6,7 @@ import { member, owner } from '@agile/sync/testing';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IMAGE_OMITTED, loadAttachment } from './attachments';
+import { listConversationHistory } from './conversation-groups';
 import { deleteConversation } from './conversations';
 import { attachmentIdOf } from './images';
 import { startAgentHarness, textOf } from './test-harness';
@@ -136,6 +137,12 @@ describe('chat images', () => {
     expect(textOf(r.chunks)).toBe(`I received 1 image (image/png, ${png.length} bytes).`);
     const [parts] = await storedUserParts(id);
     expect(parts?.map((p) => (p as { type: string }).type)).toEqual(['file']);
+    // Listed without a title, then titled by the first words.
+    const listed = async () =>
+      (await listConversationHistory(h.db, owner())).recent.find((c) => c.id === id);
+    expect(await listed()).toMatchObject({ title: '' });
+    await h.ask(owner(), id, 'Is the burndown on track?');
+    expect(await listed()).toMatchObject({ title: 'Is the burndown on track?' });
   });
 
   it('sends earlier images again with the history, or a note once the model no longer reads them', async () => {

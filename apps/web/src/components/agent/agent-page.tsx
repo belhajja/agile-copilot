@@ -69,7 +69,7 @@ export async function AgentPage({
     (place: { groupId: string | null; archived: boolean }) =>
     (c: ConversationSummary): HistoryItem => ({
       id: c.id,
-      title: c.title,
+      title: c.title || t('imagesOnlyTitle'),
       when: format.dateTime(c.updatedAt, { dateStyle: 'medium', timeStyle: 'short' }),
       ...place,
     });
