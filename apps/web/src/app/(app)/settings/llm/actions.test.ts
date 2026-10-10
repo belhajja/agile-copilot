@@ -19,6 +19,7 @@ const listLlmModelsForConnection = vi.fn();
 const changeLlmModel = vi.fn();
 const createLlmConnection = vi.fn();
 const setLlmMaxOutputTokens = vi.fn();
+const setLlmAcceptsImages = vi.fn();
 vi.mock('@agile/connections', async (importActual) => {
   const actual = await importActual<typeof import('@agile/connections')>();
   return {
@@ -30,6 +31,7 @@ vi.mock('@agile/connections', async (importActual) => {
     setDefaultLlmConnection: vi.fn(),
     setLlmConnectionPrices: vi.fn(),
     setLlmMaxOutputTokens: (...a: unknown[]) => setLlmMaxOutputTokens(...a),
+    setLlmAcceptsImages: (...a: unknown[]) => setLlmAcceptsImages(...a),
     listLlmModelsForConnection: (...a: unknown[]) => listLlmModelsForConnection(...a),
     changeLlmModel: (...a: unknown[]) => changeLlmModel(...a),
   };
@@ -51,6 +53,7 @@ const {
   createLlmConnectionAction,
   listModelsForConnectionAction,
   listModelsForNewConnectionAction,
+  setLlmAcceptsImagesAction,
   setLlmAnswerBudgetAction,
 } = await import('./actions');
 
@@ -316,6 +319,81 @@ describe('setLlmAnswerBudgetAction', () => {
     setLlmMaxOutputTokens.mockResolvedValueOnce({ ok: false, code: 'not_found', message: 'x' });
     const set = () =>
       setLlmAnswerBudgetAction(ID, { status: 'idle' }, form({ maxOutputTokens: '8000' }));
+    expect(await set()).toEqual({ status: 'error', code: 'forbidden_role' });
+    expect(await set()).toEqual({ status: 'error', code: 'not_found' });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe('createLlmConnectionAction: image input', () => {
+  const fields = {
+    provider: 'anthropic',
+    label: 'Claude',
+    model: 'claude-sonnet-5-5',
+    apiKey: 'k',
+  };
+  beforeEach(() => {
+    actor = { orgId: 'org_1', userId: 'user_1', roles: ['owner'] };
+    createLlmConnection.mockReset();
+    createLlmConnection.mockResolvedValue({ ok: true, connection: { id: ID } });
+  });
+
+  it('is on only when the switch posts "on"', async () => {
+    await createLlmConnectionAction({ status: 'idle' }, form({ ...fields, acceptsImages: 'on' }));
+    await createLlmConnectionAction({ status: 'idle' }, form(fields));
+    expect(createLlmConnection.mock.calls.map((c) => c[2].acceptsImages)).toEqual([true, false]);
+  });
+
+  it('refuses any other value', async () => {
+    const r = await createLlmConnectionAction(
+      { status: 'idle' },
+      form({ ...fields, acceptsImages: 'yes' }),
+    );
+    expect(r).toEqual({ status: 'error', code: 'invalid_input' });
+    expect(createLlmConnection).not.toHaveBeenCalled();
+  });
+});
+
+describe('setLlmAcceptsImagesAction', () => {
+  beforeEach(() => {
+    actor = { orgId: 'org_1', userId: 'user_1', roles: ['owner'] };
+    setLlmAcceptsImages.mockReset();
+    revalidatePath.mockClear();
+  });
+
+  it('stores the switch and revalidates the page', async () => {
+    setLlmAcceptsImages.mockResolvedValue({ ok: true });
+    const set = (value: string) =>
+      setLlmAcceptsImagesAction(ID, { status: 'idle' }, form({ acceptsImages: value }));
+    expect(await set('true')).toEqual({ status: 'ok' });
+    expect(await set('false')).toEqual({ status: 'ok' });
+    expect(setLlmAcceptsImages.mock.calls).toEqual([
+      [deps, actor, ID, true],
+      [deps, actor, ID, false],
+    ]);
+    expect(revalidatePath).toHaveBeenCalledWith('/settings/llm');
+  });
+
+  it('refuses a bad value, a bad id or anything but a form without calling the service', async () => {
+    const refused = { status: 'error', code: 'invalid_input' };
+    expect(
+      await setLlmAcceptsImagesAction(ID, { status: 'idle' }, form({ acceptsImages: 'on' })),
+    ).toEqual(refused);
+    expect(await setLlmAcceptsImagesAction(ID, { status: 'idle' }, form({}))).toEqual(refused);
+    expect(
+      await setLlmAcceptsImagesAction('nope', { status: 'idle' }, form({ acceptsImages: 'true' })),
+    ).toEqual(refused);
+    expect(
+      await setLlmAcceptsImagesAction(ID, { status: 'idle' }, { acceptsImages: 'true' }),
+    ).toEqual(refused);
+    expect(setLlmAcceptsImages).not.toHaveBeenCalled();
+  });
+
+  it('reports a role refusal and a missing connection', async () => {
+    setLlmAcceptsImages.mockRejectedValueOnce(new ForbiddenError('nope'));
+    setLlmAcceptsImages.mockResolvedValueOnce({ ok: false, code: 'not_found', message: 'x' });
+    const set = () =>
+      setLlmAcceptsImagesAction(ID, { status: 'idle' }, form({ acceptsImages: 'true' }));
     expect(await set()).toEqual({ status: 'error', code: 'forbidden_role' });
     expect(await set()).toEqual({ status: 'error', code: 'not_found' });
     expect(revalidatePath).not.toHaveBeenCalled();

@@ -286,7 +286,11 @@
     "answerBudget": "Longueur max. des réponses (tokens)",
     "answerBudgetHint": "Combien de tokens le modèle peut écrire par appel, raisonnement compris. Une valeur plus grande laisse les longues réponses aller au bout, avec une attente plus longue. Vide : 16 000.",
     "answerBudgetSaved": "Longueur max. enregistrée.",
-    "saveAnswerBudget": "Enregistrer la longueur"
+    "saveAnswerBudget": "Enregistrer la longueur",
+    "imagesTitle": "Images",
+    "acceptsImages": "Accepte les images",
+    "acceptsImagesHint": "N’activez cette option que pour les modèles qui lisent les images (modèles de vision). Le chat permet alors de joindre des images PNG, JPEG ou WebP aux questions.",
+    "acceptsImagesSaved": "Réglage des images enregistré."
   },
   "boards": {
     "description": "Choisissez les tableaux à synchroniser et la correspondance de leurs statuts avec À faire, En cours et Terminé.",

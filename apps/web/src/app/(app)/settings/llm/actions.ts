@@ -10,6 +10,7 @@ import {
   retestLlmConnection,
   setBackgroundLlmConnection,
   setDefaultLlmConnection,
+  setLlmAcceptsImages,
   setLlmConnectionPrices,
   setLlmMaxOutputTokens,
 } from '@agile/connections';
@@ -31,6 +32,8 @@ const common = {
   label: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(200),
   maxOutputTokens: z.string().max(20).default(''),
+  // A checked switch posts "on"; an unchecked one posts nothing.
+  acceptsImages: z.literal('on').optional(),
 };
 const key = z.string().trim().min(1).max(1000);
 const schema = z.discriminatedUnion('provider', [
@@ -82,7 +85,7 @@ export async function createLlmConnectionAction(
   const data = formData.safeParse(form);
   const parsed = schema.safeParse(data.success ? Object.fromEntries(data.data) : null);
   if (!parsed.success) return { status: 'error', code: 'invalid_input' };
-  const { label, maxOutputTokens, ...config } = parsed.data;
+  const { label, maxOutputTokens, acceptsImages, ...config } = parsed.data;
   const budget = parseAnswerBudget(maxOutputTokens);
   if (!budget.ok) return { status: 'error', code: 'invalid_answer_budget' };
   try {
@@ -90,6 +93,7 @@ export async function createLlmConnectionAction(
       label,
       config: config as LlmConfig,
       maxOutputTokens: budget.tokens,
+      acceptsImages: acceptsImages === 'on',
     });
     if (!result.ok) {
       // blocked_url carries a reason code (and host) the form translates; result.message is English, for logs only.
@@ -260,6 +264,34 @@ export async function setLlmAnswerBudgetAction(
   if (!budget.ok) return { status: 'error', code: 'invalid_answer_budget' };
   try {
     const result = await setLlmMaxOutputTokens(connectionDeps(), actor, id, budget.tokens);
+    if (!result.ok) return { status: 'error', code: result.code };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };
+    throw e;
+  }
+  revalidatePath(PATH);
+  return { status: 'ok' };
+}
+
+const acceptsImagesFields = z.object({ acceptsImages: z.enum(['true', 'false']) });
+
+/** Whether the connection's model reads images (the chat offers attachments only then). */
+export async function setLlmAcceptsImagesAction(
+  id: unknown,
+  _prev: FormState,
+  form: unknown,
+): Promise<FormState> {
+  const actor = await requireActor();
+  const data = formData.safeParse(form);
+  const fields = acceptsImagesFields.safeParse(data.success ? Object.fromEntries(data.data) : null);
+  if (!isId(id) || !fields.success) return { status: 'error', code: 'invalid_input' };
+  try {
+    const result = await setLlmAcceptsImages(
+      connectionDeps(),
+      actor,
+      id,
+      fields.data.acceptsImages === 'true',
+    );
     if (!result.ok) return { status: 'error', code: result.code };
   } catch (e) {
     if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };

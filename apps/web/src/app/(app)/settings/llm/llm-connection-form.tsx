@@ -11,6 +11,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/c
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import { allowedCode, BLOCKED_REASONS } from '@/lib/error-code';
 import {
   createLlmConnectionAction,
@@ -250,6 +251,13 @@ export function LlmConnectionForm() {
                 placeholder={format.number(DEFAULT_MAX_OUTPUT_TOKENS)}
               />
               <FieldDescription>{t('answerBudgetHint')}</FieldDescription>
+            </Field>
+            <Field>
+              <div className="flex items-center gap-3">
+                <Switch id="acceptsImages" name="acceptsImages" />
+                <FieldLabel htmlFor="acceptsImages">{t('acceptsImages')}</FieldLabel>
+              </div>
+              <FieldDescription>{t('acceptsImagesHint')}</FieldDescription>
             </Field>
             {errorText && <FieldError>{errorText}</FieldError>}
             <div>
