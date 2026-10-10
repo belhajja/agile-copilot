@@ -288,6 +288,13 @@
       "when": 1791651138597,
       "tag": "0040_llm_accepts_images",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791651346511,
+      "tag": "0041_agent_attachments",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,7 @@ import {
   recordApprovalRequests,
   settleApprovedParts,
 } from './approvals';
+import { type DecodedImage, decodeImages, imagesForModel, storeImages } from './attachments';
 import {
   beginTurn,
   ConversationNotFoundError,
@@ -56,8 +57,10 @@ import { closeUnansweredToolCalls } from './unanswered';
 import { recordUsage, tokenUsageOf } from './usage';
 
 /**
- * What the browser may send: the conversation id plus EITHER a new user message OR decisions on
- * pending approvals. Never history, tool inputs or tool outputs: the server owns those.
+ * What the browser may send: the conversation id plus EITHER a new user message (its text and up
+ * to `MAX_IMAGES_PER_MESSAGE` images as base64 data URLs; text, images or both) OR decisions on
+ * pending approvals. Never history, tool inputs or tool outputs: the server owns those. The images
+ * are checked after parsing (`decodeImages`), each refusal with its own code.
  */
 export const agentRequestSchema = z
   .object({
@@ -65,9 +68,15 @@ export const agentRequestSchema = z
     message: z
       .object({
         id: z.string().regex(/^[\w-]{1,100}$/),
-        text: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH),
+        text: z.string().trim().max(MESSAGE_MAX_LENGTH),
+        // Bounded by the route's body limit; the count is checked with its own code.
+        images: z
+          .array(z.object({ url: z.string() }).strict())
+          .max(64)
+          .optional(),
       })
       .strict()
+      .refine((m) => m.text.length > 0 || (m.images?.length ?? 0) > 0, 'text or images')
       .optional(),
     approvals: z
       .array(z.object({ approvalId: z.string().min(1).max(200), approved: z.boolean() }).strict())
@@ -80,6 +89,10 @@ export const agentRequestSchema = z
 
 type AgentErrorCode =
   | 'invalid_request'
+  | 'unsupported_image'
+  | 'image_too_large'
+  | 'too_many_images'
+  | 'images_not_supported'
   | 'not_found'
   | 'no_llm'
   | 'insecure_llm'
@@ -90,6 +103,10 @@ type AgentErrorCode =
 
 const STATUS: Record<AgentErrorCode, number> = {
   invalid_request: 400,
+  unsupported_image: 415,
+  image_too_large: 413,
+  too_many_images: 400,
+  images_not_supported: 409,
   not_found: 404,
   no_llm: 409,
   insecure_llm: 409,
@@ -143,6 +160,12 @@ export async function handleAgentRequest(
   const parsed = agentRequestSchema.safeParse(body);
   if (!parsed.success) return fail('invalid_request');
   const req = parsed.data;
+  let images: DecodedImage[] = [];
+  if (req.message?.images) {
+    const decoded = decodeImages(req.message.images.map((i) => i.url));
+    if (!decoded.ok) return fail(decoded.code);
+    images = decoded.value;
+  }
 
   // The model picked for this conversation, unless it is gone or failing: then the default.
   const picked = await conversationModelId(deps.db, actor, req.conversationId);
@@ -151,6 +174,7 @@ export async function handleAgentRequest(
     (await loadDefaultLlm(deps, actor.orgId));
   if (!llm) return fail('no_llm');
   if (await usesInsecureTransport(deps, llm.config)) return fail('insecure_llm');
+  if (images.length > 0 && !llm.acceptsImages) return fail('images_not_supported');
   // Only a new message may create a conversation; decisions need an existing one.
   const conversation = req.message
     ? await openOrCreateConversation(deps.db, actor, req.conversationId)
@@ -200,9 +224,18 @@ export async function handleAgentRequest(
         if (pending.length > 0) {
           messages = await applyDecisions(tx, actor, conversationId, messages, pending);
         }
+        // The images are stored apart: the message only names them.
+        const files = await storeImages(tx, actor, conversationId, images);
         messages = [
           ...messages,
-          { id: message.id, role: 'user', parts: [{ type: 'text', text: message.text }] },
+          {
+            id: message.id,
+            role: 'user',
+            parts: [
+              ...(message.text ? [{ type: 'text' as const, text: message.text }] : []),
+              ...files,
+            ],
+          },
         ];
         await unarchiveConversation(tx, actor, conversationId);
       }
@@ -231,7 +264,12 @@ export async function handleAgentRequest(
     const modelMessages: ModelMessage[] = [
       ...(sitesData ? [{ role: 'user' as const, content: sitesData }] : []),
       ...skillMessages,
-      ...(await convertToModelMessages(prepared, { tools })),
+      ...(await convertToModelMessages(
+        await withOrg(deps.db, actor.orgId, (tx) =>
+          imagesForModel(tx, conversationId, prepared, llm.acceptsImages),
+        ),
+        { tools },
+      )),
     ];
 
     // Steps' usage, summed as they end: `totalUsage` is empty when a later step fails.

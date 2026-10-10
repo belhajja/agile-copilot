@@ -1,5 +1,6 @@
 import {
   bigint,
+  customType,
   index,
   integer,
   jsonb,
@@ -101,6 +102,38 @@ export const agentMessages = pgTable(
     primaryKey({ columns: [t.conversationId, t.id] }),
     uniqueIndex('agent_messages_conversation_seq_uq').on(t.conversationId, t.seq),
     tenantPolicy('agent_messages', t.orgId),
+  ],
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
+
+/**
+ * An image the user attached to a chat message. Messages name it by id (a file part whose url is
+ * `/api/agent/attachments/<id>`); the bytes stay here, never in `agent_messages.parts`. Private to
+ * the user, like the conversation, and deleted with it.
+ */
+export const agentAttachments = pgTable(
+  'agent_attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => agentConversations.id, { onDelete: 'cascade' }),
+    /** Detected from the bytes (PNG, JPEG or WebP), never the type the browser declared. */
+    mediaType: text('media_type').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    /** Hex SHA-256 of the bytes. */
+    sha256: text('sha256').notNull(),
+    bytes: bytea('bytes').notNull(),
+    createdAt,
+  },
+  (t) => [
+    index('agent_attachments_conversation_idx').on(t.conversationId),
+    // Person lookup across workspaces (user_org_ids: GDPR export and erasure).
+    index('agent_attachments_user_idx').on(t.userId),
+    tenantPolicy('agent_attachments', t.orgId),
   ],
 );
 
