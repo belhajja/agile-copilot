@@ -6,8 +6,11 @@
  */
 export const TURN_ERROR_PART = 'data-turn-error';
 
-/** `turn_timeout`: the reply ran past its deadline and was stopped. */
-export const TURN_ERROR_CODES = ['turn_timeout'] as const;
+/**
+ * `turn_timeout`: the reply ran past its deadline and was stopped. `output_limit`: the model used
+ * its whole output budget (often all of it thinking) and was cut off.
+ */
+export const TURN_ERROR_CODES = ['turn_timeout', 'output_limit'] as const;
 export type TurnErrorCode = (typeof TURN_ERROR_CODES)[number];
 
 export interface TurnErrorPart {

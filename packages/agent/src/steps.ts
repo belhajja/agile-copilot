@@ -2,8 +2,11 @@ import { TURN_LEASE_SECONDS } from './conversations';
 
 /** Model steps per chat reply (tool round-trips included). */
 export const CHAT_MAX_STEPS = 12;
-/** Output tokens per model call of a chat reply. */
-export const CHAT_MAX_OUTPUT_TOKENS = 4_000;
+/**
+ * Output tokens per model call of a chat reply. Reasoning models spend part of it thinking before
+ * they write: a matrix or a long table can take several thousand tokens of reasoning alone.
+ */
+export const CHAT_MAX_OUTPUT_TOKENS = 16_000;
 /** A chat reply's deadline: half its lease, so it always ends before another turn can take over. */
 export const CHAT_TURN_TIMEOUT_MS = (TURN_LEASE_SECONDS * 1_000) / 2;
 

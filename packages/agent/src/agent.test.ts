@@ -902,6 +902,38 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect((await h.ask(owner(), id, 'Thanks')).status).toBe(200);
   });
 
+  it('a reply cut off by its output budget is stored with an output_limit notice', async () => {
+    const id = randomUUID();
+    const errors: string[] = [];
+    const createModel = scriptedModel([
+      [
+        { type: 'stream-start', warnings: [] },
+        { type: 'reasoning-start', id: 'r' },
+        { type: 'reasoning-delta', id: 'r', delta: 'Let me lay out the matrix day by day…' },
+        { type: 'reasoning-end', id: 'r' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'length', raw: 'length' },
+          usage: usageOf(1, 1),
+        },
+      ],
+    ]);
+    const r = await h.sendWith(
+      { ...h.deps, createModel, onError: (_e, code) => errors.push(code) },
+      owner(),
+      { conversationId: id, message: { id: 'm1', text: 'Build the matrix' } },
+    );
+    expect(r.status).toBe(200);
+    expect(errors).toEqual(['output_limit']);
+    const convo = await loadConversation(h.db, owner(), id);
+    const parts = (convo?.messages[1]?.parts ?? []) as { type: string; data?: unknown }[];
+    expect(parts.filter((p) => p.type !== 'step-start').map((p) => [p.type, p.data])).toEqual([
+      ['reasoning', undefined],
+      ['data-turn-error', { code: 'output_limit' }],
+    ]);
+    expect((await h.ask(owner(), id, 'Shorter, please')).status).toBe(200);
+  });
+
   it('a reply past its deadline stops, and is stored with a turn_timeout notice', async () => {
     const id = randomUUID();
     const errors: string[] = [];
@@ -947,7 +979,7 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(r.chunks.at(-1)).toEqual({ type: 'data-turn-error', data: { code: 'turn_timeout' } });
     expect(errors).toContain('turn_timeout');
     // Bounded calls: an output budget on each.
-    expect(calls.map((c) => c.maxOutputTokens)).toEqual([4_000, 4_000]);
+    expect(calls.map((c) => c.maxOutputTokens)).toEqual([16_000, 16_000]);
 
     // Stored with what it did so far and the notice; the lease is released, and metered.
     const convo = await loadConversation(h.db, owner(), id);
