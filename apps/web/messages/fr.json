@@ -643,7 +643,6 @@
     "placeholder": "Posez une question ou demandez une modification Jira…",
     "inputLabel": "Message",
     "send": "Envoyer",
-    "thinking": "Réflexion…",
     "noModel": "Connectez d’abord un modèle d’IA",
     "noModelHint": "L’assistant utilise le modèle d’IA par défaut de l’espace (votre propre clé).",
     "connectModel": "Connecter un modèle d’IA",
@@ -724,7 +723,8 @@
     "superseded": "Clos : vous êtes passé à autre chose sans approuver.",
     "scrollDown": "Aller au dernier message",
     "turnErrors": {
-      "turn_timeout": "Cette réponse a pris trop de temps et a été interrompue. Reposez la question, si possible de façon plus ciblée."
+      "turn_timeout": "Cette réponse a pris trop de temps et a été interrompue. Reposez la question, si possible de façon plus ciblée.",
+      "output_limit": "Le modèle a épuisé son budget de réponse avant de terminer (souvent en raisonnant). Reposez la question, si possible plus ciblée ou avec un tableau plus petit."
     },
     "errors": {
       "generic": "L’assistant n’a pas pu répondre. Vérifiez la connexion au modèle d’IA et réessayez.",
@@ -859,6 +859,16 @@
         "too_many": "Vous avez atteint le nombre maximal de groupes.",
         "unknown_model": "Ce modèle n’est plus disponible."
       }
+    },
+    "activity": {
+      "thinking": "Réflexion…",
+      "reasoning": "Raisonnement en cours…",
+      "tool": "Exécution : {tool}…",
+      "writing": "Rédaction de la réponse…"
+    },
+    "reasoning": {
+      "label": "Raisonnement",
+      "live": "Raisonnement en cours…"
     }
   },
   "usage": {

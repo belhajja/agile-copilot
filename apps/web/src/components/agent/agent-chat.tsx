@@ -31,11 +31,14 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { activityOf } from './activity';
 import { AgentMarkdown } from './agent-markdown';
 import { ApprovalCard } from './approval-card';
 import { approvalView } from './approval-view';
+import { ReasoningBlock } from './reasoning-block';
 import { type ChatErrorKey, chatErrorKey, toAgentRequest } from './request';
 import { ToolCall } from './tool-call';
+import { toolLabel } from './tool-labels';
 
 // Not a failure of the request itself: the decision was already settled elsewhere.
 const NEUTRAL_ERRORS: ReadonlySet<ChatErrorKey> = new Set(['alreadyDecided', 'approvalNotFound']);
@@ -77,6 +80,7 @@ export function AgentChat({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
   const busy = status === 'submitted' || status === 'streaming';
+  const activity = activityOf(messages, status);
   const errorKey = error ? chatErrorKey(error) : undefined;
   const atLimit = text.length >= MESSAGE_MAX_LENGTH;
 
@@ -179,6 +183,15 @@ export function AgentChat({
                       </p>
                     );
                   }
+                  if (part.type === 'reasoning') {
+                    return (
+                      <ReasoningBlock
+                        key={key}
+                        text={part.text}
+                        streaming={busy && part.state === 'streaming'}
+                      />
+                    );
+                  }
                   const turnError = turnErrorCode(part);
                   if (turnError) {
                     return (
@@ -215,7 +228,15 @@ export function AgentChat({
               </MessageContent>
             </Message>
           ))}
-          {status === 'submitted' && <Shimmer>{t('thinking')}</Shimmer>}
+          {activity && activity.kind !== 'reasoning' && (
+            <div role="status" aria-live="polite" data-activity={activity.kind}>
+              <Shimmer>
+                {activity.kind === 'tool'
+                  ? t('activity.tool', { tool: toolLabel(t, activity.name) })
+                  : t(`activity.${activity.kind}`)}
+              </Shimmer>
+            </div>
+          )}
         </ConversationContent>
         <ConversationScrollButton aria-label={t('scrollDown')} title={t('scrollDown')} />
       </Conversation>
