@@ -1,5 +1,9 @@
-import { createLlmConnection, setBackgroundLlmConnection } from '@agile/connections';
-import { agentUsage } from '@agile/db';
+import {
+  createLlmConnection,
+  setBackgroundLlmConnection,
+  setLlmMaxOutputTokens,
+} from '@agile/connections';
+import { agentUsage, llmConnections } from '@agile/db';
 import { type MockMcpAtlassian, startMockMcpAtlassian } from '@agile/jira-tools/testing';
 import { agentDemoScript, type MockScript } from '@agile/llm/testing';
 import {
@@ -10,7 +14,7 @@ import {
   serializeSkill,
 } from '@agile/skills';
 import { manager, owner, viewer } from '@agile/sync/testing';
-import { desc } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { draftSkill, draftToDocument, runSkill, type SkillRunDeps } from './skill-run';
 import { startAgentHarness } from './test-harness';
@@ -115,6 +119,28 @@ describe('skill runs (background, read-only) and the skill builder', () => {
       inputTokens: 240,
       outputTokens: 60,
     });
+  });
+
+  it('keeps its own 2 000-token cap, unless the model is set to write less', async () => {
+    const [llm] = await h.rawDb
+      .select({ id: llmConnections.id })
+      .from(llmConnections)
+      .where(and(eq(llmConnections.orgId, 'org_a'), eq(llmConnections.isDefault, true)));
+    if (!llm) throw new Error('no default model');
+    const budgets = async () => {
+      const before = h.llm.requests.length;
+      expect(await runSkill(deps, owner(), { skill: skill('budget') })).toMatchObject({ ok: true });
+      return [...new Set(h.llm.requests.slice(before).map((r) => r.maxTokens))];
+    };
+    expect(await budgets()).toEqual([2_000]);
+    try {
+      await setLlmMaxOutputTokens(h.deps, owner(), llm.id, 48_000);
+      expect(await budgets()).toEqual([2_000]);
+      await setLlmMaxOutputTokens(h.deps, owner(), llm.id, 1_500);
+      expect(await budgets()).toEqual([1_500]);
+    } finally {
+      await setLlmMaxOutputTokens(h.deps, owner(), llm.id, null);
+    }
   });
 
   it('ends a run with a report when the model would keep calling tools past its 6 steps', async () => {

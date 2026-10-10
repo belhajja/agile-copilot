@@ -143,8 +143,8 @@ export async function openOrCreateConversation(
   });
 }
 
-/** How long a chat turn may hold its conversation before another turn can take it over. */
-export const TURN_LEASE_SECONDS = 600;
+/** Whether a turn holds the conversation: its lease is set and has not expired. */
+const turnHeld = sql<boolean>`(${agentConversations.turnId} is not null and ${agentConversations.turnExpiresAt} > now())`;
 
 /** Another turn of this conversation is still running. */
 export class TurnInProgressError extends Error {
@@ -155,7 +155,7 @@ export class TurnInProgressError extends Error {
   }
 }
 
-/** The turn's lease was taken over (it ran past the lease): its reply is not stored. */
+/** The turn's lease was taken over (it ran past it): its reply is not stored. */
 class TurnLostError extends Error {
   override name = 'TurnLostError';
   readonly code = 'turn_lost';
@@ -166,20 +166,20 @@ class TurnLostError extends Error {
 
 /**
  * Starts a chat turn inside the caller's tenant transaction: locks the actor's conversation, takes
- * its turn lease (or throws `TurnInProgressError` while another turn holds it) and only THEN reads
- * the history, so two turns never both start from the same history and overwrite each other.
+ * its turn lease for `leaseSeconds` (or throws `TurnInProgressError` while another turn holds it)
+ * and only THEN reads the history, so two turns never both start from the same history and
+ * overwrite each other. A lease that ran out (a turn that crashed) is taken over.
  */
 export async function beginTurn(
   tx: Tx,
   actor: Actor,
   id: string,
   turnId: string,
+  leaseSeconds: number,
 ): Promise<UIMessage[]> {
   if (!isConversationId(id)) throw new ConversationNotFoundError();
   const [row] = await tx
-    .select({
-      busy: sql<boolean>`(${agentConversations.turnId} is not null and ${agentConversations.turnStartedAt} > now() - make_interval(secs => ${TURN_LEASE_SECONDS}))`,
-    })
+    .select({ busy: turnHeld })
     .from(agentConversations)
     .where(ownedBy(actor, id))
     .for('update');
@@ -187,7 +187,11 @@ export async function beginTurn(
   if (row.busy) throw new TurnInProgressError();
   await tx
     .update(agentConversations)
-    .set({ turnId, turnStartedAt: sql`now()` })
+    .set({
+      turnId,
+      turnStartedAt: sql`now()`,
+      turnExpiresAt: sql`now() + make_interval(secs => ${leaseSeconds})`,
+    })
     .where(ownedBy(actor, id));
   return readMessages(tx, id);
 }
@@ -199,7 +203,7 @@ export async function beginTurn(
 export async function endTurn(tx: Tx, actor: Actor, id: string, turnId: string) {
   const released = await tx
     .update(agentConversations)
-    .set({ turnId: null, turnStartedAt: null })
+    .set({ turnId: null, turnStartedAt: null, turnExpiresAt: null })
     .where(and(ownedBy(actor, id), eq(agentConversations.turnId, turnId)))
     .returning({ id: agentConversations.id });
   if (released.length === 0) throw new TurnLostError();
@@ -245,7 +249,7 @@ export async function releaseTurn(db: Db, actor: Actor, id: string, turnId: stri
   await withOrg(db, actor.orgId, (tx) =>
     tx
       .update(agentConversations)
-      .set({ turnId: null, turnStartedAt: null })
+      .set({ turnId: null, turnStartedAt: null, turnExpiresAt: null })
       .where(and(ownedBy(actor, id), eq(agentConversations.turnId, turnId))),
   );
 }
@@ -348,9 +352,7 @@ export async function deleteConversation(
   if (!isConversationId(id)) return 'not_found';
   return withOrg(db, actor.orgId, async (tx) => {
     const [row] = await tx
-      .select({
-        busy: sql<boolean>`(${agentConversations.turnId} is not null and ${agentConversations.turnStartedAt} > now() - make_interval(secs => ${TURN_LEASE_SECONDS}))`,
-      })
+      .select({ busy: turnHeld })
       .from(agentConversations)
       .where(ownedBy(actor, id))
       .for('update');

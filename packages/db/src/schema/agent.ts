@@ -50,10 +50,12 @@ export const agentConversations = pgTable(
     title: text('title').notNull().default(''),
     /**
      * The chat turn holding the conversation (a lease): set when a turn starts, cleared when its
-     * reply is stored. A second turn is refused while it is set and younger than the lease.
+     * reply is stored. A second turn is refused while it is set and its lease has not expired.
      */
     turnId: uuid('turn_id'),
     turnStartedAt: timestamp('turn_started_at', { withTimezone: true }),
+    /** End of the turn's lease: twice the reply's deadline, which follows the model's budget. */
+    turnExpiresAt: timestamp('turn_expires_at', { withTimezone: true }),
     /** The model the user picked for this conversation; null (or deleted) = the workspace default. */
     llmConnectionId: uuid('llm_connection_id').references(() => llmConnections.id, {
       onDelete: 'set null',

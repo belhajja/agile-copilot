@@ -1,14 +1,35 @@
-import { TURN_LEASE_SECONDS } from './conversations';
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@agile/llm/output-budget';
 
 /** Model steps per chat reply (tool round-trips included). */
 export const CHAT_MAX_STEPS = 12;
+
 /**
- * Output tokens per model call of a chat reply. Reasoning models spend part of it thinking before
- * they write: a matrix or a long table can take several thousand tokens of reasoning alone.
+ * Output tokens per model call of a chat reply: the model's own budget, else the default.
+ * Reasoning models spend part of it thinking before they write: a matrix or a long table can take
+ * several thousand tokens of reasoning alone.
  */
-export const CHAT_MAX_OUTPUT_TOKENS = 16_000;
-/** A chat reply's deadline: half its lease, so it always ends before another turn can take over. */
-export const CHAT_TURN_TIMEOUT_MS = (TURN_LEASE_SECONDS * 1_000) / 2;
+export const chatOutputTokens = (maxOutputTokens: number | null) =>
+  maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+
+/** The slowest output a reply's deadline is sized for (a local reasoning model writes ~80/s). */
+const DEADLINE_TOKENS_PER_SECOND = 60;
+const MIN_REPLY_DEADLINE_MS = 5 * 60_000;
+const MAX_REPLY_DEADLINE_MS = 15 * 60_000;
+
+/**
+ * A chat reply's deadline: the time to write its whole output budget at 60 tokens a second,
+ * between 5 and 15 minutes.
+ */
+export function replyDeadlineMs(maxOutputTokens: number): number {
+  const ms = Math.ceil((maxOutputTokens / DEADLINE_TOKENS_PER_SECOND) * 1_000);
+  return Math.min(MAX_REPLY_DEADLINE_MS, Math.max(MIN_REPLY_DEADLINE_MS, ms));
+}
+
+/**
+ * How long a turn holds its conversation: twice its reply's deadline, so the reply always ends
+ * (and is stored) before another turn can take the conversation over.
+ */
+export const turnLeaseSeconds = (deadlineMs: number) => Math.ceil((deadlineMs * 2) / 1_000);
 
 /**
  * `prepareStep` for a step-limited reply: the last allowed step offers no tools, so the model

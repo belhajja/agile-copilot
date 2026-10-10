@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import {
+  createLlmConnection,
+  setLlmConnectionPrices,
+  setLlmMaxOutputTokens,
+} from '@agile/connections';
 import {
   agentApprovals,
   agentConversations,
@@ -999,6 +1003,24 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
       .where(eq(agentUsage.conversationId, id));
     expect(usageRows).toMatchObject([{ inputTokens: 120, outputTokens: 30 }]);
     await expectNextMessageWorks(id);
+  });
+
+  it('gives each model call the answer budget set on the model', async () => {
+    const [llm] = await h.rawDb
+      .select({ id: llmConnections.id })
+      .from(llmConnections)
+      .where(and(eq(llmConnections.orgId, 'org_a'), eq(llmConnections.isDefault, true)));
+    if (!llm) throw new Error('no default model');
+    await setLlmMaxOutputTokens(h.deps, owner(), llm.id, 48_000);
+    try {
+      const before = h.llm.requests.length;
+      expect((await h.ask(owner(), randomUUID(), 'What is our velocity?')).status).toBe(200);
+      const sent = h.llm.requests.slice(before);
+      expect(sent.length).toBeGreaterThan(1);
+      expect(sent.map((c) => c.maxTokens)).toEqual(sent.map(() => 48_000));
+    } finally {
+      await setLlmMaxOutputTokens(h.deps, owner(), llm.id, null);
+    }
   });
 
   it('a reply cut by a provider failure is not retried', async () => {
