@@ -17,16 +17,19 @@ vi.mock('@/server/context', () => ({
 
 const listLlmModelsForConnection = vi.fn();
 const changeLlmModel = vi.fn();
+const createLlmConnection = vi.fn();
+const setLlmMaxOutputTokens = vi.fn();
 vi.mock('@agile/connections', async (importActual) => {
   const actual = await importActual<typeof import('@agile/connections')>();
   return {
     ...actual,
-    createLlmConnection: vi.fn(),
+    createLlmConnection: (...a: unknown[]) => createLlmConnection(...a),
     deleteLlmConnection: vi.fn(),
     retestLlmConnection: vi.fn(),
     setBackgroundLlmConnection: vi.fn(),
     setDefaultLlmConnection: vi.fn(),
     setLlmConnectionPrices: vi.fn(),
+    setLlmMaxOutputTokens: (...a: unknown[]) => setLlmMaxOutputTokens(...a),
     listLlmModelsForConnection: (...a: unknown[]) => listLlmModelsForConnection(...a),
     changeLlmModel: (...a: unknown[]) => changeLlmModel(...a),
   };
@@ -43,8 +46,13 @@ vi.mock('@agile/net', () => ({
   createOutboundFetch: (...a: unknown[]) => createOutboundFetch(...a),
 }));
 
-const { changeLlmModelAction, listModelsForConnectionAction, listModelsForNewConnectionAction } =
-  await import('./actions');
+const {
+  changeLlmModelAction,
+  createLlmConnectionAction,
+  listModelsForConnectionAction,
+  listModelsForNewConnectionAction,
+  setLlmAnswerBudgetAction,
+} = await import('./actions');
 
 const ID = '0f4c1b9e-5d3a-4a52-8d52-2f1c7a9a0b11';
 const form = (fields: Record<string, string>) => {
@@ -229,5 +237,87 @@ describe('changeLlmModelAction', () => {
       ok: false,
       code: 'forbidden_role',
     });
+  });
+});
+
+describe('createLlmConnectionAction: the answer budget', () => {
+  const fields = {
+    provider: 'anthropic',
+    label: 'Claude',
+    model: 'claude-sonnet-5-5',
+    apiKey: 'k',
+  };
+  beforeEach(() => {
+    actor = { orgId: 'org_1', userId: 'user_1', roles: ['owner'] };
+    createLlmConnection.mockReset();
+    createLlmConnection.mockResolvedValue({ ok: true, connection: { id: ID } });
+  });
+
+  it('passes the parsed budget, or null when the field is empty or absent', async () => {
+    await createLlmConnectionAction(
+      { status: 'idle' },
+      form({ ...fields, maxOutputTokens: '32 000' }),
+    );
+    await createLlmConnectionAction({ status: 'idle' }, form({ ...fields, maxOutputTokens: '' }));
+    await createLlmConnectionAction({ status: 'idle' }, form(fields));
+    expect(createLlmConnection.mock.calls.map((c) => c[2].maxOutputTokens)).toEqual([
+      32_000,
+      null,
+      null,
+    ]);
+  });
+
+  it('refuses a budget out of range before testing the key', async () => {
+    const r = await createLlmConnectionAction(
+      { status: 'idle' },
+      form({ ...fields, maxOutputTokens: '100000' }),
+    );
+    expect(r).toEqual({ status: 'error', code: 'invalid_answer_budget' });
+    expect(createLlmConnection).not.toHaveBeenCalled();
+  });
+});
+
+describe('setLlmAnswerBudgetAction', () => {
+  beforeEach(() => {
+    actor = { orgId: 'org_1', userId: 'user_1', roles: ['owner'] };
+    setLlmMaxOutputTokens.mockReset();
+    revalidatePath.mockClear();
+  });
+
+  it('stores the parsed budget (empty: the default) and revalidates the page', async () => {
+    setLlmMaxOutputTokens.mockResolvedValue({ ok: true });
+    const set = (value: string) =>
+      setLlmAnswerBudgetAction(ID, { status: 'idle' }, form({ maxOutputTokens: value }));
+    expect(await set('48000')).toEqual({ status: 'ok' });
+    expect(await set('')).toEqual({ status: 'ok' });
+    expect(setLlmMaxOutputTokens.mock.calls).toEqual([
+      [deps, actor, ID, 48_000],
+      [deps, actor, ID, null],
+    ]);
+    expect(revalidatePath).toHaveBeenCalledWith('/settings/llm');
+  });
+
+  it('refuses a bad value, a bad id or anything but a form without calling the service', async () => {
+    const refused = { status: 'error', code: 'invalid_answer_budget' };
+    expect(
+      await setLlmAnswerBudgetAction(ID, { status: 'idle' }, form({ maxOutputTokens: '500' })),
+    ).toEqual(refused);
+    expect(
+      await setLlmAnswerBudgetAction('nope', { status: 'idle' }, form({ maxOutputTokens: '8000' })),
+    ).toEqual(refused);
+    expect(
+      await setLlmAnswerBudgetAction(ID, { status: 'idle' }, { maxOutputTokens: '8000' }),
+    ).toEqual(refused);
+    expect(setLlmMaxOutputTokens).not.toHaveBeenCalled();
+  });
+
+  it('reports a role refusal and a missing connection', async () => {
+    setLlmMaxOutputTokens.mockRejectedValueOnce(new ForbiddenError('nope'));
+    setLlmMaxOutputTokens.mockResolvedValueOnce({ ok: false, code: 'not_found', message: 'x' });
+    const set = () =>
+      setLlmAnswerBudgetAction(ID, { status: 'idle' }, form({ maxOutputTokens: '8000' }));
+    expect(await set()).toEqual({ status: 'error', code: 'forbidden_role' });
+    expect(await set()).toEqual({ status: 'error', code: 'not_found' });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

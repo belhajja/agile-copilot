@@ -266,7 +266,8 @@
         "private_address": "{host} pointe vers une adresse de réseau privé. Demandez à votre administrateur de l’ajouter à ALLOWED_PRIVATE_HOSTS.",
         "unresolvable": "Impossible de trouver {host}. Vérifiez l’adresse."
       },
-      "unknown": "Une erreur est survenue."
+      "unknown": "Une erreur est survenue.",
+      "invalid_answer_budget": "Saisissez un nombre entier de tokens entre 1 000 et 64 000, ou laissez vide pour la valeur par défaut."
     },
     "deleteTitle": "Supprimer ce modèle d'IA ?",
     "deleteDescription": "La clé de {label} sera supprimée. S'il s'agissait du modèle par défaut, le modèle ajouté le plus récemment le remplace.",
@@ -281,7 +282,11 @@
     "useForBackground": "Utiliser pour les compétences",
     "useDefaultForBackground": "Utiliser le modèle par défaut pour les compétences",
     "backgroundSaved": "Modèle des exécutions de compétences mis à jour.",
-    "pricesTitle": "Prix (facultatif)"
+    "pricesTitle": "Prix (facultatif)",
+    "answerBudget": "Longueur max. des réponses (tokens)",
+    "answerBudgetHint": "Combien de tokens le modèle peut écrire par appel, raisonnement compris. Une valeur plus grande laisse les longues réponses aller au bout, avec une attente plus longue. Vide : 16 000.",
+    "answerBudgetSaved": "Longueur max. enregistrée.",
+    "saveAnswerBudget": "Enregistrer la longueur"
   },
   "boards": {
     "description": "Choisissez les tableaux à synchroniser et la correspondance de leurs statuts avec À faire, En cours et Terminé.",

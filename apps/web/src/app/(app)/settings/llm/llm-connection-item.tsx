@@ -14,6 +14,7 @@ import {
 import { BackgroundModelButton } from './background-model-button';
 import { ChangeModelButton } from './change-model-button';
 import { LLM_ERROR_CODES } from './error-codes';
+import { LlmAnswerBudgetForm } from './llm-answer-budget-form';
 import { LlmPriceForm } from './llm-price-form';
 
 export async function LlmConnectionItem({
@@ -89,13 +90,18 @@ export async function LlmConnectionItem({
       }
     >
       {canManage && (
-        <ConnectionCardSection title={t('pricesTitle')} description={t('pricesHint')}>
-          <LlmPriceForm
-            id={c.id}
-            inputMicros={c.inputPriceMicros}
-            outputMicros={c.outputPriceMicros}
-          />
-        </ConnectionCardSection>
+        <>
+          <ConnectionCardSection title={t('answerBudget')} description={t('answerBudgetHint')}>
+            <LlmAnswerBudgetForm id={c.id} maxOutputTokens={c.maxOutputTokens} />
+          </ConnectionCardSection>
+          <ConnectionCardSection title={t('pricesTitle')} description={t('pricesHint')}>
+            <LlmPriceForm
+              id={c.id}
+              inputMicros={c.inputPriceMicros}
+              outputMicros={c.outputPriceMicros}
+            />
+          </ConnectionCardSection>
+        </>
       )}
     </ConnectionCard>
   );

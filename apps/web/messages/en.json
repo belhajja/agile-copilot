@@ -266,7 +266,8 @@
         "private_address": "{host} points to a private network address. Ask your administrator to add it to ALLOWED_PRIVATE_HOSTS.",
         "unresolvable": "Could not find {host}. Check the address."
       },
-      "unknown": "Something went wrong."
+      "unknown": "Something went wrong.",
+      "invalid_answer_budget": "Enter a whole number of tokens between 1,000 and 64,000, or leave it empty for the default."
     },
     "deleteTitle": "Remove this AI model?",
     "deleteDescription": "The key for {label} will be deleted. If it was the default, the most recently added model becomes the default.",
@@ -281,7 +282,11 @@
     "useForBackground": "Use for skill runs",
     "useDefaultForBackground": "Use the default for skill runs",
     "backgroundSaved": "Skill runs model updated.",
-    "pricesTitle": "Prices (optional)"
+    "pricesTitle": "Prices (optional)",
+    "answerBudget": "Max answer length (tokens)",
+    "answerBudgetHint": "How many tokens the model may write per call, its reasoning included. Larger values let long replies finish, at the cost of longer waits. Empty: 16,000.",
+    "answerBudgetSaved": "Max answer length saved.",
+    "saveAnswerBudget": "Save length"
   },
   "boards": {
     "description": "Choose the boards to sync and how their statuses map to To do, In progress and Done.",
