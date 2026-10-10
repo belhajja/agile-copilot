@@ -1,6 +1,7 @@
 import { parseRoles } from '@agile/auth';
 import {
   account,
+  agentAttachments,
   agentConversations,
   agentMessages,
   agentUsage,
@@ -27,6 +28,8 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 /** Rows read per query while exporting: a long history is never loaded at once (L14). */
 export const EXPORT_PAGE_SIZE = 200;
+/** Chat images read per query (up to 5 MiB each). */
+const ATTACHMENT_PAGE_SIZE = 4;
 
 /**
  * Tables kept, pseudonymised, when an account is deleted: the opaque user id stays, nothing that
@@ -36,6 +39,7 @@ export const EXPORT_PAGE_SIZE = 200;
 const KEPT_ON_DELETION = new Set(['audit_log', 'agent_usage']);
 /** Exported by dedicated sections below, not by the generic one. */
 const EXPORTED_EXPLICITLY = new Set([
+  'agent_attachments',
   'agent_usage',
   'agent_conversations',
   'agent_messages',
@@ -197,17 +201,18 @@ const json = (v: unknown) => JSON.stringify(v);
 /** An object's JSON without its closing brace, so more (streamed) members can follow. */
 const open = (v: Record<string, unknown>) => json(v).slice(0, -1);
 
-/** Keyset pagination: fetches pages until a short one. */
+/** Keyset pagination: fetches pages (of `pageSize` rows) until a short one. */
 async function* paged<T, K>(
   fetch: (after: K | undefined) => Promise<T[]>,
   keyOf: (row: T) => K,
+  pageSize = EXPORT_PAGE_SIZE,
 ): AsyncGenerator<T> {
   let after: K | undefined;
   for (;;) {
     const page = await fetch(after);
     yield* page;
     const last = page.at(-1);
-    if (page.length < EXPORT_PAGE_SIZE || last === undefined) return;
+    if (page.length < pageSize || last === undefined) return;
     after = keyOf(last);
   }
 }
@@ -243,9 +248,27 @@ const isTextPart = (p: unknown): p is { type: 'text'; text: string } =>
   (p as { type?: unknown }).type === 'text' &&
   typeof (p as { text?: unknown }).text === 'string';
 
-/** What the person typed: the text of their own messages, never a tool's or the model's. */
-const ownText = (role: string, parts: unknown[]) =>
-  role === 'user' ? parts.filter(isTextPart).map(({ text }) => ({ type: 'text', text })) : [];
+const isFilePart = (p: unknown): p is { type: 'file'; mediaType: string; url: string } =>
+  typeof p === 'object' &&
+  p !== null &&
+  (p as { type?: unknown }).type === 'file' &&
+  typeof (p as { mediaType?: unknown }).mediaType === 'string' &&
+  typeof (p as { url?: unknown }).url === 'string';
+
+/**
+ * What the person wrote: the text of their own messages and the images they attached (their
+ * bytes are in the conversation's `attachments`), never a tool's or the model's.
+ */
+const ownParts = (role: string, parts: unknown[]) =>
+  role === 'user'
+    ? parts.flatMap((p): Record<string, string>[] =>
+        isTextPart(p)
+          ? [{ type: 'text', text: p.text }]
+          : isFilePart(p)
+            ? [{ type: 'file', mediaType: p.mediaType, url: p.url }]
+            : [],
+      )
+    : [];
 
 /** `full: false` (a workspace they left): what they typed only, see `exportUserData`. */
 function messagesOf(inOrg: InOrg, conversationId: string, full: boolean): AsyncGenerator<string> {
@@ -272,7 +295,43 @@ function messagesOf(inOrg: InOrg, conversationId: string, full: boolean): AsyncG
         ),
       (m) => m.seq,
     ),
-    ({ seq: _seq, ...m }) => json(full ? m : { ...m, parts: ownText(m.role, m.parts) }),
+    ({ seq: _seq, ...m }) => json(full ? m : { ...m, parts: ownParts(m.role, m.parts) }),
+  );
+}
+
+/**
+ * The images the person attached to one conversation, the bytes base64-encoded. Theirs in a
+ * workspace they left too: they uploaded them.
+ */
+function attachmentsOf(inOrg: InOrg, userId: string, conversationId: string) {
+  return jsonArray(
+    paged(
+      (after: string | undefined) =>
+        inOrg((tx) =>
+          tx
+            .select({
+              id: agentAttachments.id,
+              mediaType: agentAttachments.mediaType,
+              byteSize: agentAttachments.byteSize,
+              sha256: agentAttachments.sha256,
+              createdAt: agentAttachments.createdAt,
+              bytes: agentAttachments.bytes,
+            })
+            .from(agentAttachments)
+            .where(
+              and(
+                eq(agentAttachments.conversationId, conversationId),
+                eq(agentAttachments.userId, userId),
+                afterId(agentAttachments.id, after),
+              ),
+            )
+            .orderBy(asc(agentAttachments.id))
+            .limit(ATTACHMENT_PAGE_SIZE),
+        ),
+      (a) => a.id,
+      ATTACHMENT_PAGE_SIZE,
+    ),
+    ({ bytes, ...a }) => json({ ...a, base64: Buffer.from(bytes).toString('base64') }),
   );
 }
 
@@ -300,6 +359,8 @@ function conversationsSection(inOrg: InOrg, userId: string, full: boolean): Asyn
   return jsonArray(conversations, async function* (c) {
     yield `${open(c)},"messages":`;
     yield* messagesOf(inOrg, c.id, full);
+    yield ',"attachments":';
+    yield* attachmentsOf(inOrg, userId, c.id);
     yield '}';
   });
 }
@@ -572,7 +633,8 @@ async function* workspaceSection(
  * (`SECRET_COLUMNS`, session tokens, OAuth tokens, password hashes) never leave.
  *
  * A workspace they are no longer a member of is no longer theirs to read: its part keeps what they
- * wrote (the text of their messages, conversation titles, their skills) and ids and dates, never
+ * wrote (the text of their messages and the images they attached, conversation titles, their
+ * skills) and ids and dates, never
  * the assistant's answers, tool calls and results, skill reports, Jira connection details, audit
  * metadata or other tables' content, all of which can hold that workspace's Jira data.
  */

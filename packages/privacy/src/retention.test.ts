@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  agentAttachments,
   agentConversations,
   agentMessages,
   agentUsage,
@@ -132,6 +133,17 @@ describe('retention and workspace settings', () => {
         role: 'user',
         parts: [],
       });
+      // An image goes with its conversation.
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      await raw.db.insert(agentAttachments).values({
+        orgId,
+        userId: 'u1',
+        conversationId: c?.id ?? '',
+        mediaType: 'image/png',
+        byteSize: png.length,
+        sha256: 'x',
+        bytes: png,
+      });
       await raw.db.insert(agentUsage).values({
         orgId,
         userId: 'u1',
@@ -176,6 +188,7 @@ describe('retention and workspace settings', () => {
     const [row] = (await raw.db.execute(sql`
       select (select count(*)::int from agent_conversations where org_id = ${orgId}) as conversations,
              (select count(*)::int from agent_messages where org_id = ${orgId}) as messages,
+             (select count(*)::int from agent_attachments where org_id = ${orgId}) as attachments,
              (select count(*)::int from agent_usage where org_id = ${orgId}) as usage,
              (select count(*)::int from skill_runs where org_id = ${orgId}) as runs,
              (select count(*)::int from skill_builder_calls where org_id = ${orgId}) as builder,
@@ -291,6 +304,7 @@ describe('retention and workspace settings', () => {
     const all = {
       conversations: 3,
       messages: 3,
+      attachments: 3,
       usage: 3,
       runs: 7,
       builder: 2,
@@ -316,6 +330,7 @@ describe('retention and workspace settings', () => {
     expect(await count('org_a')).toEqual({
       conversations: 1,
       messages: 1,
+      attachments: 1,
       usage: 2,
       runs: 4,
       builder: 1,

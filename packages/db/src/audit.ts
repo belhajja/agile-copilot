@@ -17,6 +17,7 @@ export type AuditAction =
   | 'jira_sync.requested'
   | 'llm_connection.prices_changed'
   | 'llm_connection.max_output_tokens_changed'
+  | 'llm_connection.accepts_images_changed'
   | 'agent_action.proposed'
   | 'agent_action.approved'
   | 'agent_action.rejected'

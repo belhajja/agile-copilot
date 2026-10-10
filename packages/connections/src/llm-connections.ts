@@ -39,6 +39,8 @@ export interface LlmConnectionView {
   outputPriceMicros: number | null;
   /** Output tokens per model call, reasoning included (null = the default). */
   maxOutputTokens: number | null;
+  /** The model reads images: the chat offers attachments with it. */
+  acceptsImages: boolean;
   status: 'untested' | 'ok' | 'error';
   lastError: string | null;
   lastCheckedAt: Date | null;
@@ -72,6 +74,7 @@ const toView = (r: typeof llmConnections.$inferSelect): LlmConnectionView => ({
   inputPriceMicros: r.inputPriceMicros,
   outputPriceMicros: r.outputPriceMicros,
   maxOutputTokens: r.maxOutputTokens,
+  acceptsImages: r.acceptsImages,
   status: r.status,
   lastError: r.lastError,
   lastCheckedAt: r.lastCheckedAt,
@@ -196,6 +199,7 @@ export async function createLlmConnection(
     makeDefault?: boolean;
     /** Null or omitted: the default budget. */
     maxOutputTokens?: number | null;
+    acceptsImages?: boolean;
   },
 ): Promise<{ ok: true; connection: LlmConnectionView } | LlmServiceFailure> {
   assertCanManage(actor);
@@ -236,6 +240,7 @@ export async function createLlmConnection(
         secret: encryptSecret(dek, secretContext(id), JSON.stringify(config)),
         isDefault,
         maxOutputTokens,
+        acceptsImages: input.acceptsImages === true,
         status: 'ok',
         lastCheckedAt: new Date(),
         createdBy: actor.userId,
@@ -252,6 +257,7 @@ export async function createLlmConnection(
         model: config.model,
         isDefault,
         ...(maxOutputTokens !== null ? { maxOutputTokens } : {}),
+        ...(input.acceptsImages ? { acceptsImages: true } : {}),
       },
     });
     return inserted;
@@ -461,6 +467,7 @@ export interface LoadedLlm {
   prices: { inputMicros: number | null; outputMicros: number | null };
   /** Output tokens per model call (null = the default). */
   maxOutputTokens: number | null;
+  acceptsImages: boolean;
 }
 
 async function loadLlmWhere(
@@ -476,6 +483,7 @@ async function loadLlmWhere(
       config: await readConfig(tx, deps, orgId, row),
       prices: { inputMicros: row.inputPriceMicros, outputMicros: row.outputPriceMicros },
       maxOutputTokens: row.maxOutputTokens,
+      acceptsImages: row.acceptsImages,
     };
   });
 }
@@ -611,6 +619,33 @@ export async function setLlmMaxOutputTokens(
       targetType: 'llm_connection',
       targetId: id,
       metadata: { maxOutputTokens },
+    });
+    return { ok: true } as const;
+  });
+}
+
+/** Marks whether the model reads images (vision models). Owners/admins only. */
+export async function setLlmAcceptsImages(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+  acceptsImages: boolean,
+): Promise<{ ok: true } | LlmServiceFailure> {
+  assertCanManage(actor);
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    const updated = await tx
+      .update(llmConnections)
+      .set({ acceptsImages })
+      .where(eq(llmConnections.id, id))
+      .returning({ id: llmConnections.id });
+    if (updated.length === 0) return notFound;
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.accepts_images_changed',
+      targetType: 'llm_connection',
+      targetId: id,
+      metadata: { acceptsImages },
     });
     return { ok: true } as const;
   });

@@ -14,6 +14,7 @@ import {
 import { BackgroundModelButton } from './background-model-button';
 import { ChangeModelButton } from './change-model-button';
 import { LLM_ERROR_CODES } from './error-codes';
+import { LlmAcceptsImagesForm } from './llm-accepts-images-form';
 import { LlmAnswerBudgetForm } from './llm-answer-budget-form';
 import { LlmPriceForm } from './llm-price-form';
 
@@ -93,6 +94,9 @@ export async function LlmConnectionItem({
         <>
           <ConnectionCardSection title={t('answerBudget')} description={t('answerBudgetHint')}>
             <LlmAnswerBudgetForm id={c.id} maxOutputTokens={c.maxOutputTokens} />
+          </ConnectionCardSection>
+          <ConnectionCardSection title={t('imagesTitle')} description={t('acceptsImagesHint')}>
+            <LlmAcceptsImagesForm id={c.id} acceptsImages={c.acceptsImages} />
           </ConnectionCardSection>
           <ConnectionCardSection title={t('pricesTitle')} description={t('pricesHint')}>
             <LlmPriceForm

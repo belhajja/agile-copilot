@@ -1,12 +1,13 @@
 import {
   type Actor,
+  agentAttachments,
   agentConversationGroups,
   agentConversations,
   type Db,
   isUuid,
   withOrg,
 } from '@agile/db';
-import { and, desc, eq, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { ConversationSummary } from './conversations';
 import { GROUP_NAME_MAX_LENGTH } from './limits';
 
@@ -31,8 +32,12 @@ const ownConversations = (actor: Actor) =>
   and(
     eq(agentConversations.orgId, actor.orgId),
     eq(agentConversations.userId, actor.userId),
-    // Untitled conversations have no question yet: nothing worth listing.
-    ne(agentConversations.title, ''),
+    // Untitled conversations have no question yet: nothing worth listing. One started with
+    // images only has no title until its first words, but it is listed.
+    or(
+      ne(agentConversations.title, ''),
+      sql`exists (select 1 from ${agentAttachments} where ${agentAttachments.conversationId} = ${agentConversations.id})`,
+    ),
   );
 
 export async function createGroup(

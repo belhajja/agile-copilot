@@ -281,6 +281,20 @@
       "when": 1791649093554,
       "tag": "0039_turn_lease_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791651138597,
+      "tag": "0040_llm_accepts_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791651346511,
+      "tag": "0041_agent_attachments",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,7 @@ export {
   retestLlmConnection,
   setBackgroundLlmConnection,
   setDefaultLlmConnection,
+  setLlmAcceptsImages,
   setLlmConnectionPrices,
   setLlmMaxOutputTokens,
 } from './llm-connections';

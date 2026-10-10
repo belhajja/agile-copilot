@@ -1,0 +1,1 @@
+ALTER TABLE "llm_connections" ADD COLUMN "accepts_images" boolean DEFAULT false NOT NULL;

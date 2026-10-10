@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 /** The OpenAI chat messages the mock receives (only the fields the scripts read). */
 export interface MockChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null | { type: string; text?: string }[];
+  content?: string | null | { type: string; text?: string; image_url?: { url: string } }[];
   tool_calls?: { id: string; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
 }
@@ -41,6 +41,18 @@ const textOf = (m: MockChatMessage | undefined) =>
   typeof m?.content === 'string'
     ? m.content
     : (m?.content ?? []).map((c) => (typeof c.text === 'string' ? c.text : '')).join('');
+
+/** The images of a message (`image_url` parts with data URLs): their type and decoded size. */
+function imagesOf(m: MockChatMessage | undefined): { mediaType: string; bytes: number }[] {
+  if (!Array.isArray(m?.content)) return [];
+  return m.content.flatMap((c) => {
+    const data =
+      c.type === 'image_url' ? /^data:([^;,]+);base64,(.*)$/s.exec(c.image_url?.url ?? '') : null;
+    return data?.[1] && data[2] !== undefined
+      ? [{ mediaType: data[1], bytes: Buffer.from(data[2], 'base64').length }]
+      : [];
+  });
+}
 
 /** The tool call a tool message answers, found in the assistant message before it. */
 function toolNameOf(messages: MockChatMessage[], toolCallId: string | undefined) {
@@ -94,6 +106,7 @@ const runSkillOf = (text: string) =>
  *   (jira_search "filter = 101"); when it contains `<!channel>`, the report ends with it (the
  *   kind of text an injected report would carry, for the delivery escaping tests);
  * - a skill draft (propose_skill offered) → propose_skill with fields read from the request;
+ * - a question with images → "I received 1 image (image/png, 1234 bytes)", what reached the model;
  * - anything else → a short text answer.
  * Text answers end with "(preferences: a, b)" when standing preferences were sent.
  */
@@ -200,6 +213,12 @@ export const agentDemoScript: MockScript = ({ messages, tools }) => {
     return tools.includes('list_boards')
       ? { toolCalls: [{ name: 'list_boards', args: {} }] }
       : say(`Report for ${run}: no tools.`);
+  }
+  const images = last?.role === 'user' ? imagesOf(lastUser) : [];
+  if (images.length > 0) {
+    const n = images.length;
+    const list = images.map((i) => `${i.mediaType}, ${i.bytes} bytes`).join('; ');
+    return say(`I received ${n} image${n === 1 ? '' : 's'} (${list}).`);
   }
   if (
     (/velocity/i.test(ask) ||

@@ -69,7 +69,7 @@ export async function AgentPage({
     (place: { groupId: string | null; archived: boolean }) =>
     (c: ConversationSummary): HistoryItem => ({
       id: c.id,
-      title: c.title,
+      title: c.title || t('imagesOnlyTitle'),
       when: format.dateTime(c.updatedAt, { dateStyle: 'medium', timeStyle: 'short' }),
       ...place,
     });
@@ -91,6 +91,9 @@ export async function AgentPage({
     .map((c) => ({ id: c.id, label: c.label, model: c.model, isDefault: c.isDefault }));
   const pickedId = conversation?.llmConnectionId ?? null;
   const fallback = pickedId !== null && !models.some((m) => m.id === pickedId);
+  // The model that answers (as the chat turn picks it) says whether the composer takes images.
+  const answering =
+    llms.find((c) => c.id === (fallback ? null : pickedId)) ?? llms.find((c) => c.isDefault);
   const siteUrls: Record<string, string> = Object.fromEntries(
     jiraSites.map((s) => [s.id, s.baseUrl]),
   );
@@ -121,6 +124,7 @@ export async function AgentPage({
           initialMessages={initialMessages}
           siteNames={Object.fromEntries(jiraSites.map((s) => [s.id, s.name]))}
           siteUrls={siteUrls}
+          acceptsImages={answering?.acceptsImages ?? false}
         />
       </BoardSitesProvider>
     </AgentShell>

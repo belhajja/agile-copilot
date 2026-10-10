@@ -1,6 +1,7 @@
 import {
   account,
   agentApprovals,
+  agentAttachments,
   agentConversations,
   agentMessages,
   agentUsage,
@@ -108,7 +109,11 @@ describe('personal data: export and account deletion', () => {
     invitations: { sent: Record<string, unknown>[]; received: Record<string, unknown>[] };
     workspaces: {
       workspace: { orgId: string; workspace: string; role: string[]; member: boolean };
-      conversations: { title: string; messages: { parts: { text: string }[] }[] }[];
+      conversations: {
+        title: string;
+        messages: { parts: { text: string }[] }[];
+        attachments: Record<string, unknown>[];
+      }[];
       skills: { name: string; document: string; runs: { output: string }[] }[];
       usage: unknown[];
       actionsInAuditLog: { action: string }[];
@@ -612,6 +617,94 @@ describe('personal data: export and account deletion', () => {
     ]) {
       expect(oldText).not.toContain(leaked);
     }
+  });
+
+  it('exports the images a person attached, from a workspace they left too, then erases them', async () => {
+    await raw.db.insert(user).values({ id: 'u_lee', name: 'Lee', email: 'lee@example.com' });
+    await raw.db.insert(organization).values([
+      { id: 'org_lee_now', name: 'Lee Now', slug: 'lee-now', createdAt: NOW },
+      { id: 'org_lee_old', name: 'Lee Old', slug: 'lee-old', createdAt: NOW },
+    ]);
+    await raw.db.insert(member).values({
+      id: 'm_lee',
+      organizationId: 'org_lee_now',
+      userId: 'u_lee',
+      role: 'manager',
+      createdAt: NOW,
+    });
+    const png = (n: number) =>
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(n, n),
+      ]);
+    for (const [orgId, n] of [
+      ['org_lee_now', 10],
+      ['org_lee_old', 20],
+    ] as const) {
+      const conversationId = await seedPerson(orgId, 'u_lee', `Lee question ${orgId}`);
+      // More images than one page holds.
+      const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-4000-8000-0000000${n}${i}00`);
+      await raw.db.insert(agentAttachments).values(
+        ids.map((id, i) => ({
+          id,
+          orgId,
+          userId: 'u_lee',
+          conversationId,
+          mediaType: 'image/png',
+          byteSize: png(n + i).length,
+          sha256: `sha-${n}-${i}`,
+          bytes: png(n + i),
+        })),
+      );
+      await raw.db
+        .update(agentMessages)
+        .set({
+          parts: [
+            { type: 'text', text: `Lee question ${orgId}` },
+            { type: 'file', mediaType: 'image/png', url: `/api/agent/attachments/${ids[0]}` },
+          ],
+        })
+        .where(eq(agentMessages.conversationId, conversationId));
+    }
+
+    const data = await exportOf('u_lee');
+    expect(data.workspaces.map((w) => [w.workspace.workspace, w.workspace.member])).toEqual([
+      ['Lee Now', true],
+      ['Lee Old', false],
+    ]);
+    for (const [ws, n] of [
+      [data.workspaces[0], 10],
+      [data.workspaces[1], 20],
+    ] as const) {
+      const [conversation] = ws?.conversations ?? [];
+      expect(conversation?.attachments).toHaveLength(5);
+      expect(conversation?.attachments[0]).toEqual({
+        id: expect.any(String),
+        mediaType: 'image/png',
+        byteSize: n + 8,
+        sha256: `sha-${n}-0`,
+        createdAt: expect.any(String),
+        base64: png(n).toString('base64'),
+      });
+      expect(conversation?.messages[0]?.parts).toEqual([
+        { type: 'text', text: expect.stringContaining('Lee question') },
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          url: expect.stringContaining('/api/agent/attachments/'),
+        },
+      ]);
+      expect(ws?.other.agent_attachments).toBeUndefined();
+    }
+    // Nobody else's images.
+    expect(JSON.stringify(await exportOf('u_kim'))).not.toContain(png(10).toString('base64'));
+
+    expect(await deleteAccount(app.db, 'u_lee', NOW)).toEqual({ ok: true, workspaces: 2 });
+    const left = await raw.db
+      .select({ id: agentAttachments.id })
+      .from(agentAttachments)
+      .where(eq(agentAttachments.userId, 'u_lee'));
+    expect(left).toEqual([]);
   });
 
   it('runs one export per person at a time and a few per hour', async () => {

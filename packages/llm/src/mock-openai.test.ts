@@ -146,6 +146,31 @@ describe('scripted mock OpenAI server', () => {
     }
   });
 
+  it('receives images as image_url parts and says what reached it', async () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(92, 1),
+    ]);
+    const result = streamText({
+      model: model(),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is on this chart?' },
+            { type: 'file', mediaType: 'image/png', data: png },
+          ],
+        },
+      ],
+    });
+    expect(await result.text).toBe('I received 1 image (image/png, 100 bytes).');
+    const sent = mock.requests.at(-1)?.messages.at(-1)?.content;
+    expect(sent).toEqual([
+      { type: 'text', text: 'What is on this chart?' },
+      { type: 'image_url', image_url: { url: `data:image/png;base64,${png.toString('base64')}` } },
+    ]);
+  });
+
   it('answers 500 with a JSON error when the script throws or the body is malformed', async () => {
     const m = await startMockOpenAI({
       validKey: 'k',

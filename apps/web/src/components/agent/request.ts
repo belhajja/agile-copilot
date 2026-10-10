@@ -1,8 +1,9 @@
 import { APICallError, isToolUIPart, type UIMessage } from 'ai';
 
 /**
- * The body the chat sends to /api/agent/chat: the new user message, or the decisions the user just
- * took on proposed Jira changes. Never the history: the server keeps it.
+ * The body the chat sends to /api/agent/chat: the new user message (its text and the images just
+ * attached, as data URLs), or the decisions the user just took on proposed Jira changes. Never the
+ * history: the server keeps it.
  */
 export function toAgentRequest(conversationId: string, messages: UIMessage[]) {
   const last = messages.at(-1);
@@ -11,7 +12,13 @@ export function toAgentRequest(conversationId: string, messages: UIMessage[]) {
       .flatMap((p) => (p.type === 'text' ? [p.text] : []))
       .join('\n')
       .trim();
-    return { conversationId, message: { id: last.id, text } };
+    const images = last.parts.flatMap((p) =>
+      p.type === 'file' && p.url.startsWith('data:') ? [{ url: p.url }] : [],
+    );
+    return {
+      conversationId,
+      message: { id: last.id, text, ...(images.length > 0 ? { images } : {}) },
+    };
   }
   const approvals = (last?.parts ?? []).flatMap((p) =>
     isToolUIPart(p) && p.state === 'approval-responded' && p.approval
@@ -34,6 +41,10 @@ export type ChatErrorKey =
   | 'noLlm'
   | 'insecureLlm'
   | 'duplicateMessage'
+  | 'unsupportedImage'
+  | 'imageTooLarge'
+  | 'tooManyImages'
+  | 'imagesNotSupported'
   | 'generic';
 
 // The codes /api/agent/chat (and proxy.ts) answer with, as `{ error: code }`.
@@ -49,6 +60,10 @@ const BY_CODE: Record<string, ChatErrorKey> = {
   no_llm: 'noLlm',
   insecure_llm: 'insecureLlm',
   duplicate_message: 'duplicateMessage',
+  unsupported_image: 'unsupportedImage',
+  image_too_large: 'imageTooLarge',
+  too_many_images: 'tooManyImages',
+  images_not_supported: 'imagesNotSupported',
 };
 // When the body is not ours (an HTML error page): only statuses with one meaning.
 const BY_STATUS: Record<number, ChatErrorKey> = {
@@ -57,6 +72,7 @@ const BY_STATUS: Record<number, ChatErrorKey> = {
   403: 'forbidden',
   404: 'notFound',
   413: 'tooLarge',
+  415: 'unsupportedImage',
 };
 
 function codeOf(body: string | undefined): string | undefined {
@@ -68,6 +84,10 @@ function codeOf(body: string | undefined): string | undefined {
     return undefined;
   }
 }
+
+/** The message for an image refused before sending (the server's code, same sentence). */
+export const imageErrorKey = (code: string): ChatErrorKey =>
+  (Object.hasOwn(BY_CODE, code) && BY_CODE[code]) || 'generic';
 
 /**
  * Which translated message to show for a failed chat request. DefaultChatTransport throws an

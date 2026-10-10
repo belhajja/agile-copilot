@@ -85,6 +85,8 @@ export const llmConnections = pgTable(
     outputPriceMicros: integer('output_price_micros'),
     /** Output tokens per model call, reasoning included; null = the default (16 000). */
     maxOutputTokens: integer('max_output_tokens'),
+    /** Whether the model reads images (vision): chat images reach it only then. */
+    acceptsImages: boolean('accepts_images').notNull().default(false),
     status: connectionStatus('status').notNull().default('untested'),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),

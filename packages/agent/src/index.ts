@@ -1,3 +1,4 @@
+export { loadAttachment } from './attachments';
 export {
   createGroup,
   deleteGroup,
