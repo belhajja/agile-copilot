@@ -148,9 +148,9 @@ const auditDrain = (db: Db, orgId: string, before: Date, opts: BatchOptions) =>
   );
 
 /**
- * Applies one workspace's retention settings, in batches: idle conversations (their messages and
- * approvals cascade), finished skill runs with their reports (never queued or running ones, never
- * a skill's latest finished run), old usage records, skill-builder reservations and sync runs, MCP
+ * Applies one workspace's retention settings, in batches: idle conversations (their messages,
+ * approvals and images cascade), finished skill runs with their reports (never queued or running
+ * ones, never a skill's latest finished run), old usage records, skill-builder reservations and sync runs, MCP
  * tokens long revoked or expired and past MCP rate windows, and
  * audit entries through `purge_audit_log` (the only way the app role can delete audit rows). The
  * function's floor is a global 90 days; the workspace's own audit setting is applied here, as the
