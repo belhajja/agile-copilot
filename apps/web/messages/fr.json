@@ -740,7 +740,7 @@
       "generic": "L’assistant n’a pas pu répondre. Vérifiez la connexion au modèle d’IA et réessayez.",
       "unauthorized": "Votre session a expiré. Reconnectez-vous pour continuer.",
       "forbidden": "Cette requête a été refusée. Rechargez la page et réessayez.",
-      "tooLarge": "Ce message est trop long. Raccourcissez-le et réessayez.",
+      "tooLarge": "Ce message est trop volumineux. Raccourcissez-le ou joignez moins d’images, puis réessayez.",
       "invalidRequest": "Ce message n’a pas pu être envoyé. Vérifiez-le et réessayez.",
       "notFound": "Cette conversation n’existe plus. Commencez une nouvelle conversation.",
       "turnInProgress": "Une autre réponse est encore en cours de rédaction dans cette conversation. Attendez qu’elle se termine, puis réessayez.",
@@ -748,7 +748,11 @@
       "approvalNotFound": "Cette modification proposée n’attend plus de décision. Rechargez la page pour voir où elle en est.",
       "noLlm": "Aucun modèle d’IA par défaut n’est défini pour cet espace. Demandez à un administrateur d’en connecter un.",
       "insecureLlm": "Le modèle d'IA de l'espace de travail utilise du http:// simple, qui n'est pas autorisé. Demandez à un administrateur de le reconnecter en https://.",
-      "duplicateMessage": "Ce message a déjà été envoyé. Rechargez la page pour voir la conversation."
+      "duplicateMessage": "Ce message a déjà été envoyé. Rechargez la page pour voir la conversation.",
+      "unsupportedImage": "Seules les images PNG, JPEG et WebP peuvent être jointes.",
+      "imageTooLarge": "Chaque image doit faire 5 Mo au maximum.",
+      "tooManyImages": "Vous pouvez joindre jusqu’à 4 images par message.",
+      "imagesNotSupported": "Le modèle d’IA de cette conversation ne lit pas les images. Choisissez un modèle qui les lit, ou envoyez le message sans images."
     },
     "toolErrors": {
       "generic": "La requête a échoué.",
@@ -882,7 +886,14 @@
     },
     "followups": "Suites proposées",
     "continue": "Continuer",
-    "continueMessage": "Continue là où tu t'es arrêté"
+    "continueMessage": "Continue là où tu t'es arrêté",
+    "images": {
+      "attach": "Joindre des images",
+      "remove": "Retirer l’image {n}",
+      "alt": "Image {n}",
+      "open": "Ouvrir l’image {n} en taille réelle",
+      "dropHint": "PNG, JPEG ou WebP, jusqu’à 4 images de 5 Mo"
+    }
   },
   "usage": {
     "title": "Consommation de l’assistant",

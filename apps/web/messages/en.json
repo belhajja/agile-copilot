@@ -740,7 +740,7 @@
       "generic": "The assistant could not answer. Check the AI model connection and try again.",
       "unauthorized": "Your session has expired. Sign in again to keep chatting.",
       "forbidden": "This request was refused. Reload the page and try again.",
-      "tooLarge": "This message is too long. Shorten it and try again.",
+      "tooLarge": "This message is too large. Shorten it or attach fewer images, then try again.",
       "invalidRequest": "This message could not be sent. Check it and try again.",
       "notFound": "This conversation no longer exists. Start a new chat.",
       "turnInProgress": "Another reply is still being written in this conversation. Wait for it to finish, then try again.",
@@ -748,7 +748,11 @@
       "approvalNotFound": "This proposed change is no longer waiting for a decision. Reload the page to see where it stands.",
       "noLlm": "No default AI model is set for this workspace. Ask an admin to connect one.",
       "insecureLlm": "The workspace's AI model uses plain http://, which is not allowed. Ask an admin to reconnect it with https://.",
-      "duplicateMessage": "This message was already sent. Reload the page to see the conversation."
+      "duplicateMessage": "This message was already sent. Reload the page to see the conversation.",
+      "unsupportedImage": "Only PNG, JPEG and WebP images can be attached.",
+      "imageTooLarge": "Each image must be 5 MB or smaller.",
+      "tooManyImages": "You can attach up to 4 images to a message.",
+      "imagesNotSupported": "The AI model of this conversation does not read images. Pick a model that does, or send your message without images."
     },
     "toolErrors": {
       "generic": "The request failed.",
@@ -882,7 +886,14 @@
     },
     "followups": "Suggested follow-ups",
     "continue": "Continue",
-    "continueMessage": "Continue from where you stopped"
+    "continueMessage": "Continue from where you stopped",
+    "images": {
+      "attach": "Attach images",
+      "remove": "Remove image {n}",
+      "alt": "Image {n}",
+      "open": "Open image {n} at full size",
+      "dropHint": "PNG, JPEG or WebP, up to 4 images of 5 MB"
+    }
   },
   "usage": {
     "title": "Assistant usage",
