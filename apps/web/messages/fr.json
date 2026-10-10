@@ -721,7 +721,8 @@
       "jira_get_issue_watchers": "Lister les observateurs",
       "load_skill": "Charger une compétence",
       "pin_widget": "Épingler un graphique",
-      "suggest_skill": "Suggestion de compétence"
+      "suggest_skill": "Suggestion de compétence",
+      "suggest_followups": "Proposer des suites"
     },
     "markupHint": "La mise en forme est convertie au format Jira à l’envoi.",
     "assignedTo": "Assigné à {name}.",
@@ -874,7 +875,10 @@
     "reasoning": {
       "label": "Raisonnement",
       "live": "Raisonnement en cours…"
-    }
+    },
+    "followups": "Suites proposées",
+    "continue": "Continuer",
+    "continueMessage": "Continue là où tu t'es arrêté"
   },
   "usage": {
     "title": "Consommation de l’assistant",

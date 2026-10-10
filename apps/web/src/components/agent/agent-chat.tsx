@@ -174,6 +174,7 @@ export function AgentChat({
               <MessageContent className="break-words">
                 {m.parts.map((part, i) => {
                   const key = `${m.id}-${i}`;
+                  const latest = index === messages.length - 1;
                   if (part.type === 'text') {
                     return m.role === 'assistant' ? (
                       <AgentMarkdown key={key}>{part.text}</AgentMarkdown>
@@ -197,12 +198,24 @@ export function AgentChat({
                     return (
                       <Alert key={key} variant="destructive" data-turn-error={turnError}>
                         <AlertDescription>{t(`turnErrors.${turnError}`)}</AlertDescription>
+                        {latest && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 justify-self-start text-foreground"
+                            disabled={busy}
+                            onClick={() => send(t('continueMessage'))}
+                            data-continue
+                          >
+                            {t('continue')}
+                          </Button>
+                        )}
                       </Alert>
                     );
                   }
                   if (!isToolUIPart(part) || part.type === 'dynamic-tool') return null;
                   const name = getToolName(part);
-                  const latest = index === messages.length - 1;
                   return isJiraWriteTool(name) ? (
                     <ApprovalCard
                       key={key}
@@ -222,6 +235,7 @@ export function AgentChat({
                       toolName={name}
                       conversationId={conversationId}
                       busy={busy}
+                      onFollowup={latest ? send : undefined}
                     />
                   );
                 })}

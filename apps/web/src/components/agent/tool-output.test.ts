@@ -2,6 +2,7 @@ import { asUntrustedData } from '@agile/agent/untrusted';
 import { describe, expect, it } from 'vitest';
 import {
   assignedTo,
+  followupsOf,
   pinnableResultOf,
   pinnedBoardId,
   readableOutput,
@@ -194,5 +195,28 @@ describe('pinnableResultOf', () => {
       ),
     ).toBeUndefined();
     expect(pinnableResultOf('query_board', 'plain text')).toBeUndefined();
+  });
+});
+
+describe('followupsOf', () => {
+  it('reads the suggestions of a suggest_followups result', () => {
+    expect(
+      followupsOf({ suggestions: ['Show the detail for Alice', ' Compare sprints '] }),
+    ).toEqual(['Show the detail for Alice', 'Compare sprints']);
+  });
+
+  it('offers nothing for a malformed result', () => {
+    for (const output of [
+      undefined,
+      null,
+      'Show more',
+      { suggestions: [] },
+      { suggestions: ['a', 'b', 'c', 'd', 'e'] },
+      { suggestions: ['x'.repeat(121)] },
+      { suggestions: [42] },
+      asUntrustedData('suggest_followups', { suggestions: ['a', 'b'] }),
+    ]) {
+      expect(followupsOf(output)).toEqual([]);
+    }
   });
 });

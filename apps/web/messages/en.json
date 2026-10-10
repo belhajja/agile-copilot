@@ -721,7 +721,8 @@
       "jira_get_issue_watchers": "List watchers",
       "load_skill": "Load a skill",
       "pin_widget": "Pin a chart",
-      "suggest_skill": "Skill suggestion"
+      "suggest_skill": "Skill suggestion",
+      "suggest_followups": "Suggest follow-ups"
     },
     "markupHint": "Formatting is converted to Jira markup when sent.",
     "assignedTo": "Assigned to {name}.",
@@ -874,7 +875,10 @@
     "reasoning": {
       "label": "Reasoning",
       "live": "Reasoning…"
-    }
+    },
+    "followups": "Suggested follow-ups",
+    "continue": "Continue",
+    "continueMessage": "Continue from where you stopped"
   },
   "usage": {
     "title": "Assistant usage",
