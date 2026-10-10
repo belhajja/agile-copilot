@@ -24,6 +24,7 @@ import {
   WRITE_DONE_UNREADABLE,
 } from './approvals';
 import type { AgentDeps } from './deps';
+import { followupTools } from './followups';
 import type { JiraAccess, PromptSite } from './prompt';
 import { EMPTY_SKILL_SET, skillContext, skillTools } from './skills';
 import {
@@ -374,7 +375,12 @@ export async function buildAgentTools(deps: AgentDeps, actor: Actor, conversatio
     });
     const skills = await skillSetOrEmpty(deps, actor);
     return {
-      tools: { ...analytics.tools, ...jira.tools, ...skillTools(deps, actor, skills) },
+      tools: {
+        ...analytics.tools,
+        ...jira.tools,
+        ...skillTools(deps, actor, skills),
+        ...followupTools(),
+      },
       /** The sites the model may name (none when it has no Jira tools). */
       sites: jira.sites,
       jira: jira.access,

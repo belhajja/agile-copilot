@@ -40,12 +40,14 @@ import { MESSAGE_MAX_LENGTH } from './limits';
 import { languageModelFor, usesInsecureTransport } from './model';
 import { jiraSitesData, systemPrompt } from './prompt';
 import {
-  CHAT_MAX_OUTPUT_TOKENS,
   CHAT_MAX_STEPS,
-  CHAT_TURN_TIMEOUT_MS,
-  lastStepWithoutTools,
+  chatOutputTokens,
+  followupsOffered,
+  lastStepWithFollowups,
   llmCallLimits,
+  replyDeadlineMs,
   timedOut,
+  turnLeaseSeconds,
 } from './steps';
 import { AgentToolError } from './tool-errors';
 import { buildAgentTools, canProposeJiraChanges } from './tools';
@@ -156,12 +158,21 @@ export async function handleAgentRequest(
   if (!conversation) return fail('not_found');
   const conversationId = conversation.id;
   const turnId = randomUUID();
+  // The model's budget sets the reply's deadline, and the deadline the turn's lease.
+  const maxOutputTokens = chatOutputTokens(llm.maxOutputTokens);
+  const timeoutMs = deps.turnTimeoutMs ?? replyDeadlineMs(maxOutputTokens);
 
   let prepared: UIMessage[];
   try {
     prepared = await withOrg(deps.db, actor.orgId, async (tx) => {
       // The history is read under the lock, after taking the turn lease.
-      let messages = await beginTurn(tx, actor, conversationId, turnId);
+      let messages = await beginTurn(
+        tx,
+        actor,
+        conversationId,
+        turnId,
+        turnLeaseSeconds(timeoutMs),
+      );
       // An approved change an earlier turn never ran (or never stored the result of) gets one
       // now: a tool call without a result would make every later model request fail (P3-R26).
       messages = await settleApprovedParts(tx, actor, conversationId, messages);
@@ -245,19 +256,16 @@ export async function handleAgentRequest(
     };
 
     const maxSteps = deps.maxSteps ?? CHAT_MAX_STEPS;
-    const limits = llmCallLimits({
-      maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-      timeoutMs: deps.turnTimeoutMs ?? CHAT_TURN_TIMEOUT_MS,
-      signal: turn.abort.signal,
-    });
+    const limits = llmCallLimits({ maxOutputTokens, timeoutMs, signal: turn.abort.signal });
     const result = streamText({
       model,
       system: systemPrompt({ now: now(), jiraSites: sites, jira }),
       messages: modelMessages,
       tools,
       toolApproval,
-      stopWhen: stepCountIs(maxSteps),
-      prepareStep: lastStepWithoutTools(maxSteps),
+      // Follow-ups close a reply: once offered, no further step.
+      stopWhen: [stepCountIs(maxSteps), followupsOffered],
+      prepareStep: lastStepWithFollowups(maxSteps),
       ...limits,
       // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
       telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },

@@ -36,5 +36,6 @@ export {
   setBackgroundLlmConnection,
   setDefaultLlmConnection,
   setLlmConnectionPrices,
+  setLlmMaxOutputTokens,
 } from './llm-connections';
 export { getOrgDek } from './vault';

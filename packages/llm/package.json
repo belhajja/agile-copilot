@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./output-budget": "./src/output-budget.ts",
     "./providers-list": "./src/providers-list.ts",
     "./testing": "./src/testing/mock-openai-server.ts"
   },

@@ -96,3 +96,12 @@
         return m.tools.includes('jira_worklog_summary') && /"totalHours"/.test(m.toolOutputs) && m.jiraWrites === 0;
     - type: icontains
       value: hours
+
+- description: Answers a heavy request with an overview and offers the details as follow-ups
+  vars:
+    question: Give me a day-by-day matrix of the hours each person logged on DEMO over the whole sprint.
+  assert:
+    - type: javascript
+      value: |
+        const m = context.providerResponse.metadata;
+        return m.tools.includes('suggest_followups') && /"suggestions"/.test(m.toolOutputs);

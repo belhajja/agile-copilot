@@ -13,6 +13,7 @@ import { CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ResultCard } from './result-card';
 import { toolLabel } from './tool-labels';
 import {
+  followupsOf,
   pinnableResultOf,
   pinnedBoardId,
   readableOutput,
@@ -45,6 +46,7 @@ export function ToolCall({
   toolName,
   conversationId,
   busy,
+  onFollowup,
 }: {
   part: ToolUIPart;
   toolName: string;
@@ -52,10 +54,33 @@ export function ToolCall({
   conversationId: string;
   /** Whether the chat is still submitting or streaming (the suggestion's link stays off until then). */
   busy: boolean;
+  /** Sends a follow-up as the next message; unset on older replies, whose follow-ups are hidden. */
+  onFollowup?: (text: string) => void;
 }) {
   const t = useTranslations('agent');
   const running = part.state === 'input-streaming' || part.state === 'input-available';
   const done = part.state === 'output-available';
+  if (toolName === 'suggest_followups') {
+    const suggestions = done ? followupsOf(part.output) : [];
+    if (!onFollowup || suggestions.length === 0) return null;
+    return (
+      <div role="group" aria-label={t('followups')} className="flex flex-wrap gap-2" data-followups>
+        {suggestions.map((s) => (
+          <Button
+            key={s}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-auto rounded-full py-1.5 text-left whitespace-normal"
+            disabled={busy}
+            onClick={() => onFollowup(s)}
+          >
+            {s}
+          </Button>
+        ))}
+      </div>
+    );
+  }
   const pinnedTo = toolName === 'pin_widget' && done ? pinnedBoardId(part.output) : undefined;
   const suggestion =
     toolName === 'suggest_skill' && done ? skillSuggestionOf(part.output) : undefined;

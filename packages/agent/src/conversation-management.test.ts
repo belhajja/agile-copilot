@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type Actor, agentConversations, createDb, llmConnections, withOrg } from '@agile/db';
 import { startTestDatabase, type TestDatabase } from '@agile/db/testing';
 import type { UIMessage } from 'ai';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createGroup,
@@ -22,6 +22,7 @@ import {
   saveConversation,
   setConversationArchived,
   setConversationModel,
+  TurnInProgressError,
 } from './conversations';
 
 const alice: Actor = { orgId: 'org_a', userId: 'user_alice', roles: ['viewer'] };
@@ -111,11 +112,11 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
     const id = await started(alice, 'Delete me');
     expect(await deleteConversation(app.db, bob, id)).toBe('not_found');
     expect(await deleteConversation(app.db, eve, id)).toBe('not_found');
-    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID()));
+    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID(), 600));
     expect(await deleteConversation(app.db, alice, id)).toBe('turn_in_progress');
     await owner.db
       .update(agentConversations)
-      .set({ turnId: null, turnStartedAt: null })
+      .set({ turnId: null, turnStartedAt: null, turnExpiresAt: null })
       .where(eq(agentConversations.id, id));
     expect(await deleteConversation(app.db, alice, id)).toBe('deleted');
     expect(await loadConversation(app.db, alice, id)).toBeNull();
@@ -217,11 +218,37 @@ describe('managing conversations (rename, archive, delete, model, groups) as app
 
   it('deletes a conversation whose reply lease has run out', async () => {
     const id = await started(alice, 'Stale lease');
-    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID()));
+    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID(), 600));
     await owner.db
       .update(agentConversations)
-      .set({ turnStartedAt: new Date(Date.now() - 3_600_000) })
+      .set({ turnExpiresAt: new Date(Date.now() - 1_000) })
       .where(eq(agentConversations.id, id));
     expect(await deleteConversation(app.db, alice, id)).toBe('deleted');
+  });
+
+  it('holds a turn for the lease it was given, then lets the next one take over', async () => {
+    const id = await started(alice, 'Long reply');
+    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID(), 1_800));
+    const [row] = await owner.db
+      .select({
+        lease: sql<number>`extract(epoch from ${agentConversations.turnExpiresAt} - ${agentConversations.turnStartedAt})::int`,
+      })
+      .from(agentConversations)
+      .where(eq(agentConversations.id, id));
+    expect(row?.lease).toBe(1_800);
+    await expect(
+      withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, randomUUID(), 600)),
+    ).rejects.toBeInstanceOf(TurnInProgressError);
+    await owner.db
+      .update(agentConversations)
+      .set({ turnExpiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(agentConversations.id, id));
+    const next = randomUUID();
+    await withOrg(app.db, 'org_a', (tx) => beginTurn(tx, alice, id, next, 600));
+    const [taken] = await owner.db
+      .select({ turnId: agentConversations.turnId })
+      .from(agentConversations)
+      .where(eq(agentConversations.id, id));
+    expect(taken?.turnId).toBe(next);
   });
 });

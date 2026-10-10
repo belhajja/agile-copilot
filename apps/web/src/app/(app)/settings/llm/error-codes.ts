@@ -4,6 +4,7 @@
  */
 export const LLM_ERROR_CODES = [
   'invalid_input',
+  'invalid_answer_budget',
   'blocked_url',
   'insecure_transport',
   'unauthorized',

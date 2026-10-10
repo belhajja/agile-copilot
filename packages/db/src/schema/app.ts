@@ -83,6 +83,8 @@ export const llmConnections = pgTable(
     /** Optional prices per million tokens, in millionths of a currency unit (cost meter). */
     inputPriceMicros: integer('input_price_micros'),
     outputPriceMicros: integer('output_price_micros'),
+    /** Output tokens per model call, reasoning included; null = the default (16 000). */
+    maxOutputTokens: integer('max_output_tokens'),
     status: connectionStatus('status').notNull().default('untested'),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),

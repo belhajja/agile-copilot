@@ -39,6 +39,7 @@ export const TOOL_LABELS = [
   'load_skill',
   'pin_widget',
   'suggest_skill',
+  'suggest_followups',
 ] as const;
 
 /** The translated label of a tool, or its name as is when it has none. */

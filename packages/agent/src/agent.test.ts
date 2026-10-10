@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { createLlmConnection, setLlmConnectionPrices } from '@agile/connections';
+import {
+  createLlmConnection,
+  setLlmConnectionPrices,
+  setLlmMaxOutputTokens,
+} from '@agile/connections';
 import {
   agentApprovals,
   agentConversations,
@@ -59,11 +63,21 @@ const script: MockScript = (req) => {
   }
   // "…then break": the model call after the first tool result fails (HTTP 500).
   if (last?.role === 'tool' && /then break/i.test(ask)) throw new Error('scripted failure');
-  // "Keep searching": a model that never stops calling tools while it has any.
+  // "Keep searching": a model that never stops calling tools while it has any, then answers and
+  // offers to go on.
   if (/keep searching/i.test(ask)) {
-    return req.tools.includes('list_boards')
-      ? { toolCalls: [{ name: 'list_boards', args: {} }] }
-      : { text: 'Here is what I found so far.' };
+    if (req.tools.includes('list_boards')) {
+      return { toolCalls: [{ name: 'list_boards', args: {} }] };
+    }
+    return {
+      text: 'Here is what I found so far.',
+      toolCalls: [
+        {
+          name: 'suggest_followups',
+          args: { suggestions: ['Keep searching the DEMO board', 'Search the other boards'] },
+        },
+      ],
+    };
   }
   return agentDemoScript(req);
 };
@@ -289,14 +303,78 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
     expect(r.status).toBe(200);
     expect(textOf(r.chunks)).toBe('Here is what I found so far.');
     const calls = h.llm.requests.slice(before);
-    // 12 model calls: 11 with tools, the last one without any.
+    // 12 model calls: 11 with every tool, the last one with suggest_followups only, told it is
+    // the last.
     expect(calls).toHaveLength(12);
     expect(calls.slice(0, 11).every((c) => c.tools.includes('list_boards'))).toBe(true);
-    expect(calls.at(-1)?.tools).toEqual([]);
+    expect(calls.at(-1)?.tools).toEqual(['suggest_followups']);
+    const system = (c: (typeof calls)[number] | undefined) => contentOf(c?.messages[0]);
+    expect(system(calls.at(-1))).toContain('This is your last step');
+    expect(system(calls.at(-2))).not.toContain('This is your last step');
     const convo = await loadConversation(h.db, owner(), id);
-    const parts = convo?.messages[1]?.parts.map((p) => p.type) ?? [];
-    expect(parts.filter((t) => t === 'tool-list_boards')).toHaveLength(11);
-    expect(parts.at(-1)).toBe('text');
+    const parts = (convo?.messages[1]?.parts ?? []) as { type: string; output?: unknown }[];
+    expect(parts.filter((p) => p.type === 'tool-list_boards')).toHaveLength(11);
+    expect(parts.slice(-2).map((p) => p.type)).toEqual(['text', 'tool-suggest_followups']);
+    expect(parts.at(-1)?.output).toEqual({
+      suggestions: ['Keep searching the DEMO board', 'Search the other boards'],
+    });
+  });
+
+  it('ends the reply once the model offers follow-ups after its answer', async () => {
+    const id = randomUUID();
+    let calls = 0;
+    const createModel = () =>
+      new MockLanguageModelV4({
+        doStream: async () => {
+          calls++;
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 't' },
+                { type: 'text-delta', id: 't', delta: 'Alice logged 31 h, Bob 12 h.' },
+                { type: 'text-end', id: 't' },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'f1',
+                  toolName: 'suggest_followups',
+                  input: JSON.stringify({
+                    suggestions: [
+                      'Show the day-by-day detail for Alice',
+                      '  Compare with sprint 11 ',
+                    ],
+                  }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: usageOf(10, 10),
+                },
+              ] as never[],
+            }),
+          };
+        },
+      });
+    const r = await h.sendWith({ ...h.deps, createModel }, owner(), {
+      conversationId: id,
+      message: { id: 'm1', text: 'Worklog matrix per day and person for the sprint' },
+    });
+    expect(r.status).toBe(200);
+    expect(calls).toBe(1);
+    const convo = await loadConversation(h.db, owner(), id);
+    const parts = (convo?.messages[1]?.parts ?? []) as {
+      type: string;
+      state?: string;
+      output?: unknown;
+    }[];
+    expect(parts.filter((p) => p.type !== 'step-start').map((p) => [p.type, p.state])).toEqual([
+      ['text', 'done'],
+      ['tool-suggest_followups', 'output-available'],
+    ]);
+    expect(parts.at(-1)?.output).toEqual({
+      suggestions: ['Show the day-by-day detail for Alice', 'Compare with sprint 11'],
+    });
+    await expectNextMessageWorks(id);
   });
 
   it('proposes a Jira comment, writes nothing until approved, then posts it once', async () => {
@@ -999,6 +1077,24 @@ describe('agent turns (mock LLM over HTTP, mcp-atlassian double, mock Jira)', ()
       .where(eq(agentUsage.conversationId, id));
     expect(usageRows).toMatchObject([{ inputTokens: 120, outputTokens: 30 }]);
     await expectNextMessageWorks(id);
+  });
+
+  it('gives each model call the answer budget set on the model', async () => {
+    const [llm] = await h.rawDb
+      .select({ id: llmConnections.id })
+      .from(llmConnections)
+      .where(and(eq(llmConnections.orgId, 'org_a'), eq(llmConnections.isDefault, true)));
+    if (!llm) throw new Error('no default model');
+    await setLlmMaxOutputTokens(h.deps, owner(), llm.id, 48_000);
+    try {
+      const before = h.llm.requests.length;
+      expect((await h.ask(owner(), randomUUID(), 'What is our velocity?')).status).toBe(200);
+      const sent = h.llm.requests.slice(before);
+      expect(sent.length).toBeGreaterThan(1);
+      expect(sent.map((c) => c.maxTokens)).toEqual(sent.map(() => 48_000));
+    } finally {
+      await setLlmMaxOutputTokens(h.deps, owner(), llm.id, null);
+    }
   });
 
   it('a reply cut by a provider failure is not retried', async () => {

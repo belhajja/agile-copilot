@@ -11,6 +11,7 @@ import {
   setBackgroundLlmConnection,
   setDefaultLlmConnection,
   setLlmConnectionPrices,
+  setLlmMaxOutputTokens,
 } from '@agile/connections';
 import { type LlmConfig, listModels } from '@agile/llm';
 import { checkOutboundUrl, createOutboundFetch } from '@agile/net';
@@ -18,6 +19,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { formData, uuid } from '@/server/action-input';
 import { connectionDeps, requireActor } from '@/server/context';
+import { parseAnswerBudget } from './answer-budget';
 import { parsePrice } from './price';
 
 export type FormState =
@@ -28,6 +30,7 @@ export type FormState =
 const common = {
   label: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(200),
+  maxOutputTokens: z.string().max(20).default(''),
 };
 const key = z.string().trim().min(1).max(1000);
 const schema = z.discriminatedUnion('provider', [
@@ -79,11 +82,14 @@ export async function createLlmConnectionAction(
   const data = formData.safeParse(form);
   const parsed = schema.safeParse(data.success ? Object.fromEntries(data.data) : null);
   if (!parsed.success) return { status: 'error', code: 'invalid_input' };
-  const { label, ...config } = parsed.data;
+  const { label, maxOutputTokens, ...config } = parsed.data;
+  const budget = parseAnswerBudget(maxOutputTokens);
+  if (!budget.ok) return { status: 'error', code: 'invalid_answer_budget' };
   try {
     const result = await createLlmConnection(connectionDeps(), actor, {
       label,
       config: config as LlmConfig,
+      maxOutputTokens: budget.tokens,
     });
     if (!result.ok) {
       // blocked_url carries a reason code (and host) the form translates; result.message is English, for logs only.
@@ -235,5 +241,30 @@ export async function setLlmPricesAction(
   }
   revalidatePath(PATH);
   revalidatePath('/settings/usage');
+  return { status: 'ok' };
+}
+
+const answerBudgetFields = z.object({ maxOutputTokens: z.string().max(20).default('') });
+
+/** The connection's answer budget (an empty field: back to the default). */
+export async function setLlmAnswerBudgetAction(
+  id: unknown,
+  _prev: FormState,
+  form: unknown,
+): Promise<FormState> {
+  const actor = await requireActor();
+  const data = formData.safeParse(form);
+  const fields = answerBudgetFields.safeParse(data.success ? Object.fromEntries(data.data) : null);
+  if (!isId(id) || !fields.success) return { status: 'error', code: 'invalid_answer_budget' };
+  const budget = parseAnswerBudget(fields.data.maxOutputTokens);
+  if (!budget.ok) return { status: 'error', code: 'invalid_answer_budget' };
+  try {
+    const result = await setLlmMaxOutputTokens(connectionDeps(), actor, id, budget.tokens);
+    if (!result.ok) return { status: 'error', code: result.code };
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { status: 'error', code: 'forbidden_role' };
+    throw e;
+  }
+  revalidatePath(PATH);
   return { status: 'ok' };
 }

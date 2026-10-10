@@ -53,3 +53,47 @@ describe('ToolCall (skill suggestion card)', () => {
     expect(out).toMatch(/href="\/skills\/new\?from=c1&amp;suggestion=t1"/);
   });
 });
+
+describe('ToolCall (follow-ups)', () => {
+  const followups = (state: string, output?: unknown) =>
+    ({
+      type: 'tool-suggest_followups',
+      toolCallId: 'f1',
+      state,
+      input: { suggestions: ['Show the detail for Alice', 'Compare with sprint 11'] },
+      output,
+    }) as unknown as ToolUIPart;
+  const render = (p: ToolUIPart, opts: { busy?: boolean; onFollowup?: (t: string) => void }) =>
+    renderToString(
+      createElement(ToolCall, {
+        part: p,
+        toolName: 'suggest_followups',
+        conversationId: 'c1',
+        busy: opts.busy ?? false,
+        onFollowup: opts.onFollowup,
+      }),
+    );
+  const done = followups('output-available', {
+    suggestions: ['Show the detail for Alice', 'Compare with sprint 11'],
+  });
+
+  it('shows one button per follow-up on the latest reply, not the tool details', () => {
+    const out = render(done, { onFollowup: () => {} });
+    expect(out).toContain('data-followups');
+    expect(out.match(/<button/g)).toHaveLength(2);
+    expect(out).toContain('Show the detail for Alice');
+    expect(out).not.toContain('data-tool=');
+    expect(out).not.toMatch(/disabled=""/);
+  });
+
+  it('disables them while the chat is busy', () => {
+    expect(render(done, { busy: true, onFollowup: () => {} })).toMatch(/<button[^>]*disabled=""/);
+  });
+
+  it('hides them on older replies, while streaming and when malformed', () => {
+    expect(render(done, {})).toBe('');
+    expect(render(followups('input-available'), { onFollowup: () => {} })).toBe('');
+    expect(render(followups('output-available', 'nope'), { onFollowup: () => {} })).toBe('');
+    expect(render(followups('output-error'), { onFollowup: () => {} })).toBe('');
+  });
+});

@@ -9,8 +9,10 @@ export interface MockChatMessage {
   tool_call_id?: string;
 }
 
-/** What the model "does" this turn: call tools, or answer with text. */
-export type MockTurn = { toolCalls: { name: string; args: unknown }[] } | { text: string };
+/** What the model "does" this turn: call tools (after some text, optionally), or answer with text. */
+export type MockTurn =
+  | { toolCalls: { name: string; args: unknown }[]; text?: string }
+  | { text: string };
 
 export type MockScript = (request: { messages: MockChatMessage[]; tools: string[] }) => MockTurn;
 
@@ -244,6 +246,8 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
     /** Each offered tool's JSON Schema (`function.parameters`), by name. */
     toolSchemas: Record<string, unknown>;
     stream: boolean;
+    /** The request's output budget (`max_tokens`), if any. */
+    maxTokens?: number;
   }[] = [];
   let calls = 0;
 
@@ -296,13 +300,21 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
         tool_choice?: unknown;
         stream?: boolean;
         stream_options?: { include_usage?: boolean };
+        max_tokens?: number;
       };
       const tools = (body.tools ?? []).map((t) => t.function.name);
       const messages = body.messages ?? [];
       const toolSchemas = Object.fromEntries(
         (body.tools ?? []).map((t) => [t.function.name, t.function.parameters]),
       );
-      requests.push({ ...seen, messages, tools, toolSchemas, stream: body.stream === true });
+      requests.push({
+        ...seen,
+        messages,
+        tools,
+        toolSchemas,
+        stream: body.stream === true,
+        maxTokens: body.max_tokens,
+      });
       const thinking = opts.thinking === true;
       const inline = thinking && !body.stream;
       const required = body.tool_choice === 'required';
@@ -328,7 +340,7 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
             }))
           : undefined;
       const finish = 'toolCalls' in turn ? 'tool_calls' : 'stop';
-      const text = 'text' in turn ? turn.text : null;
+      const text = 'text' in turn ? (turn.text ?? null) : null;
 
       if (!body.stream) {
         return send(res, 200, {
@@ -364,6 +376,9 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
         );
       chunk({ role: 'assistant', content: '' });
       if (thinking) chunk({ reasoning_content: THINK.replace(/<\/?think>/g, '') });
+      // A few deltas, so clients really stream.
+      if (text !== null)
+        for (const piece of text.match(/.{1,16}/gs) ?? []) chunk({ content: piece });
       if (toolCalls) {
         // Like real servers: id + name + the start of the arguments first, then the rest in pieces.
         toolCalls.forEach((c, index) => {
@@ -385,9 +400,6 @@ export async function startMockOpenAI(opts: MockOpenAIOptions) {
             chunk({ tool_calls: [{ index, function: { arguments: rest.slice(at, at + size) } }] });
           }
         });
-      } else if (text !== null) {
-        // A few deltas, so clients really stream.
-        for (const piece of text.match(/.{1,16}/gs) ?? []) chunk({ content: piece });
       }
       chunk({}, finish);
       if (body.stream_options?.include_usage) {

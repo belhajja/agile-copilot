@@ -1,7 +1,8 @@
 'use client';
 
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@agile/llm/output-budget';
 import { LLM_PROVIDERS, type LlmProvider } from '@agile/llm/providers-list';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { startTransition, useActionState, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ type ModelsState =
 
 export function LlmConnectionForm() {
   const t = useTranslations('llm');
+  const format = useFormatter();
   const [state, action, pending] = useActionState<FormState, FormData>(createLlmConnectionAction, {
     status: 'idle',
   });
@@ -237,6 +239,17 @@ export function LlmConnectionForm() {
                 <FieldDescription>{t('noModelsFound')}</FieldDescription>
               )}
               {modelsErrorText && <FieldError>{modelsErrorText}</FieldError>}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="maxOutputTokens">{t('answerBudget')}</FieldLabel>
+              <Input
+                id="maxOutputTokens"
+                name="maxOutputTokens"
+                inputMode="numeric"
+                className="sm:max-w-44"
+                placeholder={format.number(DEFAULT_MAX_OUTPUT_TOKENS)}
+              />
+              <FieldDescription>{t('answerBudgetHint')}</FieldDescription>
             </Field>
             {errorText && <FieldError>{errorText}</FieldError>}
             <div>

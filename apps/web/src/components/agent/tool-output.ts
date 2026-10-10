@@ -91,6 +91,16 @@ export function suggestionHref(
   return `/skills/new?from=${encodeURIComponent(conversationId)}&suggestion=${encodeURIComponent(toolCallId)}`;
 }
 
+const followupsSchema = z.object({
+  suggestions: z.array(z.string().trim().min(1).max(120)).min(1).max(4),
+});
+
+/** The requests a `suggest_followups` result offers; none when it is malformed. */
+export function followupsOf(output: unknown): string[] {
+  const parsed = followupsSchema.safeParse(output);
+  return parsed.success ? parsed.data.suggestions : [];
+}
+
 const boardRef = z.object({ id: z.uuid(), name: z.string().max(300) });
 const widgetData = z.looseObject({ kind: z.enum(['kpi', 'series', 'table', 'empty']) });
 const queryResult = z.object({

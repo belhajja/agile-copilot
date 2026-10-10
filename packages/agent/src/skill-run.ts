@@ -31,6 +31,10 @@ export const SKILL_RUN_TIMEOUT_MS = 120_000;
 /** The builder's deadline (one forced tool call). */
 const DRAFT_TIMEOUT_MS = 60_000;
 
+/** A run's output budget: its own cap, or the model's budget when an admin set it lower. */
+const runOutputTokens = (llm: LoadedLlm) =>
+  Math.min(SKILL_RUN_MAX_OUTPUT_TOKENS, llm.maxOutputTokens ?? SKILL_RUN_MAX_OUTPUT_TOKENS);
+
 export type SkillRunFailure = 'forbidden_role' | 'no_llm' | 'model_failed' | 'empty_output';
 
 /** The model a run uses: the background ("cheap") model for scheduled and alert skills. */
@@ -114,7 +118,7 @@ export async function runSkill(
         stopWhen: stepCountIs(SKILL_RUN_MAX_STEPS),
         prepareStep: lastStepWithoutTools(SKILL_RUN_MAX_STEPS),
         ...llmCallLimits({
-          maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
+          maxOutputTokens: runOutputTokens(llm),
           timeoutMs: SKILL_RUN_TIMEOUT_MS,
           signal: req.signal,
         }),
@@ -198,7 +202,7 @@ export async function draftSkill(
       tools: { propose_skill: tool({ inputSchema: draftSchema }) },
       toolChoice: { type: 'tool', toolName: 'propose_skill' },
       ...llmCallLimits({
-        maxOutputTokens: SKILL_RUN_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: runOutputTokens(llm),
         timeoutMs: DRAFT_TIMEOUT_MS,
       }),
       // Usage summed as steps end, as in runs: kept when the call fails after a step.
