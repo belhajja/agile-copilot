@@ -11,6 +11,7 @@ import {
   type ProbeFailureCode,
   probeModel,
 } from '@agile/llm';
+import { isMaxOutputTokens } from '@agile/llm/output-budget';
 import { type BlockedUrlReason, checkOutboundUrl, createOutboundFetch } from '@agile/net';
 import { and, desc, eq, ne, type SQL, sql } from 'drizzle-orm';
 import { assertCanManage } from './actor';
@@ -36,6 +37,8 @@ export interface LlmConnectionView {
   /** Price per million tokens in millionths of a currency unit (null = not set). */
   inputPriceMicros: number | null;
   outputPriceMicros: number | null;
+  /** Output tokens per model call, reasoning included (null = the default). */
+  maxOutputTokens: number | null;
   status: 'untested' | 'ok' | 'error';
   lastError: string | null;
   lastCheckedAt: Date | null;
@@ -44,7 +47,7 @@ export interface LlmConnectionView {
 
 export type LlmServiceFailure = {
   ok: false;
-  code: ProbeFailureCode | 'not_supported' | 'blocked_url' | 'not_found';
+  code: ProbeFailureCode | 'not_supported' | 'blocked_url' | 'not_found' | 'invalid_input';
   message: string;
   detail?: { reason: BlockedUrlReason; host?: string };
 };
@@ -68,6 +71,7 @@ const toView = (r: typeof llmConnections.$inferSelect): LlmConnectionView => ({
   isBackground: r.isBackground,
   inputPriceMicros: r.inputPriceMicros,
   outputPriceMicros: r.outputPriceMicros,
+  maxOutputTokens: r.maxOutputTokens,
   status: r.status,
   lastError: r.lastError,
   lastCheckedAt: r.lastCheckedAt,
@@ -186,9 +190,19 @@ async function readConfig(
 export async function createLlmConnection(
   deps: LlmDeps,
   actor: Actor,
-  input: { label: string; config: LlmConfig; makeDefault?: boolean },
+  input: {
+    label: string;
+    config: LlmConfig;
+    makeDefault?: boolean;
+    /** Null or omitted: the default budget. */
+    maxOutputTokens?: number | null;
+  },
 ): Promise<{ ok: true; connection: LlmConnectionView } | LlmServiceFailure> {
   assertCanManage(actor);
+  const maxOutputTokens = input.maxOutputTokens ?? null;
+  if (maxOutputTokens !== null && !isMaxOutputTokens(maxOutputTokens)) {
+    return { ok: false, code: 'invalid_input', message: 'Invalid maximum answer length.' };
+  }
   const config = trimConfig(input.config);
   const result = await probe(deps, config);
   if (!result.ok) return result;
@@ -221,6 +235,7 @@ export async function createLlmConnection(
         keyHint: keyHintOf(config),
         secret: encryptSecret(dek, secretContext(id), JSON.stringify(config)),
         isDefault,
+        maxOutputTokens,
         status: 'ok',
         lastCheckedAt: new Date(),
         createdBy: actor.userId,
@@ -232,7 +247,12 @@ export async function createLlmConnection(
       action: 'llm_connection.created',
       targetType: 'llm_connection',
       targetId: id,
-      metadata: { provider: config.provider, model: config.model, isDefault },
+      metadata: {
+        provider: config.provider,
+        model: config.model,
+        isDefault,
+        ...(maxOutputTokens !== null ? { maxOutputTokens } : {}),
+      },
     });
     return inserted;
   });
@@ -439,6 +459,8 @@ export interface LoadedLlm {
   id: string;
   config: LlmConfig;
   prices: { inputMicros: number | null; outputMicros: number | null };
+  /** Output tokens per model call (null = the default). */
+  maxOutputTokens: number | null;
 }
 
 async function loadLlmWhere(
@@ -453,6 +475,7 @@ async function loadLlmWhere(
       id: row.id,
       config: await readConfig(tx, deps, orgId, row),
       prices: { inputMicros: row.inputPriceMicros, outputMicros: row.outputPriceMicros },
+      maxOutputTokens: row.maxOutputTokens,
     };
   });
 }
@@ -555,6 +578,39 @@ export async function setLlmConnectionPrices(
       targetType: 'llm_connection',
       targetId: id,
       metadata: { inputMicros: prices.inputMicros, outputMicros: prices.outputMicros },
+    });
+    return { ok: true } as const;
+  });
+}
+
+/**
+ * Sets (or clears, with null: back to the default) how many tokens the model may write per call,
+ * reasoning included. Owners/admins only.
+ */
+export async function setLlmMaxOutputTokens(
+  deps: LlmDeps,
+  actor: Actor,
+  id: string,
+  maxOutputTokens: number | null,
+): Promise<{ ok: true } | LlmServiceFailure> {
+  assertCanManage(actor);
+  if (maxOutputTokens !== null && !isMaxOutputTokens(maxOutputTokens)) {
+    return { ok: false, code: 'invalid_input', message: 'Invalid maximum answer length.' };
+  }
+  return withOrg(deps.db, actor.orgId, async (tx) => {
+    const updated = await tx
+      .update(llmConnections)
+      .set({ maxOutputTokens })
+      .where(eq(llmConnections.id, id))
+      .returning({ id: llmConnections.id });
+    if (updated.length === 0) return notFound;
+    await recordAudit(tx, {
+      orgId: actor.orgId,
+      actorUserId: actor.userId,
+      action: 'llm_connection.max_output_tokens_changed',
+      targetType: 'llm_connection',
+      targetId: id,
+      metadata: { maxOutputTokens },
     });
     return { ok: true } as const;
   });

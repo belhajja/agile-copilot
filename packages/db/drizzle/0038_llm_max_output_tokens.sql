@@ -1,0 +1,1 @@
+ALTER TABLE "llm_connections" ADD COLUMN "max_output_tokens" integer;
