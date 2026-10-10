@@ -4,6 +4,7 @@ import { parseEnv } from 'node:util';
 import { updateInitialEnv } from '@next/env';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { PROXY_BODY_MAX_BYTES } from './src/chat-body-limit';
 import { securityHeaders } from './src/csp';
 
 const repoRoot = path.join(import.meta.dirname, '../..');
@@ -44,6 +45,8 @@ const config: NextConfig = {
   serverExternalPackages: ['postgres', 'pg-boss', 'nodemailer', '@react-email/render'],
   // Static security headers; the CSP and HSTS are set per request by src/proxy.ts.
   headers: async () => securityHeaders(),
+  // Chat requests carry images: let the proxy pass their whole body on (the route caps it).
+  experimental: { proxyClientMaxBodySize: PROXY_BODY_MAX_BYTES },
 };
 
 export default withNextIntl(config);

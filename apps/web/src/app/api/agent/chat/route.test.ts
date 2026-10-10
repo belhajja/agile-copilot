@@ -1,4 +1,7 @@
+import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from '@agile/agent/images';
+import { MESSAGE_MAX_LENGTH } from '@agile/agent/limits';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CHAT_BODY_MAX_BYTES, PROXY_BODY_MAX_BYTES } from '@/chat-body-limit';
 
 const owner = {
   orgId: 'org_a',
@@ -96,15 +99,26 @@ describe('POST /api/agent/chat', () => {
     expect(handleAgentRequest).not.toHaveBeenCalled();
   });
 
-  it('refuses a body above 64 KB with 413 before reading it', async () => {
-    const res = await post('x', { 'content-length': String(64 * 1024 + 1) });
+  it('has room for four of the largest images and the longest text, and the proxy for more', () => {
+    const image = `{"url":"data:image/jpeg;base64,${'A'.repeat(Math.ceil(MAX_IMAGE_BYTES / 3) * 4)}"}`;
+    const body = JSON.stringify({
+      conversationId: '0f4c1b9e-5d3a-4a52-8d52-2f1c7a9a0b11',
+      message: { id: 'm', text: ''.repeat(MESSAGE_MAX_LENGTH), images: [] },
+    });
+    const largest = Buffer.byteLength(body) + MAX_IMAGES_PER_MESSAGE * (image.length + 1);
+    expect(largest).toBeLessThan(CHAT_BODY_MAX_BYTES);
+    expect(PROXY_BODY_MAX_BYTES).toBeGreaterThan(CHAT_BODY_MAX_BYTES);
+  });
+
+  it('refuses a body above the limit with 413 before reading it', async () => {
+    const res = await post('x', { 'content-length': String(CHAT_BODY_MAX_BYTES + 1) });
     expect(res.status).toBe(413);
     expect(handleAgentRequest).not.toHaveBeenCalled();
   });
 
-  it('stops reading a chunked body (no Content-Length) once it passes 64 KB', async () => {
+  it('stops reading a chunked body (no Content-Length) once it passes the limit', async () => {
     let pulled = 0;
-    const chunk = new TextEncoder().encode('x'.repeat(16 * 1024));
+    const chunk = new TextEncoder().encode('x'.repeat(1024 * 1024));
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
         pulled += 1;
@@ -121,12 +135,12 @@ describe('POST /api/agent/chat', () => {
       } as RequestInit),
     );
     expect(res.status).toBe(413);
-    expect(pulled).toBeLessThan(10);
+    expect(pulled).toBeLessThan(40);
     expect(handleAgentRequest).not.toHaveBeenCalled();
   });
 
-  it('counts bytes, not characters: 40 000 three-byte characters are over 64 KB', async () => {
-    const res = await post(JSON.stringify({ text: '€'.repeat(40_000) }), {
+  it('counts bytes, not characters: three-byte characters a third as many as the limit', async () => {
+    const res = await post(JSON.stringify({ text: '€'.repeat(CHAT_BODY_MAX_BYTES / 3 + 1) }), {
       'content-length': null,
     });
     expect(res.status).toBe(413);
