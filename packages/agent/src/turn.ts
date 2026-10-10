@@ -42,7 +42,8 @@ import { jiraSitesData, systemPrompt } from './prompt';
 import {
   CHAT_MAX_STEPS,
   chatOutputTokens,
-  lastStepWithoutTools,
+  followupsOffered,
+  lastStepWithFollowups,
   llmCallLimits,
   replyDeadlineMs,
   timedOut,
@@ -262,8 +263,9 @@ export async function handleAgentRequest(
       messages: modelMessages,
       tools,
       toolApproval,
-      stopWhen: stepCountIs(maxSteps),
-      prepareStep: lastStepWithoutTools(maxSteps),
+      // Follow-ups close a reply: once offered, no further step.
+      stopWhen: [stepCountIs(maxSteps), followupsOffered],
+      prepareStep: lastStepWithFollowups(maxSteps),
       ...limits,
       // Traced only when a deployment turns Langfuse on; never prompts, messages or tool data.
       telemetry: { functionId: 'agent-chat', recordInputs: false, recordOutputs: false },

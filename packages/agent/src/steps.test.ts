@@ -3,6 +3,9 @@ import { skillRunPrompt, systemPrompt } from './prompt';
 import {
   CHAT_MAX_STEPS,
   chatOutputTokens,
+  followupsOffered,
+  LAST_STEP_INSTRUCTIONS,
+  lastStepWithFollowups,
   lastStepWithoutTools,
   replyDeadlineMs,
   turnLeaseSeconds,
@@ -68,5 +71,50 @@ describe('the answer budget and the reply deadline', () => {
     expect(turnLeaseSeconds(replyDeadlineMs(16_000))).toBe(600);
     expect(turnLeaseSeconds(replyDeadlineMs(64_000))).toBe(1_800);
     expect(turnLeaseSeconds(1_500)).toBe(3);
+  });
+});
+
+describe('lastStepWithFollowups (chat replies)', () => {
+  it('leaves every step but the last one alone', () => {
+    const prepare = lastStepWithFollowups(12);
+    for (let stepNumber = 0; stepNumber < 11; stepNumber++) {
+      expect(prepare({ stepNumber, instructions: 'System.' })).toBeUndefined();
+    }
+  });
+
+  it('offers only suggest_followups on the last step, and says it is the last', () => {
+    expect(lastStepWithFollowups(12)({ stepNumber: 11, instructions: 'System.' })).toEqual({
+      activeTools: ['suggest_followups'],
+      toolChoice: 'auto',
+      instructions: `System.
+
+${LAST_STEP_INSTRUCTIONS}`,
+    });
+    expect(LAST_STEP_INSTRUCTIONS).toContain('This is your last step');
+    expect(LAST_STEP_INSTRUCTIONS).toContain('suggest_followups');
+  });
+});
+
+describe('followupsOffered', () => {
+  const step = (text: string, ...tools: string[]) => ({
+    text,
+    toolCalls: tools.map((toolName) => ({ toolName })),
+  });
+  const offered = (...steps: ReturnType<typeof step>[]) =>
+    followupsOffered({ steps } as unknown as Parameters<typeof followupsOffered>[0]);
+
+  it('ends a reply once its last step only offered follow-ups after an answer', () => {
+    expect(offered(step('', 'list_boards'), step('Velocity is 19.', 'suggest_followups'))).toBe(
+      true,
+    );
+    expect(offered(step('Velocity is 19.'), step('', 'suggest_followups'))).toBe(true);
+  });
+
+  it('goes on otherwise', () => {
+    expect(offered(step('', 'list_boards'))).toBe(false);
+    expect(offered(step('Here:', 'suggest_followups', 'get_metric'))).toBe(false);
+    // Follow-ups before any answer: the model still owes one.
+    expect(offered(step('', 'suggest_followups'))).toBe(false);
+    expect(offered(step('Done.'))).toBe(false);
   });
 });

@@ -1,4 +1,6 @@
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@agile/llm/output-budget';
+import type { StopCondition, ToolSet } from 'ai';
+import { FOLLOWUPS_TOOL } from './followups';
 
 /** Model steps per chat reply (tool round-trips included). */
 export const CHAT_MAX_STEPS = 12;
@@ -39,6 +41,42 @@ export function lastStepWithoutTools(maxSteps: number) {
   return ({ stepNumber }: { stepNumber: number }) =>
     stepNumber >= maxSteps - 1 ? { activeTools: [], toolChoice: 'none' as const } : undefined;
 }
+
+/** Added to the system prompt for the last step of a chat reply. */
+export const LAST_STEP_INSTRUCTIONS = `This is your last step: no more data can be gathered. Answer now
+with what you have, say what is still missing, and offer the rest with suggest_followups.`;
+
+/**
+ * `prepareStep` for a chat reply: like `lastStepWithoutTools`, except that the last step still
+ * offers `suggest_followups` and is told it is the last, so a reply cut short by its step limit
+ * ends with an answer and the way to get the rest.
+ */
+export function lastStepWithFollowups(maxSteps: number) {
+  return ({ stepNumber, instructions }: { stepNumber: number; instructions?: unknown }) =>
+    stepNumber >= maxSteps - 1
+      ? {
+          activeTools: [FOLLOWUPS_TOOL],
+          toolChoice: 'auto' as const,
+          instructions:
+            typeof instructions === 'string'
+              ? `${instructions}\n\n${LAST_STEP_INSTRUCTIONS}`
+              : LAST_STEP_INSTRUCTIONS,
+        }
+      : undefined;
+}
+
+/**
+ * Ends a chat reply once it offered its follow-ups: the last step only called
+ * `suggest_followups`, and the reply has said something.
+ */
+export const followupsOffered: StopCondition<ToolSet> = ({ steps }) => {
+  const last = steps.at(-1);
+  if (!last || last.toolCalls.length === 0) return false;
+  return (
+    last.toolCalls.every((c) => c.toolName === FOLLOWUPS_TOOL) &&
+    steps.some((s) => s.text.trim() !== '')
+  );
+};
 
 /**
  * The bounds of one model run (chat reply, skill run, skill draft), spread into `streamText` or

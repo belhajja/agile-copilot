@@ -9,6 +9,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { type LanguageModel, streamText, type ToolSet } from 'ai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentDeps } from './deps';
+import { followupTools } from './followups';
 import { skillTools } from './skills';
 import { analyticsTools, jiraTools } from './tools';
 
@@ -80,6 +81,7 @@ describe('agent tool schemas through every provider adapter', () => {
           instructions: new Map([['retro-prep', 'Prepare the retro.']]),
         },
       ),
+      ...followupTools(),
     };
     close = analytics.close;
   });
@@ -126,9 +128,11 @@ describe('agent tool schemas through every provider adapter', () => {
     ],
   ];
 
-  it('declares the 33 agent tools (8 analytics, 22 Jira, load_skill, pin_widget, suggest_skill)', () => {
-    expect(names()).toHaveLength(33);
-    expect(names()).toEqual(expect.arrayContaining(['load_skill', 'pin_widget', 'suggest_skill']));
+  it('declares the 34 agent tools (8 analytics, 22 Jira, 3 skill tools, suggest_followups)', () => {
+    expect(names()).toHaveLength(34);
+    expect(names()).toEqual(
+      expect.arrayContaining(['load_skill', 'pin_widget', 'suggest_skill', 'suggest_followups']),
+    );
   });
 
   it.each(cases)('%s receives every tool definition', async (_name, model, toolNames) => {
