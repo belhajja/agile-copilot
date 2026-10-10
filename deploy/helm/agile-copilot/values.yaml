@@ -98,6 +98,9 @@ ingress:
   className: ""
   host: agile.example.com
   tlsSecretName: ""
+  # Chat messages can carry up to four images (requests up to 28 MiB). Raise the controller's
+  # body limit to match, e.g. for ingress-nginx (1m by default):
+  #   nginx.ingress.kubernetes.io/proxy-body-size: 30m
   annotations: {}
 
 # NetworkPolicies mirror the compose networks: ingress to every pod of the release is denied by
