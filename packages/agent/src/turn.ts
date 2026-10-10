@@ -286,7 +286,18 @@ export async function handleAgentRequest(
       execute: async ({ writer }) => {
         let finished = false;
         for await (const chunk of result.toUIMessageStream({ onError: safeErrorText })) {
-          if (chunk.type === 'finish') finished = true;
+          if (chunk.type === 'finish') {
+            finished = true;
+            // Cut off by maxOutputTokens: without a notice the reply just stops, often mid-thought.
+            if (chunk.finishReason === 'length') {
+              deps.onError?.(new Error('output limit reached'), 'output_limit');
+              const notice: TurnErrorPart = {
+                type: TURN_ERROR_PART,
+                data: { code: 'output_limit' },
+              };
+              writer.write(notice);
+            }
+          }
           writer.write(chunk);
         }
         // Stopped by its deadline: the reply (whatever it said so far) ends with a stored notice.

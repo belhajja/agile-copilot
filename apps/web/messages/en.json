@@ -643,7 +643,6 @@
     "placeholder": "Ask a question or request a Jira change…",
     "inputLabel": "Message",
     "send": "Send",
-    "thinking": "Thinking…",
     "noModel": "Connect an AI model first",
     "noModelHint": "The assistant uses your workspace’s default AI model (your own key).",
     "connectModel": "Connect an AI model",
@@ -724,7 +723,8 @@
     "superseded": "Closed: you moved on without approving.",
     "scrollDown": "Scroll to the latest message",
     "turnErrors": {
-      "turn_timeout": "This answer took too long and was stopped. Ask again, ideally with a narrower question."
+      "turn_timeout": "This answer took too long and was stopped. Ask again, ideally with a narrower question.",
+      "output_limit": "The model used its whole output budget before finishing (often while reasoning). Ask again, ideally with a narrower question or a smaller table."
     },
     "errors": {
       "generic": "The assistant could not answer. Check the AI model connection and try again.",
@@ -859,6 +859,16 @@
         "too_many": "You have reached the maximum number of groups.",
         "unknown_model": "This model is no longer available."
       }
+    },
+    "activity": {
+      "thinking": "Thinking…",
+      "reasoning": "Reasoning…",
+      "tool": "Running: {tool}…",
+      "writing": "Writing the answer…"
+    },
+    "reasoning": {
+      "label": "Reasoning",
+      "live": "Reasoning…"
     }
   },
   "usage": {
