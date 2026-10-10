@@ -47,6 +47,10 @@ export default defineConfig({
   globalSetup: './global-setup.ts',
   // `next dev` compiles each route on first hit; on shared CI runners that alone can exceed 5s.
   expect: { timeout: process.env.CI ? 30_000 : 5_000 },
+  // Every page renders per request (CSP nonce): one worker per core of the small CI runner
+  // left some requests queued past a test's 30 s.
+  workers: process.env.CI ? 4 : undefined,
+  timeout: process.env.CI ? 60_000 : 30_000,
   use: { baseURL: 'http://localhost:3200', trace: 'retain-on-failure' },
   webServer: [
     // 4010 opens last (after 4020, 4050, 4070, 4080 and 4090); global-setup checks that they answer.
