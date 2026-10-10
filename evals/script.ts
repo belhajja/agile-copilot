@@ -33,6 +33,7 @@ export const evalScript: MockScript = (req) => {
   const last = messages.at(-1);
   const wantsSkill = /as a skill/i.test(ask);
   const wantsTime = /time did each person log|time logged/i.test(ask);
+  const wantsMatrix = /day-by-day/i.test(ask);
   const french = /vélocité|quels|quelle|combien/i.test(ask);
   const wantsMetric = /v[ée]locit|<skill name=/i.test(ask);
   const stale = /stale|old issues/i.test(ask);
@@ -41,6 +42,23 @@ export const evalScript: MockScript = (req) => {
     const name = toolOf(messages, last.tool_call_id);
     if (name === 'jira_worklog_summary') {
       const total = (payload(last) as { totalHours?: number })?.totalHours;
+      // A heavy request: the overview now, the matrix on request.
+      if (wantsMatrix) {
+        return {
+          text: `Overview: ${total} hours were logged on DEMO. Want the day-by-day detail?`,
+          toolCalls: [
+            {
+              name: 'suggest_followups',
+              args: {
+                suggestions: [
+                  'Show the day-by-day detail for the first week',
+                  'Show the detail for the person who logged the most',
+                ],
+              },
+            },
+          ],
+        };
+      }
       return { text: `${total} hours were logged on DEMO.` };
     }
     if (name === 'suggest_skill') {
@@ -91,7 +109,7 @@ export const evalScript: MockScript = (req) => {
     }
     return agentDemoScript(req);
   }
-  if (wantsTime && tools.includes('jira_worklog_summary')) {
+  if ((wantsTime || wantsMatrix) && tools.includes('jira_worklog_summary')) {
     return { toolCalls: [{ name: 'jira_worklog_summary', args: { jql: 'filter = 101' } }] };
   }
   if (wantsSkill && tools.includes('suggest_skill')) {
